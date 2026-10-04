@@ -6,7 +6,36 @@
 [![agent-ready](https://img.shields.io/badge/agent--ready-CLAUDE.md-8A2BE2?style=flat-square)](CLAUDE.md)
 [![All Contributors](https://img.shields.io/github/all-contributors/A2R-Lab/GRiD?color=ee8449&style=flat-square)](#contributors)
 
-A GPU-accelerated library for robot dynamics, kinematics, and collisions, with analytical derivatives and Hessians for supported numerical operations.
+A GPU-accelerated library for rigid-body **motion generation**: robot dynamics, kinematics and
+collisions with analytical derivatives and Hessians, plus inverse kinematics, trajectory
+optimization and compiled least-squares solvers built per robot.
+
+GRiM is a fork of [GRiD](https://github.com/A2R-Lab/GRiD) that adds the motion layer
+(`grim.motion`, below) and holds it to GRiD's verification standard. Everything GRiD documents
+applies here with the names `grid_codegen` / `grid_rbd` / `grid::` / `grid.cuh` /
+`grid-generate` renamed to `grim_codegen` / `grim` / `grim::` / `grim.cuh` / `grim-generate`.
+
+## Motion generation (`grim.motion`)
+
+Every kernel is compiled for one robot (and one collision / problem structure) on first use and
+cached on disk; there is no runtime robot description, so loops are sized by the robot and there
+is no DOF ceiling.
+
+| module | kernels |
+|---|---|
+| `grim.motion.ik` | Levenberg-Marquardt, SQP with hard limits and collision constraints, HJCD (coordinate descent + LM), MPPI + L-BFGS, canonical (redundancy-resolved) IK; thread / warp / block tiers |
+| `grim.motion.analytic_ik` | closed-form IK for the Panda / FR3 family |
+| `grim.motion.region_ik` | Brownian, hit-and-run and SVGD sampling of end-effector regions |
+| `grim.motion.trajopt` | SCO, STOMP, CHOMP and least-squares trajectory optimization |
+| `grim.motion.collision` | fused FK + self / world-primitive / ESDF distances and their Jacobians |
+| `grim.motion.costs` | compiled least squares (dense, banded) and the C3+ contact solver numerics, for problem compilers such as pyroffi |
+| `grim.motion.dynamics` | cricket-traced dynamics (RNEA, CRBA, ABA, RNEA derivatives) at thread and warp-split tiers |
+| `grim.motion.kinematics` | batched FK, pose residuals and Jacobians |
+
+Verification follows GRiD's two-surface rule: a float64 numpy oracle
+(`grim.motion.reference`, validated against Pinocchio) and the CUDA kernels validated against
+it at three levels (primitives, solver steps, certificates), with thread-count, tier, batch and
+determinism invariances. See [test/motion/TESTING.md](test/motion/TESTING.md).
 
 ![The GRiM package ecosystem: a user's URDF goes through URDFParser to the code generator (built on GLASS) and RBDReference, producing CUDA C++ with NumPy, JAX, and PyTorch wrappers; benchmarks and tests, backed by pytest-gpu-proof and external oracles, produce validated outputs and performance benchmarks.](docs/imgs/GRiM.png)
 

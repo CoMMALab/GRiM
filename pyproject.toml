@@ -94,6 +94,7 @@ include = ["grim_codegen*", "grim*", "URDFParser*", "RBDReference*"]
 grim = ["wrapper_template.cu", "py.typed"]
 "grim.jax" = ["py.typed"]
 "grim.torch" = ["py.typed"]
+"grim.motion" = ["kernels/*.cuh", "kernels/*.cu", "kernels/*/*.cu"]
 
 [tool.black]
 line-length = 88  # Sets the maximum line length; default is 88, but you can adjust it if needed.
@@ -150,7 +151,7 @@ fingerprint_paths = [
     "test/cuda_equivalents", "test/python_wrappers", "test/conftest.py",
     "test/helpers.py", "test/run_gpu_proof.sh", "test/run_split_suite.py",
     "test/compile_sched.py", "test/prewarm_cuda_flagship.py",
-    "test/codegen_neutrality.py", "test/header_key_replay.py",
+    "test/codegen_neutrality.py", "test/header_key_replay.py", "test/motion",
 ]
 max_age_days = 30
 require_gpu = true

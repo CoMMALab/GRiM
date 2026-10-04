@@ -7,6 +7,11 @@ list, and current plans live in `docs/open-tasks/`.
 
 ## What GRiM is
 
+A fork of GRiD (A2R-Lab) extended with a motion-generation layer, `bindings/grim/motion/` (IK,
+region IK, trajectory optimization, fused collision, compiled least squares, C3+, traced
+dynamics), held to GRiD's verification standard: read `test/motion/TESTING.md` before touching
+it. GRiD's own description follows.
+
 A GPU-accelerated rigid body dynamics library. GRiM reads a URDF and **generates** optimized,
 per-robot CUDA C++ (`grim.cuh`) implementing forward/inverse dynamics, their analytical gradients,
 second-order derivatives, kinematics, centroidal quantities, and a trajectory-optimization
@@ -25,6 +30,10 @@ numpy oracle in `RBDReference` (validated against Pinocchio) and the generated C
   `.venv/bin/python -m grim_codegen.wrapper_body_gen` / `-m grim_codegen.core_body_gen`; never
   hand-edit inside the BEGIN/END markers. Includes
   `grim_codegen/collision/` (collision-geometry SDF header + spherized assets for two-tier `config_free`).
+- `bindings/grim/motion/` — motion kernels (`kernels/*.cu`, hand-written, GLASS-form tiers) built
+  per robot by `_build.py` (robot tables baked as `__constant__`, optional cricket traces), their
+  JAX launchers, and the float64 oracle in `reference/`. Tests in `test/motion/` (cricket-dependent
+  ones run in a conda env with cricket's Python extension; see `install/motion_install.sh`).
 - `external/` — the peer-product submodules `GLASS/`, `RBDReference/`, `URDFParser/` (GPU linear
   algebra, Pinocchio-validated reference dynamics, URDF parsing). **Four separate peer products** with
   GRiM, all under `A2R-Lab`; grouped here so the top level stays about GRiM itself.
@@ -120,7 +129,9 @@ seconds of regeneration, never an nvcc rebuild.
 ## Durable engineering conventions
 
 - **Single-block per kernel/robot, always** — no multi-block / cooperative groups. Big-robot
-  performance comes from in-block parallelism only.
+  performance comes from in-block parallelism only. For the motion kernels: one problem never
+  spans blocks (thread and warp tiers pack many problems into a block; independent per-column or
+  elementwise work may spread across blocks because it never communicates).
 - **Thread-count invariant** — a kernel's output must be identical at 1 / 32 / any thread count.
   Test it. Floating-base reductions must also be **run-to-run bit-deterministic** (fixed-order sums).
 - **Byte-identical codegen discipline** — a refactor that shouldn't change emitted code must produce
