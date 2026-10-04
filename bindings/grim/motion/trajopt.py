@@ -3,6 +3,7 @@
 Every optimizer takes initial trajectories ``(B, T, n_q)``, joint limits, endpoints (``(n_q,)``
 shared or ``(B, n_q)`` per trajectory) and the world, and returns the optimized trajectories
 with a cost per trajectory. Collision uses a :class:`~grim.motion._build.TrajCollision` model.
+``traced=True`` builds against cricket's straight-line FK instead of the baked tables.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
                 w_limits: float = 1.0, w_trust: float = 0.5, w_collision: float = 1.0,
                 w_collision_max: float = 100.0, penalty_scale: float = 3.0,
                 collision_margin: float = 0.01, smooth_min_temperature: float = 0.05,
-                fd_eps: float = 1e-4):
+                fd_eps: float = 1e-4, traced: bool = False):
     """Sequential convex optimization (``kernels/trajopt/sco_trajopt.cu``) -> ``(trajs, costs)``.
 
     Each outer iteration linearizes the smooth-min collision distances about the current
@@ -49,7 +50,8 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
     if m_lbfgs > SCO_MAX_M:
         raise ValueError(f"m_lbfgs must be <= {SCO_MAX_M}")
     prob = _build.Problem(traj_collision=collision, world_counts=world.counts())
-    (name,) = _build.target("trajopt/sco_trajopt", ("ScoTrajoptFfi",), robot, prob)
+    (name,) = _build.target("trajopt/sco_trajopt", ("ScoTrajoptFfi",), robot, prob,
+                              traced)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     stride = 4 * T * n + T * SCO_MAX_G * n + 2 * m_lbfgs * T * n + 2 * SCO_MAX_M \
@@ -74,13 +76,14 @@ def stomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
                   w_acc: float = 0.5, w_jerk: float = 0.1, w_limits: float = 1.0,
                   w_collision: float = 10.0, w_collision_max: float = 100.0,
                   collision_penalty_scale: float = 1.05, collision_margin: float = 0.01,
-                  rng_seed: int = 0):
+                  rng_seed: int = 0, traced: bool = False):
     """STOMP: sample smooth noise around each trajectory, softmax-weight the samples by cost
     and step toward their weighted mean (``kernels/trajopt/stomp_trajopt.cu``) ->
     ``(trajs, costs)``; the best sampled trajectory is returned, scored with
     ``w_collision_max``. At most 512 samples and 64 timesteps."""
     prob = _build.Problem(traj_collision=collision, world_counts=world.counts())
-    (name,) = _build.target("trajopt/stomp_trajopt", ("StompTrajoptFfi",), robot, prob)
+    (name,) = _build.target("trajopt/stomp_trajopt", ("StompTrajoptFfi",), robot, prob,
+                              traced)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     trajs, costs, _ = jax.ffi.ffi_call(name, (
@@ -106,12 +109,13 @@ def chomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
                   use_covariant_update: bool = True, smoothness_reg: float = 1e-3,
                   grad_clip_norm: float = 10.0, max_delta_per_step: float = 0.05,
                   early_stop_patience: int = 15, min_cost_improve: float = 1e-5,
-                  fd_eps: float = 1e-4):
+                  fd_eps: float = 1e-4, traced: bool = False):
     """CHOMP: covariant (smoothness-metric) gradient descent with a line search
     (``kernels/trajopt/chomp_trajopt.cu``) -> ``(trajs, costs)``, scored with
     ``w_collision_max``. At most 64 timesteps."""
     prob = _build.Problem(traj_collision=collision, world_counts=world.counts())
-    (name,) = _build.target("trajopt/chomp_trajopt", ("ChompTrajoptFfi",), robot, prob)
+    (name,) = _build.target("trajopt/chomp_trajopt", ("ChompTrajoptFfi",), robot, prob,
+                              traced)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     trajs, costs, _ = jax.ffi.ffi_call(name, (
@@ -143,13 +147,14 @@ def ls_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | Non
                w_collision: float = 1.0, w_collision_max: float = 100.0,
                penalty_scale: float = 3.0, collision_margin: float = 0.01,
                smooth_min_temperature: float = 0.05, max_delta_per_step: float = 0.1,
-               fd_eps: float = 1e-4):
+               fd_eps: float = 1e-4, traced: bool = False):
     """Least-squares trajopt: each outer step linearizes the smooth-min collision groups and
     runs diagonal Gauss-Newton / LM on the stacked residuals, one thread per trajectory
     (``kernels/trajopt/ls_trajopt.cu``) -> ``(trajs, costs)``, scored with
     ``w_collision_max``."""
     prob = _build.Problem(traj_collision=collision, world_counts=world.counts())
-    (name,) = _build.target("trajopt/ls_trajopt", ("LsTrajoptFfi",), robot, prob)
+    (name,) = _build.target("trajopt/ls_trajopt", ("LsTrajoptFfi",), robot, prob,
+                              traced)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     m = (5 * T - 3) * n + T * LST_G

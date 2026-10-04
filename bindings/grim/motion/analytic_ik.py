@@ -93,6 +93,39 @@ def _geometry_header(g: ArmGeometry) -> str:
             f"__device__ __constant__ double kArmGeom[{GEOM_N_SCALARS}] = {{{vals}}};\n}}\n")
 
 
+def build(robot: MotionRobot, ee_joint: int) -> str:
+    """Compile (or load) the kernel for the chain ending at joint frame ``ee_joint`` -> FFI
+    target. The geometry is baked in, so it needs the concrete robot (outside jit)."""
+    g = arm_geometry(robot, ee_joint)
+    header = _build.robot_header(robot, _build.Problem(ee_joints=(int(ee_joint),)))
+    so = _build.build("ik/analytic_ik", header + _geometry_header(g), 1, robot.n_joints, 1)
+    return _build.register(so, ("AnalyticIkFfi",))[0]
+
+
+def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
+        sphere_joint=None, self_pairs=None, world=None, respect_limits: bool = True,
+        err_tol: float = 1e-4, margin: float = 0.005):
+    """Launch a :func:`build` target; arguments and results as :func:`analytic_ik`."""
+    from .ik import World
+    targets = jnp.asarray(targets, jnp.float32).reshape(-1, 4, 4)
+    B = targets.shape[0]
+    prev = jnp.zeros((B, 7)) if previous_q is None else previous_q
+    world = world or World()
+    return jax.ffi.ffi_call(target, (jax.ShapeDtypeStruct((B, 7), jnp.float32),
+                                     jax.ShapeDtypeStruct((B,), jnp.float32),
+                                     jax.ShapeDtypeStruct((B,), jnp.int32),
+                                     jax.ShapeDtypeStruct((B,), jnp.float32)),
+                            vmap_method="sequential")(
+        targets, jnp.asarray(q7_samples, jnp.float32).reshape(-1),
+        jnp.asarray(prev, jnp.float32).reshape(B, 7),
+        jnp.asarray(np.zeros((0, 4)) if spheres_home is None else spheres_home, jnp.float32),
+        jnp.asarray(np.zeros(0) if sphere_joint is None else sphere_joint, jnp.int32),
+        jnp.asarray(np.zeros((0, 2)) if self_pairs is None else self_pairs, jnp.int32).reshape(-1, 2),
+        *world.arrays(), respect_limits=np.int64(respect_limits),
+        use_prev=np.int64(previous_q is not None), err_tol=np.float32(err_tol),
+        margin=np.float32(margin))
+
+
 def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
                 previous_q=None, spheres_home=None, sphere_joint=None, self_pairs=None,
                 world=None, respect_limits: bool = True, err_tol: float = 1e-4,
@@ -107,26 +140,9 @@ def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
     (0-6, or -1 for the base) moving each, ``self_pairs`` (P, 2), ``world`` a
     :class:`grim.motion.ik.World`.
     """
-    from .ik import World
-    g = arm_geometry(robot, ee_joint)
-    header = _build.robot_header(robot, _build.Problem(ee_joints=(int(ee_joint),)))
-    so = _build.build("ik/analytic_ik", header + _geometry_header(g), 1, robot.n_joints, 1)
-    (name,) = _build.register(so, ("AnalyticIkFfi",))
-    targets = jnp.asarray(targets, jnp.float32).reshape(-1, 4, 4)
-    B = targets.shape[0]
-    q7 = jnp.linspace(g.lower[6], g.upper[6], 32) if q7_samples is None else q7_samples
-    prev = jnp.zeros((B, 7)) if previous_q is None else previous_q
-    world = world or World()
-    return jax.ffi.ffi_call(name, (jax.ShapeDtypeStruct((B, 7), jnp.float32),
-                                   jax.ShapeDtypeStruct((B,), jnp.float32),
-                                   jax.ShapeDtypeStruct((B,), jnp.int32),
-                                   jax.ShapeDtypeStruct((B,), jnp.float32)),
-                            vmap_method="sequential")(
-        targets, jnp.asarray(q7, jnp.float32).reshape(-1),
-        jnp.asarray(prev, jnp.float32).reshape(B, 7),
-        jnp.asarray(np.zeros((0, 4)) if spheres_home is None else spheres_home, jnp.float32),
-        jnp.asarray(np.zeros(0) if sphere_joint is None else sphere_joint, jnp.int32),
-        jnp.asarray(np.zeros((0, 2)) if self_pairs is None else self_pairs, jnp.int32).reshape(-1, 2),
-        *world.arrays(), respect_limits=np.int64(respect_limits),
-        use_prev=np.int64(previous_q is not None), err_tol=np.float32(err_tol),
-        margin=np.float32(margin))
+    if q7_samples is None:
+        g = arm_geometry(robot, ee_joint)
+        q7_samples = jnp.linspace(g.lower[6], g.upper[6], 32)
+    return run(build(robot, ee_joint), targets, q7_samples, previous_q,
+               spheres_home=spheres_home, sphere_joint=sphere_joint, self_pairs=self_pairs,
+               world=world, respect_limits=respect_limits, err_tol=err_tol, margin=margin)
