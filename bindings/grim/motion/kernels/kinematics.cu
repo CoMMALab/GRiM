@@ -53,12 +53,14 @@ __global__ void kinematics_kernel(
 
 static ffi::Error KinematicsImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> q,
     ffi::Buffer<ffi::DataType::F32> targets,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_T,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_r,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_J)
 {
+    GRIM_ROT_UPLOAD(stream);
     const int n_batch = static_cast<int>(q.dimensions()[0]);
     if (q.dimensions()[1] != grim::robot::n_q)
         return ffi::Error(ffi::ErrorCode::kInvalidArgument,
@@ -77,6 +79,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     KinematicsFfi, KinematicsImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // q
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // targets
         .Ret<ffi::Buffer<ffi::DataType::F32>>()   // frame poses

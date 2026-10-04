@@ -696,6 +696,7 @@ __global__ void ls_trajopt_kernel(
 
 static ffi::Error LsTrajoptImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> init_trajs,
     ffi::Buffer<ffi::DataType::F32> world_spheres,
     ffi::Buffer<ffi::DataType::F32> world_capsules,
@@ -725,6 +726,7 @@ static ffi::Error LsTrajoptImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_costs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_workspace)
 {
+    GRIM_ROT_UPLOAD(stream);
     int B = static_cast<int>(init_trajs.dimensions()[0]);
     int T = static_cast<int>(init_trajs.dimensions()[1]);
     int n_act = static_cast<int>(init_trajs.dimensions()[2]);
@@ -822,6 +824,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     LsTrajoptImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // init_trajs
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_spheres
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_capsules

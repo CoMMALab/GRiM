@@ -88,10 +88,12 @@ class Target:
     has_robot_spheres: bool
     lower: tuple[float, ...]
     upper: tuple[float, ...]
+    runtime_rot: bool = False       # takes a per-call parent rotation (see Problem)
 
 
 def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = None,
-            world_counts=(0, 0, 0, 0), chain_only: bool = True) -> _build.Problem:
+            world_counts=(0, 0, 0, 0), chain_only: bool = True,
+            runtime_rot_joint: int = -1) -> _build.Problem:
     c = collision or CollisionModel()
     has_spheres = c.robot_spheres is not None and len(c.robot_spheres) > 0
     sc = c.self_collision
@@ -100,25 +102,30 @@ def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = No
         robot_spheres=np.asarray(c.robot_spheres, np.float32) if has_spheres else None,
         robot_sphere_joint=np.asarray(c.robot_sphere_joint, np.int32) if has_spheres else None,
         self_collision=sc if sc is not None and len(sc.pair_i) > 0 else None,
-        world_counts=tuple(int(n) for n in world_counts), chain_only=chain_only)
+        world_counts=tuple(int(n) for n in world_counts), chain_only=chain_only,
+        runtime_rot_joint=int(runtime_rot_joint))
 
 
 def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
-          world_counts=(0, 0, 0, 0), chain_only: bool = True, traced: bool = False) -> Target:
-    """Compile (or load) ``kernel`` for this robot and problem structure."""
+          world_counts=(0, 0, 0, 0), chain_only: bool = True, traced: bool = False,
+          runtime_rot_joint: int = -1) -> Target:
+    """Compile (or load) ``kernel`` for this robot and problem structure. With
+    ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call."""
     source, symbol, _, all_joints = KERNELS[kernel]
-    prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints)
+    prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
+                   runtime_rot_joint)
     (name,) = _build.target(source, (symbol,), robot, prob, traced)
     return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
-                  tuple(map(float, robot.upper)))
+                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0)
 
 
 def run(target: Target, seeds, targets, *, world: World = World(), lower=None, upper=None,
         fixed_mask=None, enable_collision: bool | None = None, tier: str = "thread",
-        block_threads: int = 64, noise=None, rng_seed: int = 0, **settings):
+        block_threads: int = 64, noise=None, rng_seed: int = 0, rot=None, **settings):
     """Launch a built IK kernel. ``settings`` are the kernel's solver settings (see the named
-    functions); ``noise`` is hjcd_lm's stall-kick noise and ``rng_seed`` mppi's seed."""
+    functions); ``noise`` is hjcd_lm's stall-kick noise, ``rng_seed`` mppi's seed and ``rot``
+    the wxyz parent rotation of a ``runtime_rot_joint`` build."""
     _, _, tiered, _ = KERNELS[target.kernel]
     if world.counts() != target.world_counts:
         raise ValueError(f"world has obstacle counts {world.counts()}; the target was built "
@@ -145,9 +152,16 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
     if tiered:
         attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
     return jax.ffi.ffi_call(target.name, tuple(outs))(
-        seeds, *after_seeds, jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7),
+        *_rot_operand(target, rot), seeds, *after_seeds, jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7),
         *world.arrays(), lo, hi, fm, *after_limits, **attrs,
         enable_collision=np.int64(bool(enable_collision)))
+
+
+def _rot_operand(target: Target, rot) -> tuple:
+    """The leading rotation operand of a ``runtime_rot`` build (none otherwise)."""
+    if target.runtime_rot != (rot is not None):
+        raise ValueError("pass rot exactly when the target was built with runtime_rot_joint")
+    return (jnp.asarray(rot, jnp.float32).reshape(4),) if target.runtime_rot else ()
 
 
 def _solve(kernel, robot, seeds, targets, ee_joints, *, world, collision, chain_only, traced,
@@ -256,18 +270,19 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
 
 
 def build_canonical(robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
-                    world_counts=(0, 0, 0, 0)) -> Target:
-    return build("canonical", robot, ee_joints, collision=collision, world_counts=world_counts)
+                    world_counts=(0, 0, 0, 0), runtime_rot_joint: int = -1) -> Target:
+    return build("canonical", robot, ee_joints, collision=collision, world_counts=world_counts,
+                 runtime_rot_joint=runtime_rot_joint)
 
 
 def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),
                   max_iters: int = 200, step: float = 0.1, tol: float = 1e-5,
-                  damping: float = 1e-6, collision_margin: float = 0.0):
+                  damping: float = 1e-6, collision_margin: float = 0.0, rot=None):
     q = jnp.asarray(q, jnp.float32)
     P = q.shape[0]
     return jax.ffi.ffi_call(target.name, (jax.ShapeDtypeStruct((P, target.n_q), jnp.float32),
                                           jax.ShapeDtypeStruct((P,), jnp.int32)))(
-        q, jnp.asarray(q_ref, jnp.float32),
+        *_rot_operand(target, rot), q, jnp.asarray(q_ref, jnp.float32),
         jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7), *world.arrays(),
         max_iters=np.int64(max_iters), step=np.float32(step), tol=np.float32(tol),
         damping=np.float32(damping), collision_margin=np.float32(collision_margin))

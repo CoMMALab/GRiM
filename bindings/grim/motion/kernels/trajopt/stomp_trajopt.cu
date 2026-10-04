@@ -662,6 +662,7 @@ static inline int next_pow2(int n) {
 
 static ffi::Error StompTrajoptImpl(
     cudaStream_t                      stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32>   init_trajs,
     ffi::Buffer<ffi::DataType::F32>   world_spheres,
     ffi::Buffer<ffi::DataType::F32>   world_capsules,
@@ -690,6 +691,7 @@ static ffi::Error StompTrajoptImpl(
     float   collision_margin,
     int64_t rng_seed)
 {
+    GRIM_ROT_UPLOAD(stream);
     // ── Extract dimensions ──
     auto shape = init_trajs.dimensions();
     int B      = (int)shape[0];
@@ -837,6 +839,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     StompTrajoptImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // init_trajs
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_spheres
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_capsules

@@ -726,6 +726,7 @@ void hjcd_ik_lm_kernel(
 
 static ffi::Error HjcdIkCoarseImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds,
     ffi::Buffer<ffi::DataType::F32> target_Ts,       // (n_problems, n_ee, 7)
     ffi::Buffer<ffi::DataType::F32> world_spheres,
@@ -742,6 +743,7 @@ static ffi::Error HjcdIkCoarseImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    GRIM_ROT_UPLOAD(stream);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds    = static_cast<int>(seeds.dimensions()[1]);
     // The build fixes the robot and the obstacle counts; reject a launch that disagrees.
@@ -783,6 +785,7 @@ static ffi::Error HjcdIkCoarseImpl(
 
 static ffi::Error HjcdIkLmImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds,
     ffi::Buffer<ffi::DataType::F32> noise,
     ffi::Buffer<ffi::DataType::F32> target_Ts,       // (n_problems, n_ee, 7)
@@ -810,6 +813,7 @@ static ffi::Error HjcdIkLmImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err,
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> stop_flag)
 {
+    GRIM_ROT_UPLOAD(stream);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds    = static_cast<int>(seeds.dimensions()[1]);
     // The build fixes the robot and the obstacle counts; reject a launch that disagrees.
@@ -864,6 +868,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     HjcdIkCoarseFfi, HjcdIkCoarseImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // target_Ts
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // world_spheres
@@ -884,6 +889,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     HjcdIkLmFfi, HjcdIkLmImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // noise
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // target_Ts

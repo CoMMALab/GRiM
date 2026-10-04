@@ -211,3 +211,21 @@ static inline const T* device_ptr(const T (&symbol)[N])
     return static_cast<const T*>(p);
 }
 }  // namespace grim::robot
+
+// Runtime parent rotation of one joint (a floating base's chart reference). A build made with
+// -DGRIM_RUNTIME_ROT_JOINT=j takes one extra operand, right after the stream: the wxyz rotation
+// of joint j's parent transform for this launch. The handler writes it into the baked table on
+// the launch stream before launching, so the copy is ordered before this kernel and after any
+// earlier launch. Other builds compile exactly as before.
+#ifdef GRIM_RUNTIME_ROT_JOINT
+#define GRIM_ROT_PARAM ffi::Buffer<ffi::DataType::F32> runtime_rot,
+#define GRIM_ROT_BIND .Arg<ffi::Buffer<ffi::DataType::F32>>()   // runtime parent rotation
+#define GRIM_ROT_UPLOAD(stream)                                                            \
+    cudaMemcpyToSymbolAsync(grim::robot::kParentTf, runtime_rot.typed_data(),              \
+                            4 * sizeof(float), GRIM_RUNTIME_ROT_JOINT * 7 * sizeof(float),  \
+                            cudaMemcpyDeviceToDevice, (stream))
+#else
+#define GRIM_ROT_PARAM
+#define GRIM_ROT_BIND
+#define GRIM_ROT_UPLOAD(stream) ((void)0)
+#endif

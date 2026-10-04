@@ -290,6 +290,7 @@ __global__ void canonical_ik_kernel(
 
 static ffi::Error CanonicalIkImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> cfgs,
     ffi::Buffer<ffi::DataType::F32> cfg_refs,
     ffi::Buffer<ffi::DataType::F32> target_Ts,
@@ -305,6 +306,7 @@ static ffi::Error CanonicalIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_q,
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> out_iters)
 {
+    GRIM_ROT_UPLOAD(stream);
     const int n_problems = static_cast<int>(cfgs.dimensions()[0]);
     if (cfgs.dimensions()[1] != grim::robot::n_q ||
         target_Ts.dimensions()[target_Ts.dimensions().size() - 2] != grim::robot::n_ee ||
@@ -337,6 +339,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     CanonicalIkFfi, CanonicalIkImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // cfgs
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // cfg_refs
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // target_Ts

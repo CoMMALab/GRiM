@@ -498,6 +498,7 @@ write_output:
 
 static ffi::Error MppiIkImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds,
     ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres,
@@ -524,6 +525,7 @@ static ffi::Error MppiIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    GRIM_ROT_UPLOAD(stream);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds    = static_cast<int>(seeds.dimensions()[1]);
     // The build fixes the robot and the obstacle counts; reject a launch that disagrees.
@@ -574,6 +576,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     MppiIkFfi, MppiIkImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // target_Ts
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_spheres

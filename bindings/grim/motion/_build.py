@@ -86,6 +86,9 @@ class Problem:
     ``WORLD_KINDS``: the obstacle SET is part of the build, their poses are runtime inputs.
     ``chain_only`` solves over the end-effector chains alone (only valid without collision:
     joints off the chains then have zero gradient and can never move).
+    ``runtime_rot_joint`` >= 0 makes that joint's parent rotation a per-call input (the
+    reference rotation of a floating base's chart) instead of a baked constant; the build then
+    takes it as the first operand, a wxyz ``(4,)`` float32.
     """
     ee_joints: tuple[int, ...] = ()
     robot_spheres: np.ndarray | None = None
@@ -94,6 +97,7 @@ class Problem:
     world_counts: tuple[int, int, int, int] = (0, 0, 0, 0)
     chain_only: bool = False
     traj_collision: TrajCollision | None = None
+    runtime_rot_joint: int = -1
 
 
 def _constant(ctype: str, name: str, values) -> str:
@@ -354,5 +358,10 @@ def target(kernel: str, symbols: tuple[str, ...], robot: MotionRobot, problem: P
     """Build (or load) ``kernel`` for ``robot``/``problem`` and return its FFI target names."""
     header = robot_header(robot, problem, traced)
     n_solve = len(solved_joints(robot, problem))
+    if problem.runtime_rot_joint >= 0:
+        if traced:
+            raise ValueError("a runtime parent rotation needs the baked tables: cricket's "
+                             "traced FK folds every transform into constants")
+        extra_flags = (*extra_flags, f"-DGRIM_RUNTIME_ROT_JOINT={problem.runtime_rot_joint}")
     so = build(kernel, header, n_solve, robot.n_joints, len(problem.ee_joints), extra_flags)
     return register(so, symbols)
