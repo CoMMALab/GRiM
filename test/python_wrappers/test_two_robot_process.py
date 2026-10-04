@@ -1,6 +1,6 @@
 """Two robot .so's in ONE process (debugging-guide §7.z4 regression).
 
-Inline-function statics emitted into grid.cuh compile to weak default-
+Inline-function statics emitted into grim.cuh compile to weak default-
 visibility symbols; without hidden visibility the dynamic linker unified the
 device-pool state across dlopened robot .so's, so the SECOND robot's init
 carved from the first robot's exhausted slab and "OOM"d on an empty GPU.
@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 _jax = pytest.importorskip("jax", reason="jax not installed")
 _torch = pytest.importorskip("torch", reason="torch not installed")
 
@@ -31,8 +31,8 @@ pytestmark = pytest.mark.python_wrappers
 
 
 def test_two_so_pools_are_independent():
-    import grid_rbd.jax as gj
-    import grid_rbd.torch as gt
+    import grim.jax as gj
+    import grim.torch as gt
 
     # same names/keys as the jax + torch smokes => warm cache hits
     jh = gj.register_robot(name="iiwa14_jax_pytest", urdf_path=str(_URDF),

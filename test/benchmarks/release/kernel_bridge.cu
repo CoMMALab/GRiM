@@ -1,13 +1,13 @@
-// Pure C++/CUDA timing of the generated `grid.cuh` host entry points of the
+// Pure C++/CUDA timing of the generated `grim.cuh` host entry points of the
 // SAME artifact the Python wrappers load (the header next to robot.so in the
 // build cache), with no Python and no binding layer in the loop.
 //
 // Two boundaries per cell, both ending in a device synchronization:
 //   compute  : the `<op>_compute_only` host function — kernel launch on
-//              inputs already resident in the gridData arena, output left on
-//              the device. This is the kernel latency GRiD's papers report.
+//              inputs already resident in the grimData arena, output left on
+//              the device. This is the kernel latency GRiM's papers report.
 //   with_mem : the `<op>` host function — H2D copies of the packed inputs,
-//              the kernel, and the D2H copy of the result (GRiD's own
+//              the kernel, and the D2H copy of the result (GRiM's own
 //              synchronous host call, exactly what the C ABI wraps).
 // Differences between the collector's backends then have one meaning each:
 //   with_mem - compute        = memory traffic of one call
@@ -22,16 +22,16 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_KERNEL_MAX_BATCH
-#define GRID_KERNEL_MAX_BATCH 256
+#ifndef GRIM_KERNEL_MAX_BATCH
+#define GRIM_KERNEL_MAX_BATCH 256
 #endif
 // Poses written per timestep by the artifact's end-effector kernel: one for a
-// fixed-target build (grid::NUM_EES still counts every leaf), passed by the
-// adapter from the artifact metadata like the wrapper's GRID_RBD_NUM_EES.
-#ifndef GRID_KERNEL_NUM_EES
-#define GRID_KERNEL_NUM_EES grid::NUM_EES
+// fixed-target build (grim::NUM_EES still counts every leaf), passed by the
+// adapter from the artifact metadata like the wrapper's GRIM_NUM_EES.
+#ifndef GRIM_KERNEL_NUM_EES
+#define GRIM_KERNEL_NUM_EES grim::NUM_EES
 #endif
 
 using T = float;
@@ -40,8 +40,8 @@ namespace {
 
 struct KernelCtx {
     cudaStream_t *streams;
-    grid::robotModel<T> *model;
-    grid::gridData<T> *data;
+    grim::robotModel<T> *model;
+    grim::grimData<T> *data;
 };
 
 double now_us() {
@@ -49,57 +49,57 @@ double now_us() {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-// Operation codes = the collector's OPS order (pin_adapter.OPS / grid_adapter.KERNEL_OPS).
+// Operation codes = the collector's OPS order (pin_adapter.OPS / grim_adapter.KERNEL_OPS).
 constexpr int OP_ID = 0, OP_ID_GRAD = 1, OP_IDSVA_SO = 2, OP_MINV = 3, OP_FD = 4, OP_FD_GRAD = 5,
               OP_FDSVA_SO = 6, OP_EE_POSE = 7, OP_CRBA = 8, OP_NLE = 9, OP_GRAVITY = 10, OP_CCRBA = 11, OP_CORIOLIS = 12;
 #define KB_CAT_(a, b) a##b
 #define KB_CAT(a, b) KB_CAT_(a, b)
-#if !defined(GRID_HAS_IDSVA_SO)
-#define GRID_HAS_IDSVA_SO 0
+#if !defined(GRIM_HAS_IDSVA_SO)
+#define GRIM_HAS_IDSVA_SO 0
 #endif
-#if !defined(GRID_HAS_FDSVA_SO)
-#define GRID_HAS_FDSVA_SO 0
+#if !defined(GRIM_HAS_FDSVA_SO)
+#define GRIM_HAS_FDSVA_SO 0
 #endif
 
 bool op_built(int op) {
     switch (op) {
-#if GRID_HAS_INVERSE_DYNAMICS
+#if GRIM_HAS_INVERSE_DYNAMICS
         case OP_ID: return true;
 #endif
-#if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
+#if GRIM_HAS_INVERSE_DYNAMICS_GRADIENT
         case OP_ID_GRAD: return true;
 #endif
-#if GRID_HAS_IDSVA_SO
+#if GRIM_HAS_IDSVA_SO
         case OP_IDSVA_SO: return true;
 #endif
-#if GRID_HAS_MINV
+#if GRIM_HAS_MINV
         case OP_MINV: return true;
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS
+#if GRIM_HAS_FORWARD_DYNAMICS
         case OP_FD: return true;
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
+#if GRIM_HAS_FORWARD_DYNAMICS_GRADIENT
         case OP_FD_GRAD: return true;
 #endif
-#if GRID_HAS_FDSVA_SO
+#if GRIM_HAS_FDSVA_SO
         case OP_FDSVA_SO: return true;
 #endif
-#if GRID_HAS_END_EFFECTOR_POSE && defined(GRID_RBD_EE_POSE_FN)
+#if GRIM_HAS_END_EFFECTOR_POSE && defined(GRIM_EE_POSE_FN)
         case OP_EE_POSE: return true;
 #endif
-#if GRID_HAS_CRBA
+#if GRIM_HAS_CRBA
         case OP_CRBA: return true;
 #endif
-#if GRID_HAS_NONLINEAR_EFFECTS
+#if GRIM_HAS_NONLINEAR_EFFECTS
         case OP_NLE: return true;
 #endif
-#if GRID_HAS_GENERALIZED_GRAVITY
+#if GRIM_HAS_GENERALIZED_GRAVITY
         case OP_GRAVITY: return true;
 #endif
-#if GRID_HAS_CCRBA
+#if GRIM_HAS_CCRBA
         case OP_CCRBA: return true;
 #endif
-#if GRID_HAS_CORIOLIS_MATRIX
+#if GRIM_HAS_CORIOLIS_MATRIX
         case OP_CORIOLIS: return true;
 #endif
         default: return false;
@@ -107,15 +107,15 @@ bool op_built(int op) {
 }
 
 int output_size(int op) {
-    const int nj = grid::NUM_JOINTS, nv = grid::NUM_VEL;
+    const int nj = grim::NUM_JOINTS, nv = grim::NUM_VEL;
     switch (op) {
         case OP_ID: case OP_FD: return nj;
         case OP_ID_GRAD: case OP_FD_GRAD: return 2 * nv * nv;
-#if GRID_HAS_IDSVA_SO || GRID_HAS_FDSVA_SO
-        case OP_IDSVA_SO: case OP_FDSVA_SO: return grid::SECOND_ORDER_TENSOR_SIZE;
+#if GRIM_HAS_IDSVA_SO || GRIM_HAS_FDSVA_SO
+        case OP_IDSVA_SO: case OP_FDSVA_SO: return grim::SECOND_ORDER_TENSOR_SIZE;
 #endif
         case OP_MINV: case OP_CRBA: case OP_CORIOLIS: return nv * nv;
-        case OP_EE_POSE: return 6 * GRID_KERNEL_NUM_EES;
+        case OP_EE_POSE: return 6 * GRIM_KERNEL_NUM_EES;
         case OP_NLE: case OP_GRAVITY: return nv;
         case OP_CCRBA: return 6 * nv + 6;
         default: return 0;
@@ -124,19 +124,19 @@ int output_size(int op) {
 
 int baked_threads(int op) {
     switch (op) {
-        case OP_ID: return grid::launch_cfg<grid::GRID_ALGO_INVERSE_DYNAMICS>::THREADS;
-        case OP_ID_GRAD: return grid::launch_cfg<grid::GRID_ALGO_INVERSE_DYNAMICS_GRADIENT>::THREADS;
-        case OP_IDSVA_SO: return grid::launch_cfg<grid::GRID_ALGO_IDSVA_SO>::THREADS;
-        case OP_MINV: return grid::launch_cfg<grid::GRID_ALGO_MINV>::THREADS;
-        case OP_FD: return grid::launch_cfg<grid::GRID_ALGO_FORWARD_DYNAMICS>::THREADS;
-        case OP_FD_GRAD: return grid::launch_cfg<grid::GRID_ALGO_FORWARD_DYNAMICS_GRADIENT>::THREADS;
-        case OP_FDSVA_SO: return grid::launch_cfg<grid::GRID_ALGO_FDSVA_SO>::THREADS;
-        case OP_EE_POSE: return grid::launch_cfg<grid::GRID_ALGO_END_EFFECTOR_POSE>::THREADS;
-        case OP_CRBA: return grid::launch_cfg<grid::GRID_ALGO_CRBA>::THREADS;
-        case OP_NLE: return grid::launch_cfg<grid::GRID_ALGO_NONLINEAR_EFFECTS>::THREADS;
-        case OP_GRAVITY: return grid::launch_cfg<grid::GRID_ALGO_GENERALIZED_GRAVITY>::THREADS;
-        case OP_CCRBA: return grid::launch_cfg<grid::GRID_ALGO_CCRBA>::THREADS;
-        case OP_CORIOLIS: return grid::launch_cfg<grid::GRID_ALGO_CORIOLIS_MATRIX>::THREADS;
+        case OP_ID: return grim::launch_cfg<grim::GRIM_ALGO_INVERSE_DYNAMICS>::THREADS;
+        case OP_ID_GRAD: return grim::launch_cfg<grim::GRIM_ALGO_INVERSE_DYNAMICS_GRADIENT>::THREADS;
+        case OP_IDSVA_SO: return grim::launch_cfg<grim::GRIM_ALGO_IDSVA_SO>::THREADS;
+        case OP_MINV: return grim::launch_cfg<grim::GRIM_ALGO_MINV>::THREADS;
+        case OP_FD: return grim::launch_cfg<grim::GRIM_ALGO_FORWARD_DYNAMICS>::THREADS;
+        case OP_FD_GRAD: return grim::launch_cfg<grim::GRIM_ALGO_FORWARD_DYNAMICS_GRADIENT>::THREADS;
+        case OP_FDSVA_SO: return grim::launch_cfg<grim::GRIM_ALGO_FDSVA_SO>::THREADS;
+        case OP_EE_POSE: return grim::launch_cfg<grim::GRIM_ALGO_END_EFFECTOR_POSE>::THREADS;
+        case OP_CRBA: return grim::launch_cfg<grim::GRIM_ALGO_CRBA>::THREADS;
+        case OP_NLE: return grim::launch_cfg<grim::GRIM_ALGO_NONLINEAR_EFFECTS>::THREADS;
+        case OP_GRAVITY: return grim::launch_cfg<grim::GRIM_ALGO_GENERALIZED_GRAVITY>::THREADS;
+        case OP_CCRBA: return grim::launch_cfg<grim::GRIM_ALGO_CCRBA>::THREADS;
+        case OP_CORIOLIS: return grim::launch_cfg<grim::GRIM_ALGO_CORIOLIS_MATRIX>::THREADS;
         default: return 0;
     }
 }
@@ -155,115 +155,115 @@ dim3 clamp_threads(KernelPtr kernel, dim3 requested) {
 // Same template arguments as the wrapper's C ABI bodies (wrapper_template.cu):
 // USE_QDD_FLAG=true (explicit acceleration), uncompressed memory, the per-algo
 // autotuned tier, and the MUJOCO_OUTPUT=false slot only where the header's
-// launcher carries it (-DGRID_RBD_SIG_MJX_* derived from the header itself).
-#if GRID_HAS_INVERSE_DYNAMICS
-#if defined(GRID_RBD_SIG_MJX_INVERSE_DYNAMICS)
-#define KB_ID_ARGS T, true, false, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_INVERSE_DYNAMICS>::TIER
+// launcher carries it (-DGRIM_SIG_MJX_* derived from the header itself).
+#if GRIM_HAS_INVERSE_DYNAMICS
+#if defined(GRIM_SIG_MJX_INVERSE_DYNAMICS)
+#define KB_ID_ARGS T, true, false, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_INVERSE_DYNAMICS>::TIER
 #else
-#define KB_ID_ARGS T, true, false, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_INVERSE_DYNAMICS>::TIER
+#define KB_ID_ARGS T, true, false, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_INVERSE_DYNAMICS>::TIER
 #endif
 #endif
-#if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-#if defined(GRID_RBD_SIG_MJX_INVERSE_DYNAMICS_GRADIENT)
-#define KB_GRAD_ARGS T, true, false, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_INVERSE_DYNAMICS_GRADIENT>::TIER
+#if GRIM_HAS_INVERSE_DYNAMICS_GRADIENT
+#if defined(GRIM_SIG_MJX_INVERSE_DYNAMICS_GRADIENT)
+#define KB_GRAD_ARGS T, true, false, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_INVERSE_DYNAMICS_GRADIENT>::TIER
 #else
-#define KB_GRAD_ARGS T, true, false, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_INVERSE_DYNAMICS_GRADIENT>::TIER
+#define KB_GRAD_ARGS T, true, false, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_INVERSE_DYNAMICS_GRADIENT>::TIER
 #endif
 #endif
-#if GRID_HAS_IDSVA_SO
-#if defined(GRID_RBD_SIG_MJX_IDSVA_SO)
-#define KB_SO_ARGS T, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_IDSVA_SO>::TIER
+#if GRIM_HAS_IDSVA_SO
+#if defined(GRIM_SIG_MJX_IDSVA_SO)
+#define KB_SO_ARGS T, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_IDSVA_SO>::TIER
 #else
-#define KB_SO_ARGS T, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_IDSVA_SO>::TIER
+#define KB_SO_ARGS T, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_IDSVA_SO>::TIER
 #endif
 #endif
 
-#if GRID_HAS_MINV
-#if defined(GRID_RBD_SIG_MJX_MINV)
-#define KB_MINV_ARGS T, false, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_MINV>::TIER
+#if GRIM_HAS_MINV
+#if defined(GRIM_SIG_MJX_MINV)
+#define KB_MINV_ARGS T, false, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_MINV>::TIER
 #else
-#define KB_MINV_ARGS T, false, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_MINV>::TIER
+#define KB_MINV_ARGS T, false, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_MINV>::TIER
 #endif
 #endif
-#if GRID_HAS_CRBA
-#if defined(GRID_RBD_SIG_MJX_CRBA)
-#define KB_CRBA_ARGS T, false, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_CRBA>::TIER
+#if GRIM_HAS_CRBA
+#if defined(GRIM_SIG_MJX_CRBA)
+#define KB_CRBA_ARGS T, false, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_CRBA>::TIER
 #else
-#define KB_CRBA_ARGS T, false, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_CRBA>::TIER
+#define KB_CRBA_ARGS T, false, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_CRBA>::TIER
 #endif
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS
-#if defined(GRID_RBD_SIG_MJX_FORWARD_DYNAMICS)
-#define KB_FD_ARGS T, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_FORWARD_DYNAMICS>::TIER
+#if GRIM_HAS_FORWARD_DYNAMICS
+#if defined(GRIM_SIG_MJX_FORWARD_DYNAMICS)
+#define KB_FD_ARGS T, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_FORWARD_DYNAMICS>::TIER
 #else
-#define KB_FD_ARGS T, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_FORWARD_DYNAMICS>::TIER
+#define KB_FD_ARGS T, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_FORWARD_DYNAMICS>::TIER
 #endif
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-#if defined(GRID_RBD_SIG_MJX_FORWARD_DYNAMICS_GRADIENT)
-#define KB_FDG_ARGS T, false, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_FORWARD_DYNAMICS_GRADIENT>::TIER
+#if GRIM_HAS_FORWARD_DYNAMICS_GRADIENT
+#if defined(GRIM_SIG_MJX_FORWARD_DYNAMICS_GRADIENT)
+#define KB_FDG_ARGS T, false, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_FORWARD_DYNAMICS_GRADIENT>::TIER
 #else
-#define KB_FDG_ARGS T, false, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_FORWARD_DYNAMICS_GRADIENT>::TIER
+#define KB_FDG_ARGS T, false, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_FORWARD_DYNAMICS_GRADIENT>::TIER
 #endif
 #endif
-#if GRID_HAS_FDSVA_SO
-#if defined(GRID_RBD_SIG_MJX_FDSVA_SO)
-#define KB_FDSO_ARGS T, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_FDSVA_SO>::TIER
+#if GRIM_HAS_FDSVA_SO
+#if defined(GRIM_SIG_MJX_FDSVA_SO)
+#define KB_FDSO_ARGS T, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_FDSVA_SO>::TIER
 #else
-#define KB_FDSO_ARGS T, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_FDSVA_SO>::TIER
+#define KB_FDSO_ARGS T, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_FDSVA_SO>::TIER
 #endif
 #endif
-#if GRID_HAS_END_EFFECTOR_POSE && defined(GRID_RBD_EE_POSE_FN)
-#if defined(GRID_RBD_SIG_MJX_EE_POSE)
-#define KB_EE_ARGS T, false, grid::GRID_DATA_ALL, false, grid::launch_cfg<grid::GRID_ALGO_END_EFFECTOR_POSE>::TIER
+#if GRIM_HAS_END_EFFECTOR_POSE && defined(GRIM_EE_POSE_FN)
+#if defined(GRIM_SIG_MJX_EE_POSE)
+#define KB_EE_ARGS T, false, grim::GRIM_DATA_ALL, false, grim::launch_cfg<grim::GRIM_ALGO_END_EFFECTOR_POSE>::TIER
 #else
-#define KB_EE_ARGS T, false, grid::GRID_DATA_ALL, grid::launch_cfg<grid::GRID_ALGO_END_EFFECTOR_POSE>::TIER
+#define KB_EE_ARGS T, false, grim::GRIM_DATA_ALL, grim::launch_cfg<grim::GRIM_ALGO_END_EFFECTOR_POSE>::TIER
 #endif
-#define KB_EE_FN grid::GRID_RBD_EE_POSE_FN
-#define KB_EE_FN_CO grid::KB_CAT(GRID_RBD_EE_POSE_FN, _compute_only)
+#define KB_EE_FN grim::GRIM_EE_POSE_FN
+#define KB_EE_FN_CO grim::KB_CAT(GRIM_EE_POSE_FN, _compute_only)
 #endif
 
 void with_mem(KernelCtx &c, int op, T gravity, int n, dim3 thr) {
     const dim3 blocks((unsigned)n, 1, 1);
     switch (op) {
-#if GRID_HAS_INVERSE_DYNAMICS
-        case OP_ID: grid::inverse_dynamics<KB_ID_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_INVERSE_DYNAMICS
+        case OP_ID: grim::inverse_dynamics<KB_ID_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-        case OP_ID_GRAD: grid::inverse_dynamics_gradient<KB_GRAD_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_INVERSE_DYNAMICS_GRADIENT
+        case OP_ID_GRAD: grim::inverse_dynamics_gradient<KB_GRAD_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_IDSVA_SO
-        case OP_IDSVA_SO: grid::idsva_so<KB_SO_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_IDSVA_SO
+        case OP_IDSVA_SO: grim::idsva_so<KB_SO_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_MINV
-        case OP_MINV: grid::minv<KB_MINV_ARGS>(c.data, c.model, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_MINV
+        case OP_MINV: grim::minv<KB_MINV_ARGS>(c.data, c.model, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS
-        case OP_FD: grid::forward_dynamics<KB_FD_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_FORWARD_DYNAMICS
+        case OP_FD: grim::forward_dynamics<KB_FD_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-        case OP_FD_GRAD: grid::forward_dynamics_gradient<KB_FDG_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_FORWARD_DYNAMICS_GRADIENT
+        case OP_FD_GRAD: grim::forward_dynamics_gradient<KB_FDG_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_FDSVA_SO
-        case OP_FDSVA_SO: grid::fdsva_so<KB_FDSO_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_FDSVA_SO
+        case OP_FDSVA_SO: grim::fdsva_so<KB_FDSO_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_END_EFFECTOR_POSE && defined(GRID_RBD_EE_POSE_FN)
+#if GRIM_HAS_END_EFFECTOR_POSE && defined(GRIM_EE_POSE_FN)
         case OP_EE_POSE: KB_EE_FN<KB_EE_ARGS>(c.data, c.model, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_CRBA
-        case OP_CRBA: grid::crba<KB_CRBA_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_CRBA
+        case OP_CRBA: grim::crba<KB_CRBA_ARGS>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_NONLINEAR_EFFECTS
-        case OP_NLE: grid::nonlinear_effects<T>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_NONLINEAR_EFFECTS
+        case OP_NLE: grim::nonlinear_effects<T>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_GENERALIZED_GRAVITY
-        case OP_GRAVITY: grid::generalized_gravity<T>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_GENERALIZED_GRAVITY
+        case OP_GRAVITY: grim::generalized_gravity<T>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
-#if GRID_HAS_CCRBA
-        case OP_CCRBA: grid::ccrba<T>(c.data, c.model, n, blocks, clamp_threads(grid::ccrba_kernel<T>, thr), c.streams); break;
+#if GRIM_HAS_CCRBA
+        case OP_CCRBA: grim::ccrba<T>(c.data, c.model, n, blocks, clamp_threads(grim::ccrba_kernel<T>, thr), c.streams); break;
 #endif
-#if GRID_HAS_CORIOLIS_MATRIX
-        case OP_CORIOLIS: grid::coriolis_matrix<T>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
+#if GRIM_HAS_CORIOLIS_MATRIX
+        case OP_CORIOLIS: grim::coriolis_matrix<T>(c.data, c.model, gravity, n, blocks, thr, c.streams); break;
 #endif
         default: break;
     }
@@ -272,44 +272,44 @@ void with_mem(KernelCtx &c, int op, T gravity, int n, dim3 thr) {
 void compute_only(KernelCtx &c, int op, T gravity, int n, dim3 thr) {
     const dim3 blocks((unsigned)n, 1, 1);
     switch (op) {
-#if GRID_HAS_INVERSE_DYNAMICS
-        case OP_ID: grid::inverse_dynamics_compute_only<KB_ID_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_INVERSE_DYNAMICS
+        case OP_ID: grim::inverse_dynamics_compute_only<KB_ID_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
-        case OP_ID_GRAD: grid::inverse_dynamics_gradient_compute_only<KB_GRAD_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_INVERSE_DYNAMICS_GRADIENT
+        case OP_ID_GRAD: grim::inverse_dynamics_gradient_compute_only<KB_GRAD_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_IDSVA_SO
-        case OP_IDSVA_SO: grid::idsva_so_compute_only<KB_SO_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_IDSVA_SO
+        case OP_IDSVA_SO: grim::idsva_so_compute_only<KB_SO_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_MINV
-        case OP_MINV: grid::minv_compute_only<KB_MINV_ARGS>(c.data, c.model, n, blocks, thr); break;
+#if GRIM_HAS_MINV
+        case OP_MINV: grim::minv_compute_only<KB_MINV_ARGS>(c.data, c.model, n, blocks, thr); break;
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS
-        case OP_FD: grid::forward_dynamics_compute_only<KB_FD_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_FORWARD_DYNAMICS
+        case OP_FD: grim::forward_dynamics_compute_only<KB_FD_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
-        case OP_FD_GRAD: grid::forward_dynamics_gradient_compute_only<KB_FDG_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_FORWARD_DYNAMICS_GRADIENT
+        case OP_FD_GRAD: grim::forward_dynamics_gradient_compute_only<KB_FDG_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_FDSVA_SO
-        case OP_FDSVA_SO: grid::fdsva_so_compute_only<KB_FDSO_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_FDSVA_SO
+        case OP_FDSVA_SO: grim::fdsva_so_compute_only<KB_FDSO_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_END_EFFECTOR_POSE && defined(GRID_RBD_EE_POSE_FN)
+#if GRIM_HAS_END_EFFECTOR_POSE && defined(GRIM_EE_POSE_FN)
         case OP_EE_POSE: KB_EE_FN_CO<KB_EE_ARGS>(c.data, c.model, n, blocks, thr); break;
 #endif
-#if GRID_HAS_CRBA
-        case OP_CRBA: grid::crba_compute_only<KB_CRBA_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_CRBA
+        case OP_CRBA: grim::crba_compute_only<KB_CRBA_ARGS>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_NONLINEAR_EFFECTS
-        case OP_NLE: grid::nonlinear_effects_compute_only<T>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_NONLINEAR_EFFECTS
+        case OP_NLE: grim::nonlinear_effects_compute_only<T>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_GENERALIZED_GRAVITY
-        case OP_GRAVITY: grid::generalized_gravity_compute_only<T>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_GENERALIZED_GRAVITY
+        case OP_GRAVITY: grim::generalized_gravity_compute_only<T>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
-#if GRID_HAS_CCRBA
-        case OP_CCRBA: grid::ccrba_compute_only<T>(c.data, c.model, n, blocks, clamp_threads(grid::ccrba_kernel<T>, thr)); break;
+#if GRIM_HAS_CCRBA
+        case OP_CCRBA: grim::ccrba_compute_only<T>(c.data, c.model, n, blocks, clamp_threads(grim::ccrba_kernel<T>, thr)); break;
 #endif
-#if GRID_HAS_CORIOLIS_MATRIX
-        case OP_CORIOLIS: grid::coriolis_matrix_compute_only<T>(c.data, c.model, gravity, n, blocks, thr); break;
+#if GRIM_HAS_CORIOLIS_MATRIX
+        case OP_CORIOLIS: grim::coriolis_matrix_compute_only<T>(c.data, c.model, gravity, n, blocks, thr); break;
 #endif
         default: break;
     }
@@ -319,10 +319,10 @@ const T *host_output(const KernelCtx &c, int op) {
     switch (op) {
         case OP_ID: case OP_NLE: case OP_GRAVITY: return c.data->h_c;
         case OP_ID_GRAD: return c.data->h_dc_du;
-#if GRID_HAS_IDSVA_SO
+#if GRIM_HAS_IDSVA_SO
         case OP_IDSVA_SO: return c.data->h_idsva_so;
 #endif
-#if GRID_HAS_FDSVA_SO
+#if GRIM_HAS_FDSVA_SO
         case OP_FDSVA_SO: return c.data->h_df2;
 #endif
         case OP_MINV: return c.data->h_Minv;
@@ -340,10 +340,10 @@ const T *device_output(const KernelCtx &c, int op) {
     switch (op) {
         case OP_ID: case OP_NLE: case OP_GRAVITY: return c.data->d_c;
         case OP_ID_GRAD: return c.data->d_dc_du;
-#if GRID_HAS_IDSVA_SO
+#if GRIM_HAS_IDSVA_SO
         case OP_IDSVA_SO: return c.data->d_idsva_so;
 #endif
-#if GRID_HAS_FDSVA_SO
+#if GRIM_HAS_FDSVA_SO
         case OP_FDSVA_SO: return c.data->d_df2;
 #endif
         case OP_MINV: return c.data->d_Minv;
@@ -364,7 +364,7 @@ const T *device_output(const KernelCtx &c, int op) {
 // wrapper does. Then stage the packed inputs on the device once so the
 // compute-only path has resident inputs.
 int stage_inputs(KernelCtx &c, int op, const T *q, const T *qd, const T *third, int batch) {
-    const int nj = grid::NUM_JOINTS, stride = 3 * nj;
+    const int nj = grim::NUM_JOINTS, stride = 3 * nj;
     const bool u_slot = (op == OP_IDSVA_SO || op == OP_FD || op == OP_FD_GRAD || op == OP_FDSVA_SO);
     const bool qdd_slot = (op == OP_ID || op == OP_ID_GRAD);
     for (int t = 0; t < batch; ++t) {
@@ -393,33 +393,33 @@ int download(const KernelCtx &c, int op, int batch, T *out) {
 
 }  // namespace
 
-extern "C" int grid_kernel_num_joints() { return grid::NUM_JOINTS; }
-extern "C" int grid_kernel_num_vel() { return grid::NUM_VEL; }
-extern "C" int grid_kernel_max_batch() { return GRID_KERNEL_MAX_BATCH; }
-extern "C" int grid_kernel_op_built(int op) { return op_built(op) ? 1 : 0; }
-extern "C" int grid_kernel_output_size(int op) { return output_size(op); }
+extern "C" int grim_kernel_num_joints() { return grim::NUM_JOINTS; }
+extern "C" int grim_kernel_num_vel() { return grim::NUM_VEL; }
+extern "C" int grim_kernel_max_batch() { return GRIM_KERNEL_MAX_BATCH; }
+extern "C" int grim_kernel_op_built(int op) { return op_built(op) ? 1 : 0; }
+extern "C" int grim_kernel_output_size(int op) { return output_size(op); }
 
-extern "C" void *grid_kernel_create() {
+extern "C" void *grim_kernel_create() {
     KernelCtx *c = new KernelCtx;
-    c->streams = grid::init_grid<T>();
-    c->model = grid::init_robotModel<T>();
-    c->data = grid::init_gridData<T, GRID_KERNEL_MAX_BATCH>();
+    c->streams = grim::init_grim<T>();
+    c->model = grim::init_robotModel<T>();
+    c->data = grim::init_grimData<T, GRIM_KERNEL_MAX_BATCH>();
     if (!c->streams || !c->model || !c->data) { delete c; return nullptr; }
     return c;
 }
 
-extern "C" void grid_kernel_close(void *h) {
+extern "C" void grim_kernel_close(void *h) {
     if (!h) return;
     KernelCtx *c = static_cast<KernelCtx *>(h);
-    grid::close_grid<T>(c->streams, c->model, c->data);
+    grim::close_grim<T>(c->streams, c->model, c->data);
     delete c;
 }
 
 // One compute-only call (resident inputs) and the D2H of its output; used for
 // the post-timing repeatability / oracle checks of the compute boundary.
-extern "C" int grid_kernel_run(void *h, int op, const T *q, const T *qd, const T *third,
+extern "C" int grim_kernel_run(void *h, int op, const T *q, const T *qd, const T *third,
                                int batch, int threads, T gravity, T *out_compute) {
-    if (!h || !q || !qd || !third || !out_compute || batch < 1 || batch > GRID_KERNEL_MAX_BATCH) return -1;
+    if (!h || !q || !qd || !third || !out_compute || batch < 1 || batch > GRIM_KERNEL_MAX_BATCH) return -1;
     if (!op_built(op)) return -2;
     KernelCtx &c = *static_cast<KernelCtx *>(h);
     if (int rc = stage_inputs(c, op, q, qd, third, batch)) return rc;
@@ -436,13 +436,13 @@ extern "C" int grid_kernel_run(void *h, int op, const T *q, const T *qd, const T
 // bracketed by a device synchronization. Returns the with_mem output (host
 // buffer of the last with_mem call) and the compute output (D2H after the
 // compute loop) so the caller can check both bitwise against the wrapper.
-extern "C" int grid_kernel_time(void *h, int op, const T *q, const T *qd, const T *third,
+extern "C" int grim_kernel_time(void *h, int op, const T *q, const T *qd, const T *third,
                                 int batch, int threads, T gravity, double warm_seconds,
                                 int warmups, int iterations,
                                 double *with_mem_us, double *compute_us,
                                 T *out_with_mem, T *out_compute, int *threads_used) {
     if (!h || !q || !qd || !third || !with_mem_us || !compute_us || !out_with_mem || !out_compute
-        || !threads_used || batch < 1 || batch > GRID_KERNEL_MAX_BATCH || warmups < 1 || iterations < 1
+        || !threads_used || batch < 1 || batch > GRIM_KERNEL_MAX_BATCH || warmups < 1 || iterations < 1
         || warm_seconds < 0) return -1;
     if (!op_built(op)) return -2;
     KernelCtx &c = *static_cast<KernelCtx *>(h);
@@ -452,7 +452,7 @@ extern "C" int grid_kernel_time(void *h, int op, const T *q, const T *qd, const 
 
     // Time-based warm-up: a fixed handful of microsecond calls never leaves
     // the idle clock; sustain calls until the device has reached its steady
-    // boost state (see timeGRiD_common.h for the measured rationale).
+    // boost state (see timeGRiM_common.h for the measured rationale).
     const double warm_start = now_us();
     int done = 0;
     do {

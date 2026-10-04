@@ -13,7 +13,7 @@ The f_ext-gradient family blows the sm_120 ~99 KB smem cap on big robots. On h2_
 
 The spill RELOCATES buffers (smem -> L2-pinned d_workspace); it must not change the
 result. f_ext is fully DETERMINISTIC (RNEA-backprop -J^T + minv + a dense GEMM + the
-analytic -dJ^T/dq fold), so this forces the deepest rung at codegen (a low GRID_CUDA_TARGET_SHARED_MEM_BYTES)
+analytic -dJ^T/dq fold), so this forces the deepest rung at codegen (a low GRIM_CUDA_TARGET_SHARED_MEM_BYTES)
 and asserts the host-wrapper outputs are BIT-IDENTICAL to the unspilled full-smem rung
 (the oracle-validated path, checked vs pinocchio in test_cuda_f_ext_gradient_equivalence.py).
 A minimal id/minv/f_ext_gradient codegen subset keeps the SO kernels out of the header so
@@ -22,7 +22,7 @@ the forced-low target does not trigger their pathological deep-spill compile wal
 h2_plus itself is launch-only: its full rung never fits, so it is generated at the deep
 rung and checked for a finite, non-crashing launch (the de-gate proof).
 
-Override the bit-equality robots with GRID_CUDA_FEG_SPILL_ROBOTS="g1:floating,iiwa14:fixed".
+Override the bit-equality robots with GRIM_CUDA_FEG_SPILL_ROBOTS="g1:floating,iiwa14:fixed".
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from URDFParser import URDFParser
 from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
@@ -57,7 +57,7 @@ _OUTPUTS = ("f_ext_gradient_dtau_dfext", "f_ext_gradient_dqdd_dfext",
 
 
 def _bit_equal_robots():
-    raw = os.environ.get("GRID_CUDA_FEG_SPILL_ROBOTS", "g1:floating,iiwa14:fixed")
+    raw = os.environ.get("GRIM_CUDA_FEG_SPILL_ROBOTS", "g1:floating,iiwa14:fixed")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -76,17 +76,17 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _gen(robot, build_dir, target):
-    prev = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES")
-    os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
+    prev = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES")
+    os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
     try:
-        cg = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+        cg = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-            cg.gen_all_code(algorithm_list=_SUBSET, output_path=str(build_dir / "grid.cuh"))
+            cg.gen_all_code(algorithm_list=_SUBSET, output_path=str(build_dir / "grim.cuh"))
     finally:
         if prev is None:
-            os.environ.pop("GRID_CUDA_TARGET_SHARED_MEM_BYTES", None)
+            os.environ.pop("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", None)
         else:
-            os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
+            os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
     return cg
 
 
@@ -98,8 +98,8 @@ def _compile(build_dir, arch, floating):
     repo = Path(__file__).resolve().parents[2]
     exe = build_dir / "runner.exe"
     cmd = [nvcc, "-std=c++17", "-O0", "-gencode", f"arch=compute_{arch},code=sm_{arch}",
-           f"-DGRID_CUDA_FLOATING_BASE={1 if floating else 0}",
-           "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+           f"-DGRIM_CUDA_FLOATING_BASE={1 if floating else 0}",
+           "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
            f"-I{repo}", f"-I{build_dir}", "-o", str(exe), str(build_dir / "runner.cu")]
     res = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)
     if res.returncode != 0:
@@ -155,8 +155,8 @@ def test_cuda_f_ext_gradient_spill_matches_full(tmp_path, robot_id, base_mode):
         f"forced target did not land f_ext deep rung (got {cg_deep.f_ext_gradient_spill_tier_3way})"
     assert cg_deep.f_ext_gradient_dq_spill_tier_3way[0] == 1, \
         f"forced target did not land dq spill rung (got {cg_deep.f_ext_gradient_dq_spill_tier_3way})"
-    htxt = (deep_dir / "grid.cuh").read_text()
-    assert "GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()" in htxt and "GRID_MINV_F_WORKSPACE_OFFSET_BYTES<T>()" in htxt, \
+    htxt = (deep_dir / "grim.cuh").read_text()
+    assert "GRIM_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()" in htxt and "GRIM_MINV_F_WORKSPACE_OFFSET_BYTES<T>()" in htxt, \
         "spill repoints (output SO band + minv-F) not emitted in the forced header"
     deep_exe = _compile(deep_dir, arch, floating)
 

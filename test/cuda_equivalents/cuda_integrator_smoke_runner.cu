@@ -19,10 +19,10 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 // Block thread count for all integrator kernel launches. 0 => use
-// grid::MAX_PERF_LEVEL_THREADS. Overridable via argv[1] so the test harness can
+// grim::MAX_PERF_LEVEL_THREADS. Overridable via argv[1] so the test harness can
 // sweep warp counts to catch thread-count-dependent races.
 int g_num_threads = 0;
 
@@ -57,39 +57,39 @@ void print_vector(const std::string &name, const T *data, int count) {
     print_matrix_col_major(name, data, 1, count);
 }
 
-template <typename T, grid::IntegratorType IT>
+template <typename T, grim::IntegratorType IT>
 void run_value_only(const std::string &prefix,
-                    grid::gridData<T> *hd_data,
-                    grid::robotModel<T> *d_robotModel,
+                    grim::grimData<T> *hd_data,
+                    grim::robotModel<T> *d_robotModel,
                     cudaStream_t *streams,
                     const dim3 &block_dimms,
                     const dim3 &thread_dimms,
                     const T *original_q_qd_u,
                     T gravity,
                     T dt) {
-    const int input_count = 3 * grid::NUM_POS;  // gridData canonical [q|qd@nq|u@2nq] (nq-wide slots)
-    const int x_kp1_count = grid::NUM_POS + grid::NUM_VEL;
+    const int input_count = 3 * grim::NUM_POS;  // grimData canonical [q|qd@nq|u@2nq] (nq-wide slots)
+    const int x_kp1_count = grim::NUM_POS + grim::NUM_VEL;
     std::memcpy(hd_data->h_q_qd_u, original_q_qd_u, input_count * sizeof(T));
-    grid::integrator<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
+    grim::integrator<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
     print_vector(prefix + "_x_kp1", hd_data->h_x_kp1, x_kp1_count);
 }
 
-template <typename T, grid::IntegratorType IT>
+template <typename T, grim::IntegratorType IT>
 void run_one(const std::string &prefix,
-             grid::gridData<T> *hd_data,
-             grid::robotModel<T> *d_robotModel,
+             grim::grimData<T> *hd_data,
+             grim::robotModel<T> *d_robotModel,
              cudaStream_t *streams,
              const dim3 &block_dimms,
              const dim3 &thread_dimms,
              const T *original_q_qd_u,
              T gravity,
              T dt) {
-    const int input_count = 3 * grid::NUM_POS;  // gridData canonical [q|qd@nq|u@2nq] (nq-wide slots)
-    const int x_kp1_count = grid::NUM_POS + grid::NUM_VEL;
-    const int nv = grid::NUM_VEL;
+    const int input_count = 3 * grim::NUM_POS;  // grimData canonical [q|qd@nq|u@2nq] (nq-wide slots)
+    const int x_kp1_count = grim::NUM_POS + grim::NUM_VEL;
+    const int nv = grim::NUM_VEL;
     // value-only (always)
     std::memcpy(hd_data->h_q_qd_u, original_q_qd_u, input_count * sizeof(T));
-    grid::integrator<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
+    grim::integrator<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
     print_vector(prefix + "_x_kp1", hd_data->h_x_kp1, x_kp1_count);
 
     // gradient + both-at-once. The gradient kernels are emitted whenever
@@ -100,12 +100,12 @@ void run_one(const std::string &prefix,
     // All five integrator gradients are now emitted for both fixed- and
     // floating-base (the floating SI-Euler / Midpoint / TRAPEZOIDAL / RK4 gradients add
     // the SE(3) dIntegrate chain-rule wiring), so no per-IT guard is needed.
-#if GRID_HAS_INTEGRATOR_GRADIENT
+#if GRIM_HAS_INTEGRATOR_GRADIENT
     (void) nv;
-    grid::integrator_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
+    grim::integrator_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
     print_matrix_col_major(prefix + "_dAB", hd_data->h_dAB, 2 * nv, 3 * nv);
 
-    grid::integrator_with_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
+    grim::integrator_with_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
     print_vector(prefix + "_x_kp1_with_dAB", hd_data->h_x_kp1, x_kp1_count);
     print_matrix_col_major(prefix + "_dAB_with_x_kp1", hd_data->h_dAB, 2 * nv, 3 * nv);
 #else
@@ -123,16 +123,16 @@ void run() {
     // cudaErrorInvalidValue, so a swept count above the bound (e.g. 448 on a
     // small robot whose MAX_PERF_LEVEL_THREADS is 352) must be clamped down. The
     // clamped value is still multi-warp, so thread-count race coverage holds.
-    const int requested = g_num_threads > 0 ? g_num_threads : grid::MAX_PERF_LEVEL_THREADS;
-    const int nthreads = requested < grid::MAX_PERF_LEVEL_THREADS ? requested : grid::MAX_PERF_LEVEL_THREADS;
+    const int requested = g_num_threads > 0 ? g_num_threads : grim::MAX_PERF_LEVEL_THREADS;
+    const int nthreads = requested < grim::MAX_PERF_LEVEL_THREADS ? requested : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(nthreads, 1, 1);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
-    const int nq = grid::NUM_POS;
-    const int nv = grid::NUM_VEL;
+    const int nq = grim::NUM_POS;
+    const int nv = grim::NUM_VEL;
     std::vector<T> h_q(nq), h_qd(nv), h_u(nv);
     read_vector(h_q.data(), nq);
     read_vector(h_qd.data(), nv);
@@ -144,7 +144,7 @@ void run() {
     }
     const T dt = static_cast<T>(dt_double);
 
-    // Pack into h_q_qd_u as the gridData canonical layout [q (nq) | qd @ nq | u @ 2*nq]
+    // Pack into h_q_qd_u as the grimData canonical layout [q (nq) | qd @ nq | u @ 2*nq]
     // — nq-WIDE slots (stride nq), matching what the integrator host wrapper copies
     // (stride_q = 3*NUM_JOINTS) and what forward_dynamics reads (s_u = &s_q_qd_u[2*nq]).
     // NOTE: u must sit at 2*nq, NOT nq+nv. For a FLOATING base nq != nv, so packing u at
@@ -170,30 +170,30 @@ void run() {
         std::cout << "END input_dt\n";
     }
 
-    // External forces (opt-in via GRID_RUNNER_FEXT): read 6*NUM_BODIES body-major
+    // External forces (opt-in via GRIM_RUNNER_FEXT): read 6*NUM_BODIES body-major
     // local-frame [angular; linear] values (next on stdin after dt) into
     // hd_data->h_f_ext and copy to d_f_ext. The integrator host wrapper reads
     // hd_data->d_f_ext, so every integrator launch below evaluates FD at the
     // f_ext-perturbed operating point. Default (env unset): d_f_ext stays zeroed,
     // byte-identical to the no-fext path.
-    if (std::getenv("GRID_RUNNER_FEXT") != nullptr) {
-        read_vector(hd_data->h_f_ext, 6 * grid::NUM_BODIES);
+    if (std::getenv("GRIM_RUNNER_FEXT") != nullptr) {
+        read_vector(hd_data->h_f_ext, 6 * grim::NUM_BODIES);
         gpuErrchk(cudaMemcpy(hd_data->d_f_ext, hd_data->h_f_ext,
-                             6 * grid::NUM_BODIES * sizeof(T), cudaMemcpyHostToDevice));
-        print_vector("input_f_ext", hd_data->h_f_ext, 6 * grid::NUM_BODIES);
+                             6 * grim::NUM_BODIES * sizeof(T), cudaMemcpyHostToDevice));
+        print_vector("input_f_ext", hd_data->h_f_ext, 6 * grim::NUM_BODIES);
     }
 
-    run_one<T, grid::IntegratorType::EULER>("integrator_euler",
+    run_one<T, grim::IntegratorType::EULER>("integrator_euler",
         hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
-    run_one<T, grid::IntegratorType::SEMI_IMPLICIT_EULER>("integrator_si_euler",
+    run_one<T, grim::IntegratorType::SEMI_IMPLICIT_EULER>("integrator_si_euler",
         hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
 
     // Midpoint / TRAPEZOIDAL / RK4: full path (value + gradient + both).
-    run_one<T, grid::IntegratorType::MIDPOINT>("integrator_midpoint",
+    run_one<T, grim::IntegratorType::MIDPOINT>("integrator_midpoint",
         hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
-    run_one<T, grid::IntegratorType::TRAPEZOIDAL>("integrator_trapezoidal",
+    run_one<T, grim::IntegratorType::TRAPEZOIDAL>("integrator_trapezoidal",
         hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
-    run_one<T, grid::IntegratorType::RK4>("integrator_rk4",
+    run_one<T, grim::IntegratorType::RK4>("integrator_rk4",
         hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
 
     // Constant acceleration: single-stage. Value = combined-tangent retract
@@ -201,10 +201,10 @@ void run() {
     // emitted for BOTH fixed- and floating-base (the floating top rows carry the
     // SE(3) dIntegrate chain-rule wiring at the combined tangent w), so it runs the
     // full value+gradient+both path like the other single-stage integrators.
-    run_one<T, grid::IntegratorType::CONSTANT_ACCELERATION>("integrator_constant_acceleration",
+    run_one<T, grim::IntegratorType::CONSTANT_ACCELERATION>("integrator_constant_acceleration",
         hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main(int argc, char **argv) {

@@ -1,4 +1,4 @@
-"""Python-wrapper smoke tests for the `grid-rbd` package.
+"""Python-wrapper smoke tests for the `grim` package.
 
 Registers iiwa14 (fixed-base) at session scope, exercises every bound
 method, and asserts numerical agreement with `RBDReference` at float32
@@ -6,7 +6,7 @@ precision. The session-scoped registration takes ~30-60s for the
 first run; subsequent runs hit the cache and start in <1s.
 
 Skip conditions:
-  * `grid_rbd` not importable (pip install python/ skipped).
+  * `grim` not importable (pip install python/ skipped).
   * `nvcc` not on PATH (would fail at register time anyway).
   * iiwa14 URDF fixture not present.
 
@@ -32,7 +32,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (pip install python/)")
+_grim = pytest.importorskip("grim", reason="grim not installed (pip install python/)")
 
 _URDF = (
     Path.home()
@@ -42,7 +42,7 @@ if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -56,7 +56,7 @@ _TOL = 5e-3   # float32 vs float64 cross-precision; some algos drift ~1e-4
 
 @pytest.fixture(scope="module")
 def handle():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_pytest_smoke",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -188,7 +188,7 @@ def test_register_idempotent(handle):
     """Re-registering the same robot reuses the cache (cache hit ⇒ fast)."""
     import time
     t0 = time.time()
-    h2 = _grid_rbd.register_robot(
+    h2 = _grim.register_robot(
         name="iiwa14_pytest_smoke",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -201,13 +201,13 @@ def test_register_idempotent(handle):
 
 
 def test_get_robot_roundtrip(handle):
-    h2 = _grid_rbd.get_robot("iiwa14_pytest_smoke")
+    h2 = _grim.get_robot("iiwa14_pytest_smoke")
     assert h2.num_joints == handle.num_joints
 
 
 def test_get_robot_missing_raises():
-    with pytest.raises(_grid_rbd.RobotNotRegisteredError):
-        _grid_rbd.get_robot("does_not_exist_xyz")
+    with pytest.raises(_grim.RobotNotRegisteredError):
+        _grim.get_robot("does_not_exist_xyz")
 
 
 # ─── Phase-C extension: hessian + SO ───────────────────────────────────────

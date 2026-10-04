@@ -2,12 +2,12 @@
 
 `handle.pinned_empty(shape)` + `out=` on the first-order gradients and idsva_so /
 fdsva_so: the C ABI retargets the
-generated host wrapper's D2H copy at the caller's buffer (GridMirrorRetarget), so no
+generated host wrapper's D2H copy at the caller's buffer (GrimMirrorRetarget), so no
 host-side memcpy follows and a page-locked buffer receives the copy at the PCIe rate.
 Contract pinned here: bit-identical to the default call, the returned tensors are VIEWS
 of `out`, `out` works pinned or pageable, the mirror is restored after the call (a later
 default call is unaffected), and bad `out` arguments are refused with clear messages.
-Skips when grid_rbd / CUDA / nvcc are unavailable.
+Skips when grim / CUDA / nvcc are unavailable.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
     pytest.skip("nvcc not on PATH", allow_module_level=True)
 _URDF = robot_urdf("iiwa14")
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.python_wrappers
 
 @pytest.fixture(scope="module")
 def h():
-    return _grid_rbd.register_robot(name="iiwa14_host_transfer_numpy", urdf_path=str(_URDF),
+    return _grim.register_robot(name="iiwa14_host_transfer_numpy", urdf_path=str(_URDF),
                                     floating_base=False, max_batch_size=8)
 
 

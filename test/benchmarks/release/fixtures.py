@@ -37,7 +37,7 @@ class Fixture:
 
     def args(self, op, batch, padded=False):
         """Inputs at the public widths (q: nq, qd/qdd/u: nv). ``padded=True`` gives the
-        nq-wide padded velocity rows the raw grid.cuh kernel bridge stages itself."""
+        nq-wide padded velocity rows the raw grim.cuh kernel bridge stages itself."""
         def width(a):
             return np.pad(a[:batch], ((0, 0), (0, self.nq-self.nv))) if padded else a[:batch]
         if op in Q_ONLY_OPS:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Non-failing GRiD performance regression reporter.
+"""Non-failing GRiM performance regression reporter.
 
 This intentionally reports timing deltas without failing the process.  It is
 meant for developer feedback after running the generated timing kernels with
@@ -121,7 +121,7 @@ def main() -> int:
     parser.add_argument("--fallback-tier", default="auto")
     parser.add_argument("--precision", default="float")
     parser.add_argument("--save", action="store_true", help="Save current timings as the baseline for this key.")
-    parser.add_argument("command", nargs=argparse.REMAINDER, help="Timing command to run after --, e.g. -- ./timeGRiD")
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="Timing command to run after --, e.g. -- ./timeGRiM")
     args = parser.parse_args()
 
     if args.command and args.command[0] == "--":

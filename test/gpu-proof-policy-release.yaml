@@ -1,4 +1,4 @@
-# pytest-gpu-proof RELEASE verification policy for GRiD.
+# pytest-gpu-proof RELEASE verification policy for GRiM.
 #
 # The everyday policy (gpu-proof-policy.yaml) accepts CARRIED shards so a
 # routine push goes green in ~minutes-to-an-hour by re-proving only the shards
@@ -18,8 +18,8 @@ allow_dirty: false
 max_age_days: 30
 allow_carried: false
 required_fingerprint_paths:
-  - grid_codegen
-  - bindings/grid_rbd
+  - grim_codegen
+  - bindings/grim
   - bindings/src
   - external/GLASS
   - external/RBDReference

@@ -10,7 +10,7 @@ receipt machinery. Commands + the receipt policy:
 | dir | what | marker | GPU? |
 |-----|------|--------|------|
 | `cuda_equivalents/` | generated-CUDA vs numpy-oracle equivalence (per-algo runners + the split-suite harness) | `cuda_equivalence` | yes |
-| `python_wrappers/` | the `grid_rbd` numpy/jax/torch handle suites | `python_wrappers` | yes |
+| `python_wrappers/` | the `grim` numpy/jax/torch handle suites | `python_wrappers` | yes |
 | `benchmarks/` | the timing harness + orchestration scripts (never run during tests) | — | yes |
 | `diagnostics/` | manual probes (tier instantiation smoke, tier baselines) — not collected by CI | — | yes |
 
@@ -57,7 +57,7 @@ logic itself), `test_collision_spherize.py`, `test_collision_flange_mapping.py`.
 
 - `test/.split_suite/` — receipt run dirs (`receipt_<stamp>/`), rolling shard
   durations, the compile-RSS ledger. Old `receipt_*` dirs are prunable.
-- `.grid_build_cache/cuda` — the content-keyed nvcc build cache (several GB,
+- `.grim_build_cache/cuda` — the content-keyed nvcc build cache (several GB,
   warm = fast reruns). Safe to delete; the next run rebuilds cold. The old
   `.pytest_cache/` location is history — `pytest --cache-clear` no longer
   touches the build cache.

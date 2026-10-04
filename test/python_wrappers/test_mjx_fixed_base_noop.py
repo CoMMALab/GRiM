@@ -35,7 +35,7 @@ def _has_cuda():
 @pytest.mark.skipif(not _has_cuda(), reason="needs nvcc + CUDA GPU")
 @pytest.mark.skipif(not _IIWA.exists(), reason="iiwa14 urdf missing")
 def test_fixed_base_mujoco_convention_is_noop():
-    from grid_rbd import register_robot
+    from grim import register_robot
     # The subset build keeps this fast; the point is the API + no-op numerics, not coverage.
     common = dict(urdf_path=str(_IIWA), floating_base=False,
                   algorithm_list=["inverse_dynamics"], max_batch_size=8)
@@ -64,8 +64,8 @@ def test_fixed_base_mujoco_convention_is_noop_jax_torch():
     setter semantics): output_convention="mujoco" on a fixed base is accepted
     (previously a ValueError — clean-break unification to the numpy semantics)
     and every call is a pin-identical no-op, including the .mujoco view."""
-    jax_mod = pytest.importorskip("grid_rbd.jax", reason="grid_rbd.jax import failed")
-    torch_mod = pytest.importorskip("grid_rbd.torch", reason="grid_rbd.torch import failed")
+    jax_mod = pytest.importorskip("grim.jax", reason="grim.jax import failed")
+    torch_mod = pytest.importorskip("grim.torch", reason="grim.torch import failed")
     import torch
 
     common = dict(urdf_path=str(_IIWA), floating_base=False,

@@ -21,7 +21,7 @@ THIS_DIR  = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from test.benchmarks.timing_parser import (  # noqa: E402
-    parse_grid_output, fill_nulls, build_metadata,
+    parse_grim_output, fill_nulls, build_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -154,8 +154,8 @@ def main() -> None:
         print(f"  [mjx] ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # parse_grid_output handles the same label format that timeMJX.py emits
-    timings = parse_grid_output(output, single_statistic="median")
+    # parse_grim_output handles the same label format that timeMJX.py emits
+    timings = parse_grim_output(output, single_statistic="median")
     # Zero out algos that MJX doesn't support (so they appear as null, not absent)
     for algo in list(timings.keys()):
         if algo not in MJX_ALGOS:

@@ -9,8 +9,8 @@ Benchmarks
    release collection is on the :doc:`release measurements <../../release_measurements>`
    page.
 
-GRiD ships a benchmark harness that compares GRiD against CPU and GPU
-baselines (Pinocchio, MJX, Frax, BARD) and against historical GRiD
+GRiM ships a benchmark harness that compares GRiM against CPU and GPU
+baselines (Pinocchio, MJX, Frax, BARD) and against historical GRiM
 reference points. BARD (PyTorch) is timed on both torch CPU and CUDA, so
 it contributes ``bard_cpu`` / ``bard_gpu`` columns to the report. The
 harness lives under
@@ -25,14 +25,14 @@ The full multi-baseline sweep:
 
    .venv/bin/python test/benchmarks/run_benchmarks.py
 
-A single GRiD cell for fast iteration (per-exe path: one TU / exe /
+A single GRiM cell for fast iteration (per-exe path: one TU / exe /
 process per algorithm, RAM-safe and crash-isolated):
 
 .. code-block:: shell
 
    .venv/bin/python test/benchmarks/per_algo_bench.py --robot iiwa14 --base fixed
 
-A multi-version comparison sweep (multiple GRiD configurations + baselines)
+A multi-version comparison sweep (multiple GRiM configurations + baselines)
 producing the canonical markdown report:
 
 .. code-block:: shell
@@ -91,7 +91,7 @@ integrator family, ``multi_target_position``/``_gradient``, the runtime-EE
 and frame-Jacobian families, the centroidal set, and the mjx twins — so
 any of those can be timed the same way.
 
-``GRID_BENCH_EXTRA_NVCC_FLAGS`` is the compile-flag env seam: extra
+``GRIM_BENCH_EXTRA_NVCC_FLAGS`` is the compile-flag env seam: extra
 ``nvcc`` flags for the bench build (used for compile-flag A/Bs). The value
 is folded into the bench's content stamp, so changing the flags correctly
 invalidates the cached binaries instead of reusing a stale build.
@@ -100,7 +100,7 @@ Output schema
 -------------
 
 Each cell produces a JSON file at
-``<output-dir>/<robot>_<base>_grid_<column>.json``. Each row in the JSON
+``<output-dir>/<robot>_<base>_grim_<column>.json``. Each row in the JSON
 captures three measurements per algorithm:
 
 * **single-call** — wall time for one host-level invocation (one timestep).
@@ -144,14 +144,14 @@ See :doc:`../getting_started/installation` for details.
 Autotune launch config for your robot / GPU
 -------------------------------------------
 
-GRiD kernels are single-block and **thread-count-invariant** (same result
+GRiM kernels are single-block and **thread-count-invariant** (same result
 at any block size), so the optimal ``(resource_tier, threads_per_block)``
 for each algorithm is a pure *performance* choice that depends on the
-**robot** (DoF / topology) and the **GPU**. GRiD ships measured-optimal
+**robot** (DoF / topology) and the **GPU**. GRiM ships measured-optimal
 launch configs under ``config/launch_configs/<robot>/<gpu>.json``; codegen bakes
-the matching file into ``grid_launch_config.cuh`` and the host launchers
+the matching file into ``grim_launch_config.cuh`` and the host launchers
 (and therefore the python / jax / torch bindings) default their launch
-config from it. With no entry for your (robot, GPU), GRiD falls back to a
+config from it. With no entry for your (robot, GPU), GRiM falls back to a
 conservative — still correct, just slower — default.
 
 To autotune **your** robot on **your** GPU and write the override:
@@ -170,7 +170,7 @@ This:
 #. Detects your GPU (``nvidia-smi`` name + compute capability) and derives
    the GPU key ``<model>_sm<arch>`` (e.g. ``rtx5090_sm120``). If detection
    fails, set ``GPU_KEY=<model>_sm<arch>`` and re-run.
-#. Runs the GRiD autotune sweep (``per_algo_bench.py --mode autotune
+#. Runs the GRiM autotune sweep (``per_algo_bench.py --mode autotune
    --stage sweep``) for that robot + bases. The build is **RAM-safe
    serial** (``--compile-jobs 1``, one per-algo TU at a time) so the
    big-robot second-order TUs never OOM the box.
@@ -179,7 +179,7 @@ This:
    ``autotune_N``, ``source``, ``bases``).
 
 **Then rebuild to pick it up:** re-run codegen for the robot (codegen
-auto-discovers the new ``launch_configs`` file) and rebuild GRiD / the
+auto-discovers the new ``launch_configs`` file) and rebuild GRiM / the
 bindings as usual. The host launchers will default to your tuned
 ``(tier, threads)``.
 
@@ -189,7 +189,7 @@ bindings as usual. The host launchers will default to your tuned
    the ``-rdc`` shim). The autotuner tunes on **batch** timing (``N=256`` by
    default; override with ``AUTOTUNE_N``), which is what the host launch
    config should optimize for. Opt single-call timing back in with
-   ``--single-timing`` / ``GRID_BENCH_SINGLE_TIMING=1`` only if you
+   ``--single-timing`` / ``GRIM_BENCH_SINGLE_TIMING=1`` only if you
    specifically need it.
 
 Run the sweep on a **quiet GPU** — timing must be isolated, so close other
@@ -230,8 +230,8 @@ The multi-version harness supports an automatic regression check
 against the pre-GLASS reference commit (``d2c0d18``). Add ``pre_glass``
 to ``--columns`` and the harness will:
 
-#. Create a worktree at ``../GRiD-A2R-pre-glass`` (or
-   ``$GRID_PRE_GLASS_WORKTREE``).
+#. Create a worktree at ``../GRiM-A2R-pre-glass`` (or
+   ``$GRIM_PRE_GLASS_WORKTREE``).
 #. Initialize submodules pinned to their pre-GLASS revisions.
 #. Run the same cell list using that frozen harness.
 
@@ -241,7 +241,7 @@ harness predates floating-base support.
 GPU-resident pipelines (no-transfer timing)
 -------------------------------------------
 
-GRiD's jax/torch handles can keep an entire control/rollout loop on the GPU —
+GRiM's jax/torch handles can keep an entire control/rollout loop on the GPU —
 inputs, dynamics calls, and downstream math never round-trip through host
 memory. Two example pairs demonstrate and time this
 (``bindings/examples/jax_gpu_resident.py`` / ``torch_cuda_graphs.py`` for the
@@ -252,9 +252,9 @@ Measured on the RTX 5090 (sm_120, 2026-08-09,
 ``results/overnight_20260809/legC_gpu_resident.json``):
 
 * **JAX resident rollout vs host round-trip** (a ``lax.scan`` rollout calling
-  GRiD's dynamics each step): iiwa14 **24.3x / 14.5x / 7.3x** faster at batch
+  GRiM's dynamics each step): iiwa14 **24.3x / 14.5x / 7.3x** faster at batch
   64 / 256 / 1024 (1.5 ms vs 36.6 ms at B=64); go2-floating **6.8x / 6.9x /
-  3.6x** (the floating rollout drives GRiD's own ``integrator`` kernel for the
+  3.6x** (the floating rollout drives GRiM's own ``integrator`` kernel for the
   on-manifold base retract inside the scan).
 * **Torch CUDA graphs**: replay wall-time is roughly break-even with eager
   (0.91-0.99x) — the win is in **CPU submission cost**, ~13 us eager vs ~1.9 us
@@ -278,8 +278,8 @@ still ~80 % of the (much smaller) total after pinning.
 
 Two fixes ship for this:
 
-* **Pinned host staging** — ``grid_host_alloc`` (``cudaMallocHost``)
-  replaced pageable ``malloc`` for every ``gridData`` host buffer, raising
+* **Pinned host staging** — ``grim_host_alloc`` (``cudaMallocHost``)
+  replaced pageable ``malloc`` for every ``grimData`` host buffer, raising
   effective D2H bandwidth on large payloads from 13.3 to ~21 GB/s (the
   box's PCIe-lane ceiling). That alone flipped **8 with-mem cells** vs
   Pinocchio (CPU, 24 threads) (11 losses + 2 ties → 5 losses + 8 wins); the
@@ -290,7 +290,7 @@ Two fixes ship for this:
 Staying resident (jax)
 ----------------------
 
-The ``grid_rbd`` jax FFI path is device-in / device-out: under ``jit`` /
+The ``grim`` jax FFI path is device-in / device-out: under ``jit`` /
 ``lax.scan`` composition the nv³ tensor is produced on-device and consumed
 by the next pipeline stage (a Hessian-vector product, a DDP backward pass)
 with **zero host transfer**. Layer-3 timings (jax FFI, medians of 30 iters

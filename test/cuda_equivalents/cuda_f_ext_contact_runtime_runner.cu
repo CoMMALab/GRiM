@@ -6,18 +6,18 @@
 // this touches the world-FK chain-up + tier arena (the §1s/§1t surface), and go2 is branched AND floating.
 //
 // CHECKS (all on the RUNTIME device fns): value nonzero; d(f_ext)/d(f_c) vs central FD in f_c + bit-exact
-// f_c-independence; d(f_ext)/dq vs central FD in q via an SE(3) RETRACT (grid_integrate_floating_q);
+// f_c-independence; d(f_ext)/dq vs central FD in q via an SE(3) RETRACT (grim_integrate_floating_q);
 // f_c-linearity; and ZERO rows on every body other than b. T=double for clean FD (production is fp32).
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = double;
-constexpr int NQ  = grid::NUM_POS;
-constexpr int NV  = grid::NUM_VEL;
-constexpr int NB  = grid::NUM_BODIES;
+constexpr int NQ  = grim::NUM_POS;
+constexpr int NV  = grim::NUM_VEL;
+constexpr int NB  = grim::NUM_BODIES;
 constexpr int NR  = 6 * NB;   // f_ext rows
 constexpr int NFC = 6;        // single contact wrench
 constexpr int TJID = TOOL_JID;
@@ -26,18 +26,18 @@ constexpr int TJID = TOOL_JID;
 
 __device__ T d_eps;
 
-__global__ void analytic_kernel(const T *q0, const T *fc, const T *d_rc, const grid::robotModel<T> *m,
+__global__ void analytic_kernel(const T *q0, const T *fc, const T *d_rc, const grim::robotModel<T> *m,
                                 T *d_fext, T *d_dfc, T *d_dq) {
     __shared__ T s_fext[NR], s_dfc[NR*NFC], s_dq[NR*NV];
     __shared__ T s_dtau[NV*6*NB], s_dqdd[NV*6*NB];
     __shared__ T s_rc[3];
     if (threadIdx.x < 3 && threadIdx.y == 0) s_rc[threadIdx.x] = d_rc[threadIdx.x];
     // -J^T (its columns ARE the local body Jacobian -> the omega the dq map needs)
-    grid::f_ext_gradient_device<T>(s_dtau, s_dqdd, q0, m);
+    grim::f_ext_gradient_device<T>(s_dtau, s_dqdd, q0, m);
     __syncthreads();
-    grid::f_ext_body_runtime_device<T>(s_fext, fc, TJID, s_rc, q0, m);
-    grid::f_ext_body_jacobian_dfc_runtime_device<T>(s_dfc, TJID, s_rc, q0, m);
-    grid::f_ext_body_jacobian_dq_runtime_device<T>(s_dq, fc, TJID, s_rc, s_dtau, q0, m);
+    grim::f_ext_body_runtime_device<T>(s_fext, fc, TJID, s_rc, q0, m);
+    grim::f_ext_body_jacobian_dfc_runtime_device<T>(s_dfc, TJID, s_rc, q0, m);
+    grim::f_ext_body_jacobian_dq_runtime_device<T>(s_dq, fc, TJID, s_rc, s_dtau, q0, m);
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0) {
         for (int i = 0; i < NR; ++i)      d_fext[i] = s_fext[i];
@@ -47,7 +47,7 @@ __global__ void analytic_kernel(const T *q0, const T *fc, const T *d_rc, const g
 }
 
 // f_ext value at a perturbed state. mode: 0 = perturb f_c[idx], 1 = SE(3)-retract q along dv[idx].
-__global__ void fd_kernel(const T *q0, const T *fc, const T *d_rc, const grid::robotModel<T> *m,
+__global__ void fd_kernel(const T *q0, const T *fc, const T *d_rc, const grim::robotModel<T> *m,
                           int mode, int idx, int sign, T *d_out) {
     __shared__ T s_q[NQ], s_fc[NFC], s_fext[NR], s_dv[NV], s_qpert[NQ], s_rc[3];
     for (int i = threadIdx.x; i < NQ;  i += blockDim.x) s_q[i]  = q0[i];
@@ -57,24 +57,24 @@ __global__ void fd_kernel(const T *q0, const T *fc, const T *d_rc, const grid::r
     if (mode == 0) {
         if (threadIdx.x == 0) s_fc[idx] += sign * d_eps;
         __syncthreads();
-        grid::f_ext_body_runtime_device<T>(s_fext, s_fc, TJID, s_rc, s_q, m);
+        grim::f_ext_body_runtime_device<T>(s_fext, s_fc, TJID, s_rc, s_q, m);
     } else {
         for (int i = threadIdx.x; i < NV; i += blockDim.x) s_dv[i] = static_cast<T>(0);
         __syncthreads();
         if (threadIdx.x == 0) s_dv[idx] = sign * d_eps;
         __syncthreads();
-        grid::grid_integrate_floating_q<T, NQ>(s_q, s_dv, s_qpert);
+        grim::grim_integrate_floating_q<T, NQ>(s_q, s_dv, s_qpert);
         __syncthreads();
-        grid::f_ext_body_runtime_device<T>(s_fext, s_fc, TJID, s_rc, s_qpert, m);
+        grim::f_ext_body_runtime_device<T>(s_fext, s_fc, TJID, s_rc, s_qpert, m);
     }
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0) for (int i = 0; i < NR; ++i) d_out[i] = s_fext[i];
 }
 
 int main(){
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t smem = grid::F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t s2 = grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t smem = grim::F_EXT_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t s2 = grim::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>();
     if (s2 > smem) smem = s2;
     smem += 4096;
     cudaFuncSetAttribute(analytic_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);

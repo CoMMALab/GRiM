@@ -1,6 +1,6 @@
-"""FFI-regime autotune for the grid_rbd python bindings.
+"""FFI-regime autotune for the grim python bindings.
 
-WHY THIS EXISTS (read first): the optimal CUDA block size for a GRiD kernel is
+WHY THIS EXISTS (read first): the optimal CUDA block size for a GRiM kernel is
 NOT a property of the kernel alone — it depends on the LAUNCH PATH and the
 MEASUREMENT (use case). The C++ run.py autotune (-> launch_configs `bases`)
 measures the host launch path and bakes a throughput-optimal thread count. The
@@ -17,7 +17,7 @@ So a binding that inherits the host's 128 runs fd ~1.6x slow. This tool sweeps
 the FFI launch path for the batch-to-land metric and writes the winners into
 config/launch_configs/<robot>/<gpu>.json under `ffi_bases` (the host `bases` block is
 left untouched). The binding's codegen reads `ffi_bases` by default (profile=
-"ffi"; see GRiDCodeGenerator.load_launch_config + bindings/grid_rbd/_compile.py),
+"ffi"; see GRiMCodeGenerator.load_launch_config + bindings/grim/_compile.py),
 falling back per-algo to host `bases` for any algo this tool didn't tune.
 
 V1 re-tunes THREADS only (runtime-settable, no rebuild), keeping each algo's
@@ -33,7 +33,7 @@ with its own optimum, written to its own launch_configs block):
     numpy -> `pybind_bases` (synchronous C-ABI host wrapper, H2D+launch+D2H included
                              — that copy round-trip IS the numpy use case)
 The bindings consume these via codegen profile overlays ("ffi"/"torch"/"pybind" ->
-<profile>_bases, GRiDCodeGenerator.load_launch_config) and the E6 runtime overlay
+<profile>_bases, GRiMCodeGenerator.load_launch_config) and the E6 runtime overlay
 (RobotHandle.apply_profile_overlay).
 
 Usage:
@@ -54,14 +54,14 @@ REPO_ROOT = THIS.parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 # Reuse the layer-3 harness machinery so we tune EXACTLY what it times.
-from test.benchmarks.baselines.grid.timeGRiD_bindings import (  # noqa: E402
+from test.benchmarks.baselines.grid.timeGRiM_bindings import (  # noqa: E402
     ALGOS, THREAD_CANDIDATES, _make_np,
 )
 from test.benchmarks.baselines.grid.run import get_urdf_path  # noqa: E402
-from grid_codegen.GRiDCodeGenerator import (  # noqa: E402
+from grim_codegen.GRiMCodeGenerator import (  # noqa: E402
     LAUNCH_CONFIG_DEFAULT_GPU, _launch_configs_dir,
 )
-from grid_codegen.algo_registry import build_launch_config_algo_to_symbol  # noqa: E402
+from grim_codegen.algo_registry import build_launch_config_algo_to_symbol  # noqa: E402
 
 # symbol (handle method name) -> short launch_configs json key (fd, id, ...).
 # Built from the descriptor table (single source of truth for {json key -> symbol}).
@@ -122,7 +122,7 @@ def _median_batch_to_land_us(call, fn, dev_args, iters):
 
 def _kernel_real_ceiling(handle, algo_key):
     """The kernel's REAL compiled __launch_bounds__ ceiling (= the baked tier's
-    maxThreadsPerBlock) via the grid_rbd_kernel_max_threads introspection C-ABI.
+    maxThreadsPerBlock) via the grim_kernel_max_threads introspection C-ABI.
 
     This is the E1 tier-contract fix: instead of GUESSING the tier (and defaulting
     to "shared"/512), query cudaFuncGetAttributes(...).maxThreadsPerBlock for the
@@ -182,7 +182,7 @@ def _sweep_algo(handle, fn, dev_args, candidates, iters, warmup, call, real_ceil
 
 
 def _tier_for_ceiling(ceiling, max_perf):
-    """Invert grid::tier_max_threads<TIER>() : a real maxThreadsPerBlock -> tier label.
+    """Invert grim::tier_max_threads<TIER>() : a real maxThreadsPerBlock -> tier label.
 
       tier_max_threads<TIER_SHARED>()  = max_perf             (capped at 512)
       tier_max_threads<TIER_LITE>()    = min(2*max_perf, 768)
@@ -219,7 +219,7 @@ def _host_tier_for(doc, base, key):
 
 def autotune_base(robot, base, n, iters, warmup, want_algos, build_algos=None,
                   surface="jax"):
-    import grid_rbd
+    import grim
 
     floating = base == "floating"
     urdf = get_urdf_path(robot)
@@ -236,16 +236,16 @@ def autotune_base(robot, base, n, iters, warmup, want_algos, build_algos=None,
         # footprint. Methods outside the subset simply won't exist on the handle and are
         # skipped by the sweep loop below.
         precompile_kw["tiers"] = [{"algorithm_list": list(build_algos)}]
-    grid_rbd.precompile(name, urdf, floating_base=floating,
+    grim.precompile(name, urdf, floating_base=floating,
                         max_batch_size=max(256, n), backends=(surface,), **precompile_kw)
     if surface == "jax":
-        import grid_rbd.jax as grid_jax
-        handle = grid_jax.get_robot(name)
+        import grim.jax as grim_jax
+        handle = grim_jax.get_robot(name)
     elif surface == "torch":
-        import grid_rbd.torch as grid_torch
-        handle = grid_torch.get_robot(name)
+        import grim.torch as grim_torch
+        handle = grim_torch.get_robot(name)
     else:
-        handle = grid_rbd.get_robot(name)
+        handle = grim.get_robot(name)
     to_dev, wrap, call = _surface_adapter(surface)
     nq, nv = handle.num_joints, handle.num_vel
     max_perf = handle.max_perf_level_threads   # MPLT, for the tier inverse map (E1)
@@ -275,7 +275,7 @@ def autotune_base(robot, base, n, iters, warmup, want_algos, build_algos=None,
             call(fn, dev)                               # one-time JIT / first launch
         except (RuntimeError, AttributeError) as e:
             # --build-algos subset .so: the jax method exists on the handle but its
-            # compiled symbol (grid_rbd_jax_<algo>) was excluded from this build, so
+            # compiled symbol (grim_jax_<algo>) was excluded from this build, so
             # the FIRST call raises "not built into this robot .so" / undefined symbol.
             # Skip it (this is the documented subset-build behavior — e.g. defer the
             # SO kernels idsva_so/fdsva_so that OOM a single nvcc on big robots).
@@ -341,7 +341,7 @@ def autotune_base(robot, base, n, iters, warmup, want_algos, build_algos=None,
 
 
 def _tier_max_threads(tier, max_perf):
-    """Mirror C++ grid::tier_max_threads<TIER>(): the tier's __launch_bounds__ ceiling.
+    """Mirror C++ grim::tier_max_threads<TIER>(): the tier's __launch_bounds__ ceiling.
     A pick above this is silently clamped at launch (jax path) and would crash the raw
     numpy/pybind launch — the codegen bakes the clamp; we clamp the JSON to match."""
     t = str(tier).lower()
@@ -447,9 +447,9 @@ def main():
     if args.base == "both":
         # ONE PROCESS PER BASE (guide §7.z9): XLA's device pool only grows across
         # sequential .so registrations in a single process, so after the fixed
-        # sweep the floating .so's grid_rbd_init arena cudaMalloc OOMs on big
+        # sweep the floating .so's grim_init arena cudaMalloc OOMs on big
         # robots (first hit: h1_2 n16 night, 2026-09-12 — "GPUassert: out of
-        # memory" at gridData init). Re-exec this script per base in a fresh
+        # memory" at grimData init). Re-exec this script per base in a fresh
         # process instead; each child merges its own base block into the same
         # launch_configs JSON via write_ffi_config, so the result is identical
         # to the old single-process merge (per-base `<profile>_meta.tier_source`

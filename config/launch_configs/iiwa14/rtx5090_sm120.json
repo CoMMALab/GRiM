@@ -950,7 +950,7 @@
       "kernel"
     ]
   },
-  "source": "GRiD autotune sweep 2026-08-26",
+  "source": "GRiM autotune sweep 2026-08-26",
   "torch_bases": {
     "fixed": {
       "aba": {

@@ -30,8 +30,8 @@ _METHOD = re.compile(
     r"\n    py::array_t<CT> (\w+)\((.*?)\)\n?\s*\{\n(.*?)\n    \}\n", re.DOTALL)
 _OUT = re.compile(r"py::array_t<CT> out\(\{batch,?\s*([^}]*)\}\)")
 # py_out_param rows (2026-10-01): the caller-owned out form carries the same dims as
-# the 3rd argument of grid_py_out<CT>(out_opt, batch, <dims>, "<name>").
-_OUT_PARAM = re.compile(r"py::array_t<CT> out = grid_py_out<CT>\(out_opt, batch, (.*?), \"")
+# the 3rd argument of grim_py_out<CT>(out_opt, batch, <dims>, "<name>").
+_OUT_PARAM = re.compile(r"py::array_t<CT> out = grim_py_out<CT>\(out_opt, batch, (.*?), \"")
 # A1 (2026-09-08): rc handling is one rc_message(rc, "<name>", <hint>) call; the
 # rc==3 hint is its third argument — a C string literal, or the bare token
 # `nullptr` for methods with no per-algo message (the decoder's generic rc==3
@@ -67,7 +67,7 @@ def _core_methods():
 
 
 def test_py_fields_match_core():
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
 
     methods = _core_methods()
     assert len(methods) > 60, "method parse broke (found too few pybind methods)"
@@ -102,7 +102,7 @@ def test_py_fields_match_core():
 def test_every_specced_method_carries_out_dims():
     """Any spec row whose pybind method allocates an out array must carry
     py_out_dims (the C4 generator + the jax/torch reshape collapse key on it)."""
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
 
     methods = _core_methods()
     missing = [k for k, s in ABI_SPECS.items()

@@ -4,7 +4,7 @@ matrix (A1a Phase 1). MEASUREMENT-ONLY: pure JSON join + the §1c guard. Reads
 nothing but JSON the sweep / limits-collector already produced; writes one file.
 
 Inputs (auto-discovered under results/ unless overridden):
-  * Swept picks — any GRiD run.py / run_multi_version.py output JSON carrying
+  * Swept picks — any GRiM run.py / run_multi_version.py output JSON carrying
     ``results[robot][base].algo_picks[algo]`` (schema-2 from
     ``_autotune_pick_winners``): {tier_optimal, threads_optimal, us_at_optimal,
     sweep:{tier:{threads:us}}, tier_equiv_to?}.
@@ -22,7 +22,7 @@ The §1c (agent_debugging_guide) BOGUS-FAST guard is applied on the join:
     emitted as an ``unfit`` sentinel entry, NOT a bogus matrix row.
 
 Output schema (schema 3):
-  metadata: {hostname, gpu_name, cuda_arch, grid_rbd_version, glass_commit,
+  metadata: {hostname, gpu_name, cuda_arch, grim_version, glass_commit,
              autotune_N, thread_grid, schema:3, generated_utc}
   matrix[robot][base][algo][tier] -> {suggested_threads, max_threads, min_smem,
       num_regs, us_at_optimal, batch_N, sweep:{threads->us}, tier_equiv_to?}
@@ -34,7 +34,7 @@ leaf + autotune_N in metadata so a later batch dimension is non-breaking.
 Usage:
     python test/benchmarks/build_autotune_matrix.py
     python test/benchmarks/build_autotune_matrix.py \
-        --picks results/iiwa14_fixed_grid_<host>.json \
+        --picks results/iiwa14_fixed_grim_<host>.json \
         --kernel-limits results/kernel_limits_<host>.json \
         --robot iiwa14 --base fixed --algo crba
 """
@@ -53,7 +53,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from test.benchmarks.baselines.grid.run import (  # noqa: E402
     DEFAULT_AUTOTUNE_N,
-    DEFAULT_AUTOTUNE_THREAD_GRID,
+    DEFAULT_AUTOTUNE_THREAD_GRIM,
 )
 
 RESULTS_DIR = REPO_ROOT / "test" / "benchmarks" / "results"
@@ -64,10 +64,10 @@ def _host() -> str:
     return platform.node().replace(" ", "_")
 
 
-def _grid_rbd_version() -> str | None:
+def _grim_version() -> str | None:
     try:
         sys.path.insert(0, str(REPO_ROOT / "bindings"))
-        from grid_rbd import __version__  # type: ignore
+        from grim import __version__  # type: ignore
         return __version__
     except Exception:  # noqa: BLE001
         return None
@@ -77,7 +77,7 @@ def _glass_commit() -> str | None:
     import subprocess
     glass_dir = REPO_ROOT / "external" / "GLASS"
     if not glass_dir.exists():
-        # GLASS may be vendored under GRiDCodeGenerator's submodule path.
+        # GLASS may be vendored under GRiMCodeGenerator's submodule path.
         for cand in REPO_ROOT.glob("**/GLASS"):
             if (cand / ".git").exists() or cand.is_dir():
                 glass_dir = cand
@@ -345,7 +345,7 @@ def main() -> None:
     # Determine autotune_N / thread_grid from the picks metadata (fall back to
     # codegen defaults). Phase-1 fixes batch at DEFAULT_AUTOTUNE_N.
     autotune_N = DEFAULT_AUTOTUNE_N
-    thread_grid = list(DEFAULT_AUTOTUNE_THREAD_GRID)
+    thread_grid = list(DEFAULT_AUTOTUNE_THREAD_GRIM)
     for doc in pick_docs:
         at = doc.get("metadata", {}).get("autotune_threads", {})
         if at.get("autotune_N"):
@@ -366,7 +366,7 @@ def main() -> None:
         "hostname": _host(),
         "gpu_name": _gpu_name(),
         "cuda_arch": limits.get("metadata", {}).get("cuda_arch"),
-        "grid_rbd_version": _grid_rbd_version(),
+        "grim_version": _grim_version(),
         "glass_commit": _glass_commit(),
         "autotune_N": autotune_N,
         "thread_grid": thread_grid,

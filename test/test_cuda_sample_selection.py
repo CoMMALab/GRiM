@@ -16,7 +16,7 @@ from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
 from test.cuda_equivalents import cuda_harness
 
-_SAMPLE_ENV = ("GRID_CUDA_SAMPLE_NAMES", "GRID_CUDA_FLOATING_SAMPLE_NAMES", "GRID_CUDA_RANDOM_SAMPLES")
+_SAMPLE_ENV = ("GRIM_CUDA_SAMPLE_NAMES", "GRIM_CUDA_FLOATING_SAMPLE_NAMES", "GRIM_CUDA_RANDOM_SAMPLES")
 
 
 def _floating_spec(robot_id):

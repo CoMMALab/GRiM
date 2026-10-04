@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
-"""Benchmark figures for GRiD competitive results — matplotlib, styled after the
+"""Benchmark figures for GRiM competitive results — matplotlib, styled after the
 hand-made Excel figure (formerly docs/imgs/benchmark_multi_fd_grad.png, removed 2026-09-30).
 
 Two figure types:
 
-  latency  : per-robot CPU-baseline-vs-GRiD-GPU latency across the batch sweep
-             (N=16..256). GRiD GPU bars are STACKED blue=Compute + gray=I/O Overhead
+  latency  : per-robot CPU-baseline-vs-GRiM-GPU latency across the batch sweep
+             (N=16..256). GRiM GPU bars are STACKED blue=Compute + gray=I/O Overhead
              (with_mem - compute). A dashed line marks the CPU N=256 level; orange
-             (compute-only) and green (with-mem) arrows annotate GRiD's speedup vs
+             (compute-only) and green (with-mem) arrows annotate GRiM's speedup vs
              the CPU baseline at each N. One algorithm per figure (matches the example).
 
-  compete   : per-robot grouped bars at a single N (default 256) — GRiD vs every
-             competitor for one algorithm, log-y, ×speedup labels. The "GRiD wins
+  compete   : per-robot grouped bars at a single N (default 256) — GRiM vs every
+             competitor for one algorithm, log-y, ×speedup labels. The "GRiM wins
              everywhere" summary figure.
 
 Input = a unified benchmark_multi_version_<host>.json (run_multi_version.py output:
 results[robot][base][column][algo] = {batch_N_with_mem_us, batch_N_compute_only_us, ...}).
-GRiD column key defaults to 'grid_glass'; CPU baseline defaults to 'pinocchio'.
+GRiM column key defaults to 'grim_glass'; CPU baseline defaults to 'pinocchio'.
 
 Usage:
   python test/benchmarks/plot_benchmarks.py latency --input <unified.json> \
       --algo forward_dynamics_gradient --base fixed --robots iiwa14 go2 g1 \
-      --out docs/imgs/grid_vs_pin_fd_grad.png
+      --out docs/imgs/grim_vs_pin_fd_grad.png
   python test/benchmarks/plot_benchmarks.py compete --input <unified.json> \
       --algo inverse_dynamics --base fixed --robots iiwa14 go2 g1 \
-      --out docs/imgs/grid_compete_id.png
+      --out docs/imgs/grim_compete_id.png
 """
 from __future__ import annotations
 import argparse, json
@@ -37,7 +37,7 @@ import numpy as np
 
 NS = [16, 32, 64, 128, 256, 1024]
 # Palette matched to the example figure.
-C_COMPUTE = "#4472C4"   # GRiD compute (blue)
+C_COMPUTE = "#4472C4"   # GRiM compute (blue)
 C_IO      = "#BFBFBF"   # I/O overhead (gray)
 C_BASE    = "#A6A6A6"   # CPU baseline bars (gray, matching pinocchio in the summary fig)
 ORANGE    = "#ED7D31"
@@ -82,17 +82,17 @@ def _overhead(total, core):
         return np.nan
     return total - core
 
-def plot_latency(data, algo, base, robots, grid_col, base_col, title, out):
+def plot_latency(data, algo, base, robots, grim_col, base_col, title, out):
     fig, axes = plt.subplots(1, len(robots), figsize=(4.3*len(robots), 5.0), squeeze=False)
     axes = axes[0]
     x = np.arange(len(NS))
     for ax, robot in zip(axes, robots):
-        gcell = _get(data, robot, base, grid_col, algo)
+        gcell = _get(data, robot, base, grim_col, algo)
         bcell = _get(data, robot, base, base_col, algo)
         g_co = _series(gcell, "compute_only")
         g_wm = _series(gcell, "with_mem")
         b_wm = _series(bcell, "with_mem")  # CPU baseline (pin has only with_mem)
-        # CPU baseline bars (left group) + GRiD GPU bars (right group), like the example.
+        # CPU baseline bars (left group) + GRiM GPU bars (right group), like the example.
         w = 0.38
         xb = x - 0.21
         xg = x + 0.21
@@ -117,7 +117,7 @@ def plot_latency(data, algo, base, robots, grid_col, base_col, title, out):
                     ax.annotate(f"{b/wm:.1f}x", (xg[i], (wm or 0)+ref*0.02), color=GREEN,
                                 fontsize=8, ha="center", va="bottom", fontweight="bold")
         ax.set_xticks(x); ax.set_xticklabels(NS)
-        ax.set_xlabel(f"N =\n{robot} (CPU | GRiD GPU)")
+        ax.set_xlabel(f"N =\n{robot} (CPU | GRiM GPU)")
         ax.set_title(robot, fontsize=11)
         ax.spines[["top","right"]].set_visible(False)
     axes[0].set_ylabel("Mean Computation Time (µs)")
@@ -131,12 +131,12 @@ def plot_latency(data, algo, base, robots, grid_col, base_col, title, out):
 
 def plot_compete(data, algo, base, robots, n, title, out):
     cols = ["grid", "pinocchio", "mjx", "frax_gpu", "mujoco_warp", "curobo"]
-    grid_col = "grid_glass"
+    grim_col = "grim_glass"
     fig, ax = plt.subplots(figsize=(1.7*len(robots)+2, 5.0))
     x = np.arange(len(robots)); w = 0.13
     present = []
     for ci, col in enumerate(cols):
-        key = grid_col if col == "grid" else col
+        key = grim_col if col == "grid" else col
         vals = []
         for robot in robots:
             cell = _get(data, robot, base, key, algo)
@@ -148,7 +148,7 @@ def plot_compete(data, algo, base, robots, n, title, out):
         present.append(col)
         off = (len(present)-1 - 2.5) * w
         bars = ax.bar(x + off, [v or np.nan for v in vals], w,
-                      color=COMP_COLORS.get(col, "#888"), label=("GRiD" if col=="grid" else col))
+                      color=COMP_COLORS.get(col, "#888"), label=("GRiM" if col=="grid" else col))
     ax.set_yscale("log")
     ax.set_xticks(x); ax.set_xticklabels(robots)
     ax.set_ylabel(f"Mean Computation Time (µs), N={n}  [log]")
@@ -161,7 +161,7 @@ def plot_compete(data, algo, base, robots, n, title, out):
     print(f"[wrote {out}]")
 
 def plot_summary(autotune, results_dirs, algos, base, robots, title, out):
-    """N=256 grouped bars: GRiD (autotuned compute-only) vs EVERY competitor that has
+    """N=256 grouped bars: GRiM (autotuned compute-only) vs EVERY competitor that has
     the cell (pinocchio/mjx/frax/mujoco_warp/curobo), per robot, one subplot per algo,
     log-y, ×speedup label over each competitor bar. Reads the SAME inputs as
     analyze_competitive.py so the data + canonicalization match exactly."""
@@ -187,8 +187,8 @@ def plot_summary(autotune, results_dirs, algos, base, robots, title, out):
             plotted.append(col)
             off = (len(plotted)-1 - (len(cols)-1)/2)*w
             ax.bar(x+off, [v or np.nan for v in vals], w,
-                   color=COMP_COLORS.get(col,"#888"), label="GRiD" if col=="grid" else col)
-            # speedup label (competitor / GRiD) over each competitor bar
+                   color=COMP_COLORS.get(col,"#888"), label="GRiM" if col=="grid" else col)
+            # speedup label (competitor / GRiM) over each competitor bar
             if col != "grid":
                 for xi, robot in enumerate(robots):
                     key=(robot,base,ac.CANON.get(algo,algo)); g=grid.get(key); c=vals[xi]
@@ -197,7 +197,7 @@ def plot_summary(autotune, results_dirs, algos, base, robots, title, out):
         ax.set_yscale("log"); ax.set_xticks(x); ax.set_xticklabels(robots)
         ax.set_title(algo, fontsize=11); ax.spines[["top","right"]].set_visible(False)
         ax.grid(axis="y", ls=":", alpha=0.4)
-    axes[0].set_ylabel("Per-batch time @ N=256 (µs, log)\nGRiD=compute-only · competitors=with-mem")
+    axes[0].set_ylabel("Per-batch time @ N=256 (µs, log)\nGRiM=compute-only · competitors=with-mem")
     h,l = axes[0].get_legend_handles_labels()
     fig.legend(h,l,loc="upper center",ncol=len(cols),frameon=False,bbox_to_anchor=(0.5,1.0))
     fig.suptitle(title, y=1.07, fontsize=14)
@@ -207,9 +207,9 @@ def plot_summary(autotune, results_dirs, algos, base, robots, title, out):
     print(f"[wrote {out}]")
 
 def plot_layers(autotune, glass_json, bindings_dir, algos, base, robots, n, title, out):
-    """GRiD's THREE measurement layers per (robot, algo) at batch n: L1 compute-only
-    (autotuned, GPU-resident) · L2 C++ +transfer (grid_glass with_mem) · L3 jax-wrapper
-    compute · L3 jax-wrapper +transfer (grid_rbd binding). The 'what an adopter pays at each
+    """GRiM's THREE measurement layers per (robot, algo) at batch n: L1 compute-only
+    (autotuned, GPU-resident) · L2 C++ +transfer (grim_glass with_mem) · L3 jax-wrapper
+    compute · L3 jax-wrapper +transfer (grim binding). The 'what an adopter pays at each
     layer' transparency figure. Prefer value/gradient algos (monotonic); huge-output SO algos
     are non-monotonic (L2's nv^3 D2H > L3's H2D-only with_mem) — better shown in the with-mem
     two-regime analysis, not here."""
@@ -220,10 +220,10 @@ def plot_layers(autotune, glass_json, bindings_dir, algos, base, robots, n, titl
     L1 = ac.load_grid(autotune)                       # {(robot,base,canon_algo): compute_us}
     glass = json.load(open(glass_json))["results"]
     def L2(r, a):
-        return _num(glass.get(r,{}).get(base,{}).get("grid_glass",{}).get(a,{}).get(f"batch_{n}_with_mem_us"))
+        return _num(glass.get(r,{}).get(base,{}).get("grim_glass",{}).get(a,{}).get(f"batch_{n}_with_mem_us"))
     def L3(r, a, kind):
         try:
-            c = json.load(open(Path(bindings_dir)/f"{r}_{base}_grid_bindings.json"))["results"][r][base]["grid_bindings"][a]
+            c = json.load(open(Path(bindings_dir)/f"{r}_{base}_grim_bindings.json"))["results"][r][base]["grim_bindings"][a]
             return _num(c.get(f"batch_{n}_{kind}_us"))
         except (OSError, KeyError, TypeError):
             return None
@@ -250,32 +250,32 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["latency", "compete", "summary", "layers"])
     ap.add_argument("--input", help="unified multi_version json (latency/compete modes)")
-    ap.add_argument("--autotune", help="autotune_best json (summary/layers mode = GRiD L1)")
-    ap.add_argument("--glass", help="unified glass json (layers mode = GRiD L2 with-mem)")
-    ap.add_argument("--bindings-dir", help="dir with <robot>_<base>_grid_bindings.json (layers mode = GRiD L3)")
+    ap.add_argument("--autotune", help="autotune_best json (summary/layers mode = GRiM L1)")
+    ap.add_argument("--glass", help="unified glass json (layers mode = GRiM L2 with-mem)")
+    ap.add_argument("--bindings-dir", help="dir with <robot>_<base>_grim_bindings.json (layers mode = GRiM L3)")
     ap.add_argument("--results", nargs="+", default=[], help="competitor result dirs (summary mode)")
     ap.add_argument("--algo")
     ap.add_argument("--algos", nargs="+", default=["inverse_dynamics","forward_dynamics","crba"])
     ap.add_argument("--base", default="fixed")
     ap.add_argument("--robots", nargs="+", default=["iiwa14","go2","g1"])
-    ap.add_argument("--grid-col", default="grid_glass")
+    ap.add_argument("--grid-col", default="grim_glass")
     ap.add_argument("--base-col", default="pinocchio")
     ap.add_argument("--n", type=int, default=256)
     ap.add_argument("--title", default=None)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     if a.mode == "summary":
-        title = a.title or f"GRiD vs competitors @ N=256 ({a.base})"
+        title = a.title or f"GRiM vs competitors @ N=256 ({a.base})"
         plot_summary(a.autotune, a.results, a.algos, a.base, a.robots, title, a.out)
         return
     if a.mode == "layers":
-        title = a.title or f"GRiD's three measurement layers @ N={a.n} ({a.base}) — compute → +transfer → +python wrapper"
+        title = a.title or f"GRiM's three measurement layers @ N={a.n} ({a.base}) — compute → +transfer → +python wrapper"
         plot_layers(a.autotune, a.glass, a.bindings_dir, a.algos, a.base, a.robots, a.n, title, a.out)
         return
     data = json.load(open(a.input))
-    title = a.title or f"{a.algo} — GRiD vs baselines ({a.base})"
+    title = a.title or f"{a.algo} — GRiM vs baselines ({a.base})"
     if a.mode == "latency":
-        plot_latency(data, a.algo, a.base, a.robots, a.grid_col, a.base_col, title, a.out)
+        plot_latency(data, a.algo, a.base, a.robots, a.grim_col, a.base_col, title, a.out)
     else:
         plot_compete(data, a.algo, a.base, a.robots, a.n, title, a.out)
 

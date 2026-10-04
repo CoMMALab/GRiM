@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 
 from URDFParser import URDFParser
-from grid_codegen.abi_specs import ABI_SPECS
-from grid_rbd._compile import configuration_layout_from_robot
-from grid_rbd._configuration import configuration_layout_from_meta
-from grid_rbd._vjp_common import _configuration_cotangent, vjp_backward
+from grim_codegen.abi_specs import ABI_SPECS
+from grim._compile import configuration_layout_from_robot
+from grim._configuration import configuration_layout_from_meta
+from grim._vjp_common import _configuration_cotangent, vjp_backward
 
 FIXTURES = Path(__file__).resolve().parents[1] / "external/URDFParser/tests/fixtures"
 

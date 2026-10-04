@@ -1,4 +1,4 @@
-"""CUDA equivalence gate for W1b `grid::multi_target_position` (batched world positions).
+"""CUDA equivalence gate for W1b `grim::multi_target_position` (batched world positions).
 
 A TARGET is (anchor_jid, local offset). The batched inner builds ONE shared FK pass
 (emit_world_fk_chainup, shared with the ee-pose gradient) then extracts each target's
@@ -13,7 +13,7 @@ world position = Xw[anchor] @ [offset, 1] in parallel over targets. This gate ce
 
 baxter (leaves [0,7,14]) exercises the MULTI-ANCHOR branched-tree path; iiwa14 (one
 leaf, serial chain) is the offset==0 single-EE control. Fixed-base, correctness only.
-Override robots with GRID_CUDA_MULTITARGET_ROBOTS.
+Override robots with GRIM_CUDA_MULTITARGET_ROBOTS.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference import RBDReference
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 from RBDReference.tests.model_sources import resolve_robot_spec, iter_robot_cases
@@ -39,7 +39,7 @@ RUNNER_SOURCE = Path(__file__).with_name("cuda_multi_target_position_runner.cu")
 
 
 def _robot_cells():
-    override = os.environ.get("GRID_CUDA_MULTITARGET_ROBOTS")
+    override = os.environ.get("GRIM_CUDA_MULTITARGET_ROBOTS")
     if override:
         return [(r.strip(), "fixed") for r in override.split(",") if r.strip()]
     return [("iiwa14", "fixed"), ("baxter", "fixed")]
@@ -66,8 +66,8 @@ def _build_batch(robot):
 
 
 def _generate_header(robot, targets, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # SPLIT codegen: multi_target emission is driven by multi_target_batch and
         # only needs one ee key in the list (include_any_kinematics gate); the

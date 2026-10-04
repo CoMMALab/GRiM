@@ -10,29 +10,29 @@ then choose the task below.
 
    * - I want to…
      - Start here
-   * - **Call GRiD from Python** (numpy / JAX / torch)
-     - ``grid_rbd.load_robot("robot.urdf", backend=...)`` — one call, no name
+   * - **Call GRiM from Python** (numpy / JAX / torch)
+     - ``grim.load_robot("robot.urdf", backend=...)`` — one call, no name
        ceremony. Guided tour: :doc:`user_guide/tutorials/python_wrappers`;
-       API: :doc:`api_reference/grid_rbd`; agent-facing lifecycle notes:
+       API: :doc:`api_reference/grim`; agent-facing lifecycle notes:
        ``bindings/examples/AGENT_INTEGRATION_GUIDE.md``.
    * - **Generate CUDA for a new robot**
-     - ``grid-generate path/to/robot.urdf [-f]`` (ten sample URDFs in
+     - ``grim-generate path/to/robot.urdf [-f]`` (ten sample URDFs in
        ``config/robot_assets/``); walkthrough:
        :doc:`user_guide/tutorials/codegen`.
    * - **Make a big (humanoid) robot build fit in RAM / finish faster**
      - :doc:`user_guide/getting_started/fast_robot_setup` — subset the build
        with ``algorithm_list=`` and/or skip the mjx twins with
-       ``enable_mujoco_kernels=False`` (also ``grid-generate
+       ``enable_mujoco_kernels=False`` (also ``grim-generate
        --algorithm-list ... --no-mujoco-kernels``).
-   * - **Use my own top-level GLASS instead of the copy vendored in grid.cuh**
+   * - **Use my own top-level GLASS instead of the copy vendored in grim.cuh**
      - ``gen_all_code(..., vendor_glass=False)``: the header ``#include``\ s
        ``glass.cuh`` from your include path (``-I<GLASS root>``) and aliases
-       ``grid::glass`` to ``::glass`` — one GLASS per translation unit. The
+       ``grim::glass`` to ``::glass`` — one GLASS per translation unit. The
        default (vendored, self-contained) header is byte-identical. All
        ``*_DYNAMIC_SHARED_MEM_BYTES<T[, TIER]>()`` sizers are ``constexpr``.
    * - **Label the GLASS revision when generating from a source archive (no .git)**
      - ``gen_all_code(..., glass_revision="<sha>")`` or
-       ``GRID_GLASS_REVISION=<sha>``: the ``// Pinned commit:`` line carries
+       ``GRIM_GLASS_REVISION=<sha>``: the ``// Pinned commit:`` line carries
        the bare revision, so the header is byte-identical to a git checkout's;
        a live checkout that disagrees is an error, and
        ``gen.glass_revision_source`` reports ``git`` / ``git-verified`` /
@@ -41,7 +41,7 @@ then choose the task below.
      - ``init_robotModel_checked`` / ``init_joint_limits_checked`` /
        ``free_robotModel_checked`` (or ``robotModel_owner<T>``):
        :doc:`user_guide/concepts/library_safe_initialization`.
-   * - **Add a new algorithm to GRiD**
+   * - **Add a new algorithm to GRiM**
      - :doc:`user_guide/tutorials/adding_an_algorithm` (numpy oracle in
        ``RBDReference`` first, then the codegen emitter, then equivalence
        tests).
@@ -50,7 +50,7 @@ then choose the task below.
        split-suite driver, and the two-tier ``gpu-proof.json`` receipt policy
        (a red verify job after touching fingerprinted tests is BY DESIGN; run
        the everyday refresh and commit the receipt).
-   * - **Benchmark GRiD (or compare against Pinocchio / MJX / Warp)**
+   * - **Benchmark GRiM (or compare against Pinocchio / MJX / Warp)**
      - :doc:`user_guide/tutorials/benchmarks`.
    * - **Debug a CUDA-vs-numpy mismatch or a weird kernel failure**
      - the `agent debugging guide <https://github.com/A2R-Lab/GRiD/blob/main/docs/agent_debugging_guide.md>`_ — the accumulated bug-class bible
@@ -75,7 +75,7 @@ then choose the task below.
    * - **Know what this release supports, what changed, and what it does not do**
      - :doc:`user_guide/getting_started/compatibility` — platforms and toolchain,
        runtime contexts and versions, captured graphs, operands, native-interface
-       stability (the wrapper's C symbols are private; ``grid.cuh`` is the
+       stability (the wrapper's C symbols are private; ``grim.cuh`` is the
        supported inline API), differentiation, build cost.
    * - **Know what shapes / dtypes / devices a call accepts (and rejects)**
      - One rule set per operand class, enforced natively on every surface:
@@ -90,7 +90,7 @@ then choose the task below.
        :doc:`user_guide/getting_started/fast_robot_setup` and
        :doc:`user_guide/tutorials/cuda_validation`.
    * - **See what a registration would build, or why it rebuilt**
-     - ``grid_rbd.build_plan(name, urdf, cuda_arch=...)`` — options, build
+     - ``grim.build_plan(name, urdf, cuda_arch=...)`` — options, build
        identity, keys and cache status without building anything; and
        ``precompile(..., backends=["numpy"])`` populates the cache without a
        handle or a CUDA context (build boxes). See

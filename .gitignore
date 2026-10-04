@@ -1,7 +1,7 @@
 # The following is adapted and extended from: https://github.com/github/gitignore
 
-# Generated GRiD header
-grid.cuh
+# Generated GRiM header
+grim.cuh
 
 # Generated documentation output
 docs/build/
@@ -103,7 +103,7 @@ venv.bak/
 
 # Test cache
 .pytest_cache/
-.grid_build_cache/
+.grim_build_cache/
 
 # Developer install scratch (CppADCodeGen clone, etc.)
 .cache/

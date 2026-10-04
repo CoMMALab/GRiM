@@ -1,15 +1,15 @@
 """Library-safe model / joint-limit initialization (HJCD ask 2026-09-21).
 
 Generates a header per robot, compiles ``cuda_safe_init_runner.cu`` against it
-TWICE (default fail-fast policy, and -DGRID_GPUERRCHK_NO_EXIT) and drives the
-runner's modes. The runner defines the host-only ``GRID_CUDA_CALL`` /
-``GRID_HOST_ALLOC`` seams BEFORE including grid.cuh, so every allocation and
+TWICE (default fail-fast policy, and -DGRIM_GPUERRCHK_NO_EXIT) and drives the
+runner's modes. The runner defines the host-only ``GRIM_CUDA_CALL`` /
+``GRIM_HOST_ALLOC`` seams BEFORE including grim.cuh, so every allocation and
 copy in the generated ``*_checked`` initializers is fault-injectable
 deterministically — no real OOM, no context reset, no runtime cost in the
 math kernels (the seams are never used in device code).
 
-Part 2 (arena / streams / close_grid) is swept the same way: every CUDA call
-index of init_gridData_checked and init_grid_checked, close_grid_checked with
+Part 2 (arena / streams / close_grim) is swept the same way: every CUDA call
+index of init_grimData_checked and init_grim_checked, close_grim_checked with
 null arguments and with an injected failure mid-cleanup.
 
 Robots: iiwa14 fixed (serial chain, no topology-helper table) and go2
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from URDFParser import URDFParser
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
@@ -46,15 +46,15 @@ def _build(name, floating, options, build_dir):
     # USE_JOINT_DYNAMICS is a generator-constructor knob (the damping/friction
     # bias); runtime_joint_dynamics (gen_all_code) makes its table mutable.
     use_jd = options.pop("use_joint_dynamics", False)
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid",
+    gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid",
                             USE_JOINT_DYNAMICS=use_jd)
     build_dir.mkdir(parents=True, exist_ok=True)
-    gen.gen_all_code(algorithm_list=["inverse_dynamics"], output_path=str(build_dir / "grid.cuh"),
+    gen.gen_all_code(algorithm_list=["inverse_dynamics"], output_path=str(build_dir / "grim.cuh"),
                      enable_mujoco_kernels=False, **options)
-    header = (build_dir / "grid.cuh").read_text()
+    header = (build_dir / "grim.cuh").read_text()
     xi = re.search(r"cudaMalloc\(\(void\*\*\)&d_XImats,(\d+)\*sizeof\(T\)\)", header)
     jl = re.search(r"cudaMalloc\(\(void\*\*\)&d_joint_limits,(\d+)\*sizeof\(T\)\)", header)
-    assert xi and jl, "could not find the XImats / joint-limit table sizes in grid.cuh"
+    assert xi and jl, "could not find the XImats / joint-limit table sizes in grim.cuh"
     # The header must not exit/abort/reset anywhere on the checked path.
     checked = header[header.index("init_robotModel_checked"):header.index("robotModel<T>* init_robotModel()")]
     assert "exit(" not in checked and "abort(" not in checked and "cudaDeviceReset" not in checked
@@ -62,10 +62,10 @@ def _build(name, floating, options, build_dir):
     shutil.copyfile(RUNNER_SOURCE, runner)
     arch = _detect_cuda_arch()
     exes = {}
-    for tag, extra in (("default", []), ("noexit", ["-DGRID_GPUERRCHK_NO_EXIT"])):
+    for tag, extra in (("default", []), ("noexit", ["-DGRIM_GPUERRCHK_NO_EXIT"])):
         exe = build_dir / f"runner_{tag}.exe"
         cmd = ["nvcc", "-std=c++17", "-O1", f"-arch=sm_{arch}", "-I", str(build_dir),
-               f"-DGRID_TEST_XI_SIZE={xi.group(1)}", f"-DGRID_TEST_JL_SIZE={jl.group(1)}",
+               f"-DGRIM_TEST_XI_SIZE={xi.group(1)}", f"-DGRIM_TEST_JL_SIZE={jl.group(1)}",
                *extra, "-o", str(exe), str(runner)]
         r = subprocess.run(cmd, capture_output=True, text=True)
         assert r.returncode == 0, f"runner compilation ({tag}) failed:\n{r.stderr[-4000:]}"
@@ -103,7 +103,7 @@ def test_checked_initialization_contract(tmp_path, name, floating, options):
 def test_legacy_policy_is_preserved(tmp_path, name, floating, options):
     """The un-suffixed spellings keep their historical behaviour: fail-fast
     exit in the default build (observed from a subprocess, never inside the
-    test runner), sticky-first-error + nullptr under GRID_GPUERRCHK_NO_EXIT."""
+    test runner), sticky-first-error + nullptr under GRIM_GPUERRCHK_NO_EXIT."""
     if shutil.which("nvcc") is None:
         pytest.skip("nvcc not on PATH")
     exes = _build(name, floating, options, tmp_path / f"{name}_legacy")

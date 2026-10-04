@@ -1,4 +1,4 @@
-"""grid-rbd × JAX on a FLOATING-BASE robot (Unitree Go2): stay on the GPU, integrate
+"""grim × JAX on a FLOATING-BASE robot (Unitree Go2): stay on the GPU, integrate
 the quaternion state correctly, differentiate analytically.
 
 The go2 twin of ``jax_gpu_resident.py`` (iiwa14, fixed base). What changes with a
@@ -9,7 +9,7 @@ floating base:
   * the tangent space is nv = 6 + 12 = 18 (nv != nq): velocity/torque buffers are passed
     nv-wide and dynamics vector outputs come back nv-wide (Pinocchio / MuJoCo widths);
   * a hand-rolled ``q + dt*qd`` Euler step is WRONG for the quaternion — the resident
-    rollout therefore drives GRiD's own ``integrator`` kernel (on-manifold base retract)
+    rollout therefore drives GRiM's own ``integrator`` kernel (on-manifold base retract)
     inside ``jax.lax.scan``, which is exactly the nq != nv path this example exercises.
 
 The .so is built pin-convention-only (``enable_mujoco_kernels=False``) to keep the
@@ -57,17 +57,17 @@ def main() -> None:
     import jax
     import jax.numpy as jnp
     import numpy as np
-    import grid_rbd
-    import grid_rbd.jax as grid_jax
+    import grim
+    import grim.jax as grim_jax
 
-    print(f"grid_rbd v{grid_rbd.__version__} · jax {jax.__version__} · backend={jax.default_backend()}")
+    print(f"grim v{grim.__version__} · jax {jax.__version__} · backend={jax.default_backend()}")
     if jax.default_backend() != "gpu":
         print("  !! JAX is not on the GPU backend — install jax[cuda12]; this demo is about GPU residency.")
 
-    grid_rbd.precompile("go2_resident", str(urdf), floating_base=True,
+    grim.precompile("go2_resident", str(urdf), floating_base=True,
                         max_batch_size=max(args.batch, 256), backends=("jax",),
                         tiers=[{"enable_mujoco_kernels": False}])
-    h = grid_jax.get_robot("go2_resident")
+    h = grim_jax.get_robot("go2_resident")
     nq, nv, B = h.num_joints, h.num_vel, args.batch
     print(f"  go2 (floating): nq={nq} nv={nv} (nv != nq: quaternion base)  batch B={B}  "
           f"max_batch={h.max_batch}")
@@ -96,7 +96,7 @@ def main() -> None:
     # ── 3. compose under ONE jit: dynamics → quadratic effort+accel cost ──────
     @jax.jit
     def step_cost(q, qd, u):
-        qdd = h.forward_dynamics(q, qd, u)                 # GRiD FFI call, on device
+        qdd = h.forward_dynamics(q, qd, u)                 # GRiM FFI call, on device
         return jnp.mean(qdd[:, :nv] ** 2) + 1e-3 * jnp.mean(u**2)
     c = step_cost(q, qd, u); jax.block_until_ready(c)
     print(f"[3] fused jit(forward_dynamics→cost) = {float(c):.4f}  (single GPU program)")
@@ -110,18 +110,18 @@ def main() -> None:
     # ── 5. analytic grad through the custom_vjp (tangent-space Jacobians) ─────
     grad_u = jax.jit(jax.grad(step_cost, argnums=2))(q, qd, u)
     jax.block_until_ready(grad_u)
-    print(f"[5] jax.grad(cost, u) via GRiD's analytic Jacobian-matvec FFI: "
+    print(f"[5] jax.grad(cost, u) via GRiM's analytic Jacobian-matvec FFI: "
           f"|∂cost/∂u|={float(jnp.linalg.norm(grad_u)):.4f}")
 
     # ── 6. RESIDENT ROLLOUT: K steps, quaternion-correct, state never leaves GPU ─
-    # GRiD's integrator kernel does the on-manifold base retract (nq != nv), so
+    # GRiM's integrator kernel does the on-manifold base retract (nq != nv), so
     # the scan carries the full floating state device-to-device. The kernel
     # returns (B, nq+nv): [q_next (nq) | qd_next (nv)].
     dt = 0.01
     def rollout_resident(q0, qd0, us):
         def body(carry, uk):
             q, qd = carry
-            x = h.integrator(q, qd, uk, dt)               # GRiD call inside the scan
+            x = h.integrator(q, qd, uk, dt)               # GRiM call inside the scan
             q = x[:, :nq]
             qd = x[:, nq:]
             return (q, qd), None

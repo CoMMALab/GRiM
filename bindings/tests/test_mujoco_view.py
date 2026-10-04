@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from grid_rbd._handle import RobotHandle, _MujocoView
+from grim._handle import RobotHandle, _MujocoView
 
 
 def _bare_handle(floating=True, convention="pinocchio"):

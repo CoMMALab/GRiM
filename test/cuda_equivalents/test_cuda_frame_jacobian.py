@@ -4,15 +4,15 @@ Lambda.
 
 Validates against the RBDReference numpy oracle, which itself matches
 pinocchio to ~1e-14:
-  * grid::frame_jacobian_device      vs RBDReference.frame_jacobian
+  * grim::frame_jacobian_device      vs RBDReference.frame_jacobian
                                         (getFrameJacobian / getJointJacobian)
-  * grid::frame_jacobian_dot_device  vs RBDReference.frame_jacobian_dot
+  * grim::frame_jacobian_dot_device  vs RBDReference.frame_jacobian_dot
                                         (computeJointJacobiansTimeVariation)
-  * grid::osc_inertia_device         vs RBDReference.osc_inertia
+  * grim::osc_inertia_device         vs RBDReference.osc_inertia
                                         (inv(J Minv J^T))
 for the three pinocchio reference frames (LOCAL / WORLD / LOCAL_WORLD_ALIGNED).
 
-Lambda is self-contained: grid::osc_inertia_device composes Minv on device
+Lambda is self-contained: grim::osc_inertia_device composes Minv on device
 (via minv_inner, F-region spilled to a shared s_F buffer) and densifies
 the SYMMETRIC_UPPER output internally during the J*Minv*J^T contraction — the
 runner feeds it q alone, no external Minv.
@@ -23,7 +23,7 @@ the other CUDA smoke tests. The frame target is the leaf joint id of each robot
 numpy oracle is queried by the same joint's name).
 
 Robots: iiwa14-fixed + go2-floating + g1-floating + fr3-fixed + fr3-floating
-(override with GRID_CUDA_FRAME_JAC_ROBOTS=
+(override with GRIM_CUDA_FRAME_JAC_ROBOTS=
 "iiwa14:fixed,go2:floating,g1:floating,fr3:fixed,fr3:floating").
 
 fr3 (mimic) now exercises Lambda too: osc_inertia composes Minv on device via
@@ -49,7 +49,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -72,7 +72,7 @@ _ALGO_KEYS = ["frame_jacobian", "frame_jacobian_dot", "osc_inertia"]
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_FRAME_JAC_ROBOTS",
+    raw = os.environ.get("GRIM_CUDA_FRAME_JAC_ROBOTS",
                          "iiwa14:fixed,go2:floating,g1:floating,fr3:fixed,fr3:floating")
     out = []
     for tok in raw.split(","):
@@ -92,8 +92,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(algorithm_list=_ALGO_KEYS, output_path=str(header))
     return header

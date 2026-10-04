@@ -1,7 +1,7 @@
 Concepts
 ========
 
-The core concepts behind GRiD's generated code: the design principles, the
+The core concepts behind GRiM's generated code: the design principles, the
 codegen architecture, the shared-memory resource-tier system, the
 input/output ABI, and the parallelism patterns.
 

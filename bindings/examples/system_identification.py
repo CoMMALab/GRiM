@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-import grid_rbd
+import grim
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_URDF = _REPO_ROOT / "config" / "robot_assets" / "iiwa14.urdf"
@@ -34,7 +34,7 @@ _DEFAULT_URDF = _REPO_ROOT / "config" / "robot_assets" / "iiwa14.urdf"
 
 def main(urdf: str):
     # runtime_inertia=True builds the mutable device inertia table (step 4).
-    h = grid_rbd.register_robot(
+    h = grim.register_robot(
         "iiwa14_sysid_example", urdf, floating_base=False,
         runtime_inertia=True,
     )
@@ -88,7 +88,7 @@ def main(urdf: str):
             h.inverse_dynamics(q[:8], qd[:8], np.zeros_like(qdd[:8])))
         h.set_inertia_params(pi_true.astype(np.float32))  # restore the model
 
-        hj = grid_rbd.register_robot(
+        hj = grim.register_robot(
             "iiwa14_sysid_example", urdf, floating_base=False,
             runtime_inertia=True, backend="jax",
         )

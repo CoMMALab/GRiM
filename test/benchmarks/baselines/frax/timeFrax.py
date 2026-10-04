@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Time Frax algorithms for one robot.
 
-Prints results in the same format as timeGRiD so parse_grid_output can reuse it.
+Prints results in the same format as timeGRiM so parse_grim_output can reuse it.
 Available algorithms: id (rnea), fd (forward_dynamics), crba, minv. Others
 (aba, id_du, fd_du, ee_pose, ee_pose_gradient, idsva_so, fdsva_so) are null.
 
@@ -43,7 +43,7 @@ if _FRAX_DEVICE in ("cpu", "gpu"):
 
 
 # ---------------------------------------------------------------------------
-# Output helpers (same format as timeGRiD)
+# Output helpers (same format as timeGRiM)
 # ---------------------------------------------------------------------------
 
 def _print_stats(label: str, n: int, times: np.ndarray) -> None:

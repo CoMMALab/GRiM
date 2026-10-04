@@ -16,7 +16,7 @@ Platforms and toolchain
 * **Host compiler:** C++17 for the code generator, benchmarks and a numpy-only
   build. With the ``[torch]`` extra the wrapper follows torch's ATen
   requirement — ``-std=c++20`` from torch 2.14 on — so a torch-enabled build
-  needs an nvcc and host compiler accepting C++20. ``GRID_RBD_CXX_STD`` forces
+  needs an nvcc and host compiler accepting C++20. ``GRIM_CXX_STD`` forces
   the standard.
 * **Backends:** the ``[jax]`` / ``[torch]`` extras pin the CPU packages; install
   the CUDA wheel yourself (``pip install "jax[cuda12]"`` or ``"jax[cuda13]"``, a
@@ -31,7 +31,7 @@ Runtime contexts
   is the one owner of its context: dropped handles are finalized at garbage
   collection, ``close()`` is idempotent, views reference the handle.
 * ``workspace_slots=N`` on a context is an explicit cap (``0`` = auto-fit;
-  explicit cap > ``GRID_WORKSPACE_TIMESTEP_SLOTS`` > auto-fit).
+  explicit cap > ``GRIM_WORKSPACE_TIMESTEP_SLOTS`` > auto-fit).
 * Runtime-parameter mutations (inertias, transforms, joint dynamics, tool
   attach/detach) are serialized against every in-flight call and give the
   context a new ``model_version`` (an artifact-wide epoch). torch and JAX
@@ -70,10 +70,10 @@ Operands
 Native interface stability
 --------------------------
 
-* The generated ``grid.cuh`` keeps its inline entry points
-  (``init_gridData_checked`` gained an optional trailing allocator-pool
+* The generated ``grim.cuh`` keeps its inline entry points
+  (``init_grimData_checked`` gained an optional trailing allocator-pool
   argument; the pool-less allocator spellings remain).
-* The per-robot wrapper ``.so``'s ``extern "C" grid_rbd_*`` symbols are
+* The per-robot wrapper ``.so``'s ``extern "C" grim_*`` symbols are
   **private to the package**: they are consumed only by the pybind core of the
   same content-keyed build and gained a leading ``ctx_id`` in this release. Do
   not link against them directly.

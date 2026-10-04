@@ -5,7 +5,7 @@ IDSVA / IDSVA-SO (Inverse Dynamics, Second-Order)
 
 Overview
 --------
-GRiD implements the **second-order** inverse dynamics algorithm (IDSVA-SO)
+GRiM implements the **second-order** inverse dynamics algorithm (IDSVA-SO)
 from Singh, Russell, & Wensing (`arXiv:2302.06001
 <https://arxiv.org/abs/2302.06001>`_), which produces the rank-3 tensors
 :math:`\partial^2 \tau / \partial q^2`, :math:`\partial^2 \tau / \partial \dot q^2`,
@@ -33,7 +33,7 @@ performance optimization, baked in at codegen time:
 In Python, both variants stay publicly callable; the meta dispatcher
 ``rbd.idsva_so(q, qd, qdd)`` forwards based on ``robot.floating_base``.
 The C++ codegen emits both kernels (so the benchmark can compare them)
-and a ``grid::idsva_so<T>()`` host wrapper that hard-routes to the
+and a ``grim::idsva_so<T>()`` host wrapper that hard-routes to the
 chosen variant.
 
 Implementation
@@ -44,7 +44,7 @@ The reference implementations live in
 ``idsva_so_body_frame``, ``idsva_so_world_frame``, and the meta
 ``idsva_so`` dispatcher. The codegen for the corresponding CUDA kernels
 lives in
-`grid_codegen/algorithms/_idsva_so.py
+`grim_codegen/algorithms/_idsva_so.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__.
 
 Example Usage

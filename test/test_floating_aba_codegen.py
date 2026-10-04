@@ -16,7 +16,7 @@ import pytest
 
 from config import robot_urdf
 from external.URDFParser.URDFParser import URDFParser
-from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
+from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
 
 _ROOT_GRAVITY = "(row < 3 ? static_cast<T>(0) : -s_XImats[6*row + 5] * gravity)"
 
@@ -25,9 +25,9 @@ _ROOT_GRAVITY = "(row < 3 ? static_cast<T>(0) : -s_XImats[6*row + 5] * gravity)"
 def test_floating_aba_root_gravity_is_closed_form(robot_id, tmp_path):
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         robot = URDFParser().parse(str(robot_urdf(robot_id)), floating_base=True)
-        generator = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+        generator = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
         assert not generator.robot_has_mimic_joints()
-        header = tmp_path / "grid.cuh"
+        header = tmp_path / "grim.cuh"
         generator.gen_all_code(output_path=str(header),
                                algorithm_list=["inverse_dynamics", "minv", "forward_dynamics", "aba"])
     source = header.read_text()

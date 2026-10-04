@@ -3,8 +3,8 @@
  "semantics": {
   "quantity": "forward-dynamics qdd(q, qd, u), fixed base, f_ext = 0",
   "gravity": -9.81,
-  "joint_dynamics": "none (no viscous damping / dry friction \u2014 the GRiD default path)",
-  "source": "GRiD RBDReference numpy oracle (pinocchio-validated), float64",
+  "joint_dynamics": "none (no viscous damping / dry friction \u2014 the GRiM default path)",
+  "source": "GRiM RBDReference numpy oracle (pinocchio-validated), float64",
   "guidance": "per-joint |qdd_yours/qdd_ref| on the inertia_j probes: 1.00+-0.05 = aligned; >1.5 on any joint = effective-inertia mismatch (check armature/rotor/link inertia). inertia_j probes are qd=0 hence damping-immune; coriolis-only disagreement points at damping/friction modeling."
  },
  "plants": {

@@ -8,14 +8,14 @@ makes h2_plus (floating nv=81) launch (its emergency arena was ~105KB > sm_120's
 ~99KB; the output-spill arena is ~28KB).
 
 The spill RELOCATES buffers; it must not change the computed df_du. This test forces
-the output-spill rung at codegen (a low GRID_CUDA_TARGET_SHARED_MEM_BYTES on a small
+the output-spill rung at codegen (a low GRIM_CUDA_TARGET_SHARED_MEM_BYTES on a small
 robot, with a no-second-order codegen subset so the forced-low target does not trigger
 the pathological idsva_so/fdsva_so deep-spill compile wall) and asserts the host-wrapper
 df_du is BIT-IDENTICAL to the unspilled full-smem rung (the validated reference path,
-checked against pinocchio elsewhere) AND thread-count invariant. GRiD-vs-GRiD bit-
+checked against pinocchio elsewhere) AND thread-count invariant. GRiM-vs-GRiM bit-
 equality is a stronger, convention-free check of the spill than an oracle comparison.
 
-Override robots with GRID_CUDA_FD_DU_SPILL_ROBOTS="iiwa14:fixed,go2:floating".
+Override robots with GRIM_CUDA_FD_DU_SPILL_ROBOTS="iiwa14:fixed,go2:floating".
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
 from RBDReference.equivalents.reference_backend import build_project_adapter
@@ -46,7 +46,7 @@ _RUNNER = Path(__file__).with_name("cuda_equivalence_runner.cu")
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_FD_DU_SPILL_ROBOTS", "iiwa14:fixed,go2:floating")
+    raw = os.environ.get("GRIM_CUDA_FD_DU_SPILL_ROBOTS", "iiwa14:fixed,go2:floating")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -74,17 +74,17 @@ def _py_arena_bytes(t, topo, tbytes=4):
 def _gen_header(robot, build_dir, target):
     """Codegen the no-SO subset at `target` shared-mem bytes (read at __init__).
     Returns (perf_pick, codegen) so callers can read the per-tier metadata."""
-    prev = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES")
-    os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
+    prev = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES")
+    os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
     try:
-        cg = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+        cg = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-            cg.gen_all_code(algorithm_list=_SUBSET, output_path=str(build_dir / "grid.cuh"))
+            cg.gen_all_code(algorithm_list=_SUBSET, output_path=str(build_dir / "grim.cuh"))
     finally:
         if prev is None:
-            os.environ.pop("GRID_CUDA_TARGET_SHARED_MEM_BYTES", None)
+            os.environ.pop("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", None)
         else:
-            os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
+            os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
     return cg.forward_dynamics_gradient_spill_tier_3way[0], cg
 
 
@@ -93,20 +93,20 @@ def _compile(build_dir, arch, floating):
     if shutil.which("nvcc") is None and not Path(nvcc).exists():
         pytest.skip("nvcc not found; install CUDA Toolkit to run CUDA tests.")
     shutil.copyfile(_RUNNER, build_dir / "runner.cu")
-    # The runner #includes "grid_runner_select.cuh" (split scaffold, monolith-inert);
+    # The runner #includes "grim_runner_select.cuh" (split scaffold, monolith-inert);
     # copy it next to the runner copy so the isolated-dir compile resolves it.
-    shutil.copyfile(_RUNNER.with_name("grid_runner_select.cuh"),
-                    build_dir / "grid_runner_select.cuh")
+    shutil.copyfile(_RUNNER.with_name("grim_runner_select.cuh"),
+                    build_dir / "grim_runner_select.cuh")
     glass = Path(__file__).resolve().parents[2] / "external" / "GLASS" / "include"
     exe = build_dir / "runner.exe"
-    # GRID_CUDA_FLOATING_BASE selects the runner's floating section, whose fd_grad
+    # GRIM_CUDA_FLOATING_BASE selects the runner's floating section, whose fd_grad
     # dumps are NUM_VEL-framed. Without it a floating header runs the FIXED-base
     # section, whose NUM_JOINTS^2 framing over-reads the 2*NV*NV-written h_df_du
     # (nq>nv) into unwritten allocation tail — nondeterministic garbage in the
     # "qd" block whenever the fresh allocation isn't zero.
     cmd = [nvcc, "-std=c++17", "-O0", "-gencode", f"arch=compute_{arch},code=sm_{arch}",
-           f"-DGRID_CUDA_FLOATING_BASE={1 if floating else 0}",
-           "-DGRID_RUNNER_SKIP_GRADIENTS=0", "-DGRID_RUNNER_SKIP_EEPOSE_GRADIENTS=1",
+           f"-DGRIM_CUDA_FLOATING_BASE={1 if floating else 0}",
+           "-DGRIM_RUNNER_SKIP_GRADIENTS=0", "-DGRIM_RUNNER_SKIP_EEPOSE_GRADIENTS=1",
            f"-I{glass}", f"-I{build_dir}", "-o", str(exe), str(build_dir / "runner.cu")]
     res = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)
     if res.returncode != 0:
@@ -118,7 +118,7 @@ def _run(exe, q, qd, u, nthreads):
     stdin = ("\n".join(" ".join(f"{x:.9g}" for x in v) for v in (q, qd, u))
              + "\n" + ("0 " * max(6 * len(q), 400)) + "\n")
     env = dict(os.environ)
-    env["GRID_NTHREADS"] = str(nthreads)
+    env["GRIM_NTHREADS"] = str(nthreads)
     res = subprocess.run([str(exe)], input=stdin, capture_output=True, text=True, env=env)
 
     def parse(name):
@@ -165,8 +165,8 @@ def test_cuda_fd_du_output_spill_matches_full(tmp_path, robot_id, base_mode):
     spill_dir.mkdir()
     final_pick, _ = _gen_header(robot, spill_dir, target)
     assert final_pick == 3, f"forced target {target} gave fd_du pick {final_pick}, expected 3 (output-spill)"
-    htxt = (spill_dir / "grid.cuh").read_text()
-    assert "GRID_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]); s_Minv" in htxt, \
+    htxt = (spill_dir / "grim.cuh").read_text()
+    assert "GRIM_SO_WORKSPACE_TEMP_OFFSET_BYTES<T>()]); s_Minv" in htxt, \
         "output-spill repoint not emitted in the forced header"
     spill_exe = _compile(spill_dir, arch, base_mode == "floating")
 

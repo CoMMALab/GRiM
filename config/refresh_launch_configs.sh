@@ -5,7 +5,7 @@
 #   sweep (cached, split) ── host bases ──> harvest ──> bake ──> [ffi] ──> diff
 #
 #   stage 0 (optional, GPU/overnight): a cached-binary host autotune sweep that writes
-#           results/tier_sweep_phased_<TS>/.../*_grid_glass.json. Run it yourself with
+#           results/tier_sweep_phased_<TS>/.../*_grim_glass.json. Run it yourself with
 #           `bash test/benchmarks/run_tier_sweep_phased.sh overnight 4` (it cache-HITS
 #           the content-addressed binaries -> NO recompile) and pass --sweep-dir, OR let
 #           this script pick the latest tier_sweep_phased_* dir.
@@ -26,7 +26,7 @@
 #   bash config/refresh_launch_configs.sh --with-ffi           # also (re)tune ffi_bases (GPU)
 #   DRY_RUN=1 bash config/refresh_launch_configs.sh --with-ffi # print commands only
 set -uo pipefail
-REPO_ROOT="/home/plancher/Desktop/GRiD"
+REPO_ROOT="/home/plancher/Desktop/GRiM"
 cd "$REPO_ROOT"
 export PATH=/usr/local/cuda/bin:$PATH
 PY="$REPO_ROOT/.venv/bin/python"
@@ -50,7 +50,7 @@ done
 [ -n "$SWEEP_DIR" ] || SWEEP_DIR="$(ls -dt test/benchmarks/results/tier_sweep_phased_* 2>/dev/null | head -1)"
 [ -n "$SWEEP_DIR" ] && [ -d "$SWEEP_DIR" ] || { echo "ERROR: no sweep dir (pass --sweep-dir)" >&2; exit 1; }
 
-# big robots whose grid_rbd ffi .so must EXCLUDE the SO kernels (else day-long nvcc).
+# big robots whose grim ffi .so must EXCLUDE the SO kernels (else day-long nvcc).
 is_big() { case "$1" in g1|h2_plus) return 0 ;; *) return 1 ;; esac }
 NONSO_SYMBOLS=(inverse_dynamics minv forward_dynamics aba crba \
   inverse_dynamics_gradient forward_dynamics_gradient \

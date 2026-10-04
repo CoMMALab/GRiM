@@ -12,20 +12,20 @@
 //   (2) PAIR JACOBIAN: s_ddist[pair*NV+vi] = d(d_io)/dq_vi vs central FD of the pair clearance.
 //   (3) PLANE EXACTNESS: the plane's normal is its own (constant, unit) and its clearance is exactly
 //       n.p - d - r -- checked against a host recomputation from the extracted sphere positions.
-//   (4) BOOLEAN/SIGNED AGREEMENT: sign(grid_cc_sphere_plane) == sign(grid_cc_sphere_plane_signed) over
+//   (4) BOOLEAN/SIGNED AGREEMENT: sign(grim_cc_sphere_plane) == sign(grim_cc_sphere_plane_signed) over
 //       a swept set of centers straddling the surface (the squared-gap form must not lose the sign for
-//       a center BELOW the plane -- the clamp-to-excess step that makes it match grid_cc_sphere_cuboid).
+//       a center BELOW the plane -- the clamp-to-excess step that makes it match grim_cc_sphere_cuboid).
 // T=double for clean FD (production is fp32).
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = double;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 constexpr int NS = gc::NUM_COLLISION_SPHERES;
 constexpr int NOBS = 5;                 // 2 spheres + 1 capsule + 1 cuboid + 1 plane
 constexpr int NPAIR = NS * NOBS;
@@ -45,7 +45,7 @@ __device__ __forceinline__ gc::Environment<T> make_env() {
 
 // analytic: per-pair clearances + Jacobian, plus the REDUCED clearance from the existing API and the
 // sphere world positions (so the host can recompute the plane row exactly).
-__global__ void analytic_kernel(const T *q0, const grid::robotModel<T> *m,
+__global__ void analytic_kernel(const T *q0, const grim::robotModel<T> *m,
                                 T *d_pdist, T *d_pddist, T *d_pnorm, T *d_red, T *d_pos, T *d_r) {
     __shared__ T s_pos[3*NS], s_r[NS], s_pg[3*NV*NS];
     __shared__ T s_pdist[NPAIR], s_pnorm[3*NPAIR], s_pddist[NPAIR*NV];
@@ -65,7 +65,7 @@ __global__ void analytic_kernel(const T *q0, const grid::robotModel<T> *m,
 }
 
 // FD: perturb q[vi] += sign*eps, emit the per-pair clearances.
-__global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, int vi, int sign, T *d_pdist) {
+__global__ void fd_kernel(const T *q0, const grim::robotModel<T> *m, int vi, int sign, T *d_pdist) {
     __shared__ T s_q[NQ], s_pos[3*NS], s_r[NS], s_pdist[NPAIR], s_pnorm[3*NPAIR];
     gc::Environment<T> env = make_env();
     for (int i = threadIdx.x; i < NQ; i += blockDim.x) s_q[i] = q0[i];
@@ -78,9 +78,9 @@ __global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, int vi, int
 }
 
 int main(){
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t s1 = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t s2 = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t s1 = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t s2 = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t smem = s1 > s2 ? s1 : s2;
     cudaFuncSetAttribute(analytic_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
     cudaFuncSetAttribute(fd_kernel,       cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
@@ -94,9 +94,9 @@ int main(){
         T z = 0.01 * k;                       // -0.4 .. 0.4, straddling the surface
         for (int rk = 1; rk <= 5; ++rk) {
             T r = 0.05 * rk;
-            T sq = gc::grid_cc_sphere_plane<T>(hp, 0.3, -0.2, z, r);
+            T sq = gc::grim_cc_sphere_plane<T>(hp, 0.3, -0.2, z, r);
             T nx, ny, nz;
-            T sd = gc::grid_cc_sphere_plane_signed<T>(hp, 0.3, -0.2, z, r, &nx, &ny, &nz);
+            T sd = gc::grim_cc_sphere_plane_signed<T>(hp, 0.3, -0.2, z, r, &nx, &ny, &nz);
             if ((sq < 0) != (sd < 0)) ++sign_mismatch;
         }
     }

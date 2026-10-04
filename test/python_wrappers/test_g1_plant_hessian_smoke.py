@@ -1,4 +1,4 @@
-"""End-to-end g1 (fixed-base) `plant_step_hessian` smoke via the grid_rbd binding.
+"""End-to-end g1 (fixed-base) `plant_step_hessian` smoke via the grim binding.
 
 The CUDA `plant_step_hessian` codegen carries spill TIERS so big robots fit in
 smem. iiwa14 validates SHARED + forced-spill; g1's smem macro confirms it FITS,
@@ -32,13 +32,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (pip install -e .)")
+_grim = pytest.importorskip("grim", reason="grim not installed (pip install -e .)")
 
 _URDF = robot_urdf("g1")
 if not _URDF.exists():
     pytest.skip(f"g1 URDF fixture not present at {_URDF}", allow_module_level=True)
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -55,7 +55,7 @@ _ATOL_SCALE = 5e-3
 @pytest.fixture(scope="module")
 def handle():
     # g1 fixed-base ~29 DOF; this build is ~20-40 min on first run, then cached.
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="g1_plant_hessian_smoke",
         urdf_path=str(_URDF),
         floating_base=False,

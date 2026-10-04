@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.helpers._lin_alg_helpers import _glass_git_head
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.helpers._lin_alg_helpers import _glass_git_head
 from URDFParser import URDFParser
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
@@ -36,7 +36,7 @@ URDF = REPO / "config" / "robot_assets" / "iiwa14.urdf"
 
 def _gen(out, **kw):
     robot = URDFParser().parse(str(URDF), floating_base=False)
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     gen.gen_all_code(algorithm_list=["inverse_dynamics", "forward_dynamics"], output_path=str(out),
                      enable_mujoco_kernels=False, **kw)
     return gen, out.read_text()
@@ -61,11 +61,11 @@ def test_supplied_revision_matching_git_is_byte_identical_and_wrong_one_is_refus
     with pytest.raises(ValueError, match="disagrees"):
         _gen(tmp_path / "c.cuh", glass_revision="0" * 40)
     # env var route
-    os.environ["GRID_GLASS_REVISION"] = head
+    os.environ["GRIM_GLASS_REVISION"] = head
     try:
         _, d = _gen(tmp_path / "d.cuh")
     finally:
-        del os.environ["GRID_GLASS_REVISION"]
+        del os.environ["GRIM_GLASS_REVISION"]
     assert a == d
 
 
@@ -74,25 +74,25 @@ def test_vendor_glass_false_compiles_against_top_level_glass_and_runs(tmp_path):
     if shutil.which("nvcc") is None:
         pytest.skip("nvcc not on PATH")
     build = tmp_path / "alias"; build.mkdir()
-    _, h = _gen(build / "grid.cuh", vendor_glass=False)
+    _, h = _gen(build / "grim.cuh", vendor_glass=False)
     assert "// BEGIN GLASS " not in h, "vendored GLASS block emitted under vendor_glass=False"
     assert '#include "glass.cuh"' in h and "namespace glass = ::glass;" in h
     # the alias must sit INSIDE the grid namespace
-    assert h.index("namespace grid {") < h.index("namespace glass = ::glass;")
+    assert h.index("namespace grim {") < h.index("namespace glass = ::glass;")
     xi = re.search(r"cudaMalloc\(\(void\*\*\)&d_XImats,(\d+)\*sizeof\(T\)\)", h)
     jl = re.search(r"cudaMalloc\(\(void\*\*\)&d_joint_limits,(\d+)\*sizeof\(T\)\)", h)
     shutil.copyfile(RUNNER, build / RUNNER.name)
     # constexpr sizers: a constant expression must accept them
     (build / "sizers.cu").write_text(
-        '#include "grid.cuh"\n'
-        "static_assert(grid::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<float>() > 0, \"sizer is constexpr\");\n"
-        "static_assert(grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<float, grid::TIER_SHARED>() > 0, \"tiered sizer is constexpr\");\n"
+        '#include "grim.cuh"\n'
+        "static_assert(grim::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<float>() > 0, \"sizer is constexpr\");\n"
+        "static_assert(grim::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<float, grim::TIER_SHARED>() > 0, \"tiered sizer is constexpr\");\n"
         "int main(){ return 0; }\n")
     arch = _detect_cuda_arch()
     for src, exe in ((RUNNER.name, "runner.exe"), ("sizers.cu", "sizers.exe")):
         r = subprocess.run(["nvcc", "-std=c++17", "-O1", f"-arch=sm_{arch}", "-I", str(build),
-                            "-I", str(GLASS_ROOT), f"-DGRID_TEST_XI_SIZE={xi.group(1)}",
-                            f"-DGRID_TEST_JL_SIZE={jl.group(1)}", "-o", str(build / exe), str(build / src)],
+                            "-I", str(GLASS_ROOT), f"-DGRIM_TEST_XI_SIZE={xi.group(1)}",
+                            f"-DGRIM_TEST_JL_SIZE={jl.group(1)}", "-o", str(build / exe), str(build / src)],
                            capture_output=True, text=True)
         assert r.returncode == 0, f"{src} failed to compile against the top-level GLASS:\n{r.stderr[-4000:]}"
     r = subprocess.run([str(build / "runner.exe"), "success"], capture_output=True, text=True, timeout=300)

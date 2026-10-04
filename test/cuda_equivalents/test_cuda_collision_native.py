@@ -8,7 +8,7 @@ all cylinders -> pure capsule rows, one per movable link, pedestal skipped):
   * collision_distance_gradient (envelope-theorem composition over both endpoint
     gradients) matches central finite differences of collision_distance;
   * collision_distance_pairs equals the reduced distance bitwise for a single obstacle;
-  * grid_cc_self_collision_capsules through the SINGLE-tier native config_free (hand-built
+  * grim_cc_self_collision_capsules through the SINGLE-tier native config_free (hand-built
     two-row specs: non-adjacent huge pair collides, adjacent-only pair bakes zero ranges).
 Pure-python properties (no GPU): parse_native_urdf row extraction + conservative cylinder
 containment, and the derived broad tier's covering property.
@@ -23,8 +23,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._collision import (
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._collision import (
     build_self_cc_ranges, native_collision_spec_from_urdf, parse_native_urdf)
 from test.cuda_equivalents.test_cuda_collision_config_free import (
     _compile_and_run, _gen_header, _parse_kv, _robot)

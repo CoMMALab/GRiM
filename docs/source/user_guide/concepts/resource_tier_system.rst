@@ -10,10 +10,10 @@ spill now also lands for **idsva_so (body + world frame)** and the
 :doc:`resource_tier_changelog`. The global scratch arena is named ``d_workspace`` (device memory);
 earlier revisions of this doc called it ``d_global_temp``.
 
-**Audience**: inline-CUDA users (``#include "grid.cuh"`` from their own
-kernel). The Python wrappers (``grid_rbd.RobotHandle``,
-``grid_rbd.jax.JaxRobotHandle``) launch each kernel at its PER-ALGO BAKED
-tier — ``grid::launch_cfg<GRID_ALGO_*>::TIER``, autotuned into
+**Audience**: inline-CUDA users (``#include "grim.cuh"`` from their own
+kernel). The Python wrappers (``grim.RobotHandle``,
+``grim.jax.JaxRobotHandle``) launch each kernel at its PER-ALGO BAKED
+tier — ``grim::launch_cfg<GRIM_ALGO_*>::TIER``, autotuned into
 ``config/launch_configs/<robot>/<gpu>.json`` and baked at codegen. On a
 tuned robot many algos run at ``TIER_LITE``/``TIER_MINIMAL``; an untuned
 robot (or algo) falls back to ``TIER_SHARED``.
@@ -33,7 +33,7 @@ Every emitted ``__global__`` kernel and every inline-callable
 ``_device``/``_inner`` function takes a non-type template parameter
 ``int RESOURCE_TIER`` (defaulting to ``TIER_SHARED``). The tier picks a
 ``(launch_bounds, smem footprint, register cap)`` profile so an
-inline-CUDA caller can fit a GRiD primitive into their outer kernel's
+inline-CUDA caller can fit a GRiM primitive into their outer kernel's
 resource budget.
 
 The three tiers:
@@ -72,12 +72,12 @@ threads and use fewer registers each.
 Who this is for (read this first)
 ---------------------------------
 
-GRiD is, at its core, a **code generator for power users** — people who want
+GRiM is, at its core, a **code generator for power users** — people who want
 to call hand-tuned, robot-specialized rigid-body-dynamics kernels directly
 from their own CUDA code and squeeze every cycle and byte out of the GPU.
 Everything below the convenience layer is built for that person.
 
-But you do **not** have to be that person to use GRiD. We deliberately ship a
+But you do **not** have to be that person to use GRiM. We deliberately ship a
 ladder of entry points, from "one line, no GPU knowledge required" up to
 "hand me the raw block-parallel device routine and I'll manage the shared
 memory myself." Pick the rung that matches how much control you need:
@@ -90,19 +90,19 @@ memory myself." Pick the rung that matches how much control you need:
      - Use…
      - You manage…
    * - Just the answer, from Python
-     - ``grid_rbd.RobotHandle`` / ``grid_rbd.jax.JaxRobotHandle``
+     - ``grim.RobotHandle`` / ``grim.jax.JaxRobotHandle``
      - Nothing. Arrays in, arrays out. Tier comes from the per-algo baked
        launch config (``TIER_SHARED`` fallback when untuned).
    * - The answer, from C++/CUDA host code
-     - ``grid::<algo>(hd_data, ...)`` **host** wrapper
+     - ``grim::<algo>(hd_data, ...)`` **host** wrapper
      - Nothing on-device. The wrapper does H2D/D2H copies, picks
        launch dims, sets shared-mem attributes, launches the kernel.
    * - A kernel to drop into your own launch
-     - ``grid::<algo>_kernel<T, TIER>`` **__global__**
+     - ``grim::<algo>_kernel<T, TIER>`` **__global__**
      - The launch (grid/block dims, dynamic-smem bytes, streams) and
        the per-trajectory batch loop is done for you inside.
    * - A block-parallel routine to call **inside** your own kernel
-     - ``grid::<algo>_inner<T, PLACEMENT>`` / ``_device`` **__device__**
+     - ``grim::<algo>_inner<T, PLACEMENT>`` / ``_device`` **__device__**
      - Everything: shared-memory arenas, scratch placement, syncs.
        This is the real engine; the layers above are conveniences.
 
@@ -182,7 +182,7 @@ existing call sites are unchanged):
 
 **Spilled global memory and L2 pinning (measured: default-OFF).** Spilled
 buffers are recursion-hot, and the original design pinned the workspace in
-persisting L2 (``GRID_CUDA_ENABLE_L2_PERSISTING=1``) so a spilled access
+persisting L2 (``GRIM_CUDA_ENABLE_L2_PERSISTING=1``) so a spilled access
 would cost an L2 hit rather than an HBM round-trip. A controlled A/B on an
 RTX 5090 (2026-09-15: spilling algos + shared-tier controls on
 iiwa14-fixed / g1-floating / h1_2-floating, four interleaved reps, spreads
@@ -192,7 +192,7 @@ because the persisting window is installed on the stream whenever a
 workspace exists and its carve evicts more general L2 traffic than it
 saves (modern L2s already cache the spilled band well on their own). The
 generated default is therefore **0** since 2026-09-15; opt back in
-per-build with ``-DGRID_CUDA_ENABLE_L2_PERSISTING=1`` if your
+per-build with ``-DGRIM_CUDA_ENABLE_L2_PERSISTING=1`` if your
 GPU/workload measures otherwise.
 
 **Spill levels and the per-robot tier→level map.** Each algorithm has a fixed
@@ -384,16 +384,16 @@ Inline-CUDA usage example::
    __global__ void my_outer_kernel(...) {
        extern __shared__ unsigned char s_arena[];
        // ... slice s_arena for your own buffers ...
-       T *s_grid_temp = /* slice for GRiD primitive */;
+       T *s_grim_temp = /* slice for GRiM primitive */;
 
-       // At launch site we passed sizeof(s_grid_temp) =
-       //   grid::FDSVA_SO_INNER_SMEM_BYTES<T, grid::TIER_MINIMAL>()
-       //   == 0 at MINIMAL — no smem reserved for GRiD temp.
+       // At launch site we passed sizeof(s_grim_temp) =
+       //   grim::FDSVA_SO_INNER_SMEM_BYTES<T, grim::TIER_MINIMAL>()
+       //   == 0 at MINIMAL — no smem reserved for GRiM temp.
        // Workspace was malloc'd to:
-       //   grid::FDSVA_SO_INNER_WORKSPACE_BYTES<T, grid::TIER_MINIMAL>()
+       //   grim::FDSVA_SO_INNER_WORKSPACE_BYTES<T, grim::TIER_MINIMAL>()
        //   == 4 * NV^3 * sizeof(T) at MINIMAL.
 
-       grid::fdsva_so_inner<T, grid::TIER_MINIMAL>(
+       grim::fdsva_so_inner<T, grim::TIER_MINIMAL>(
            s_df2, s_idsva_so, s_Minv, s_df_du, s_XImats,
            /* s_temp */ nullptr,       // unused at MINIMAL
            /* d_workspace */ workspace, // global mem
@@ -411,7 +411,7 @@ References
   verifies all 9 single-overload kernels compile at all 3 tiers
   AND 17 static_asserts validate per-tier SMEM/WORKSPACE invariants.
 * Reusable arena helper:
-  ``grid_codegen/helpers/_code_generation_helpers.py:504-583``
+  ``grim_codegen/helpers/_code_generation_helpers.py:504-583``
   (``gen_declare_shared_arena``, ``tier_workspace_expr``).
 * Existing bench harness:
   ``test/benchmarks/run_multi_version.py`` (multi-column driver),

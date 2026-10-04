@@ -16,8 +16,8 @@ parallelism.
 
 Users who need to launch the host wrappers at >MAX_PERF_LEVEL_THREADS will
 want a future "compat-mode" emission (no launch_bounds) — separate
-follow-up. Users who inline ``grid::*_inner`` / ``grid::*_device``
-into their own ``__global__`` kernels have no GRiD-side thread-count
+follow-up. Users who inline ``grim::*_inner`` / ``grim::*_device``
+into their own ``__global__`` kernels have no GRiM-side thread-count
 constraint at all (those are ``__device__`` functions and the
 ``__launch_bounds__`` attribute only applies to ``__global__``).
 
@@ -40,7 +40,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 
 _URDF = (
     Path.home()
@@ -50,7 +50,7 @@ if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -67,7 +67,7 @@ _TOL = 5e-5
 
 @pytest.fixture(scope="module")
 def handle():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_any_thread_count",
         urdf_path=str(_URDF),
         floating_base=False,

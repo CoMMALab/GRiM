@@ -3,7 +3,7 @@ Parallelism Patterns (the in-block fan-out toolkit)
 
 .. note::
 
-   **Mental model.** On a modern GPU (e.g. RTX 5090) a single GRiD kernel is a
+   **Mental model.** On a modern GPU (e.g. RTX 5090) a single GRiM kernel is a
    **single block** (see :doc:`design_principles`), and the SMs are *not* the
    bottleneck — **nvcc compile time + latency-bound serial chains** are. So the
    goal of every algorithm is to **fan independent work across threads within the
@@ -11,7 +11,7 @@ Parallelism Patterns (the in-block fan-out toolkit)
    not to conserve occupancy. Leaving work serial "to save threads" is almost
    always wrong.
 
-GRiD exposes four recurring levers. **P1–P3 are sources of in-block
+GRiM exposes four recurring levers. **P1–P3 are sources of in-block
 parallelism** (what work to fan across threads); **P4 is the offline-memory
 layout that makes those parallel reads cheap and coalesced** (how the data is
 laid out so the fan-out is fast, not bandwidth- or indirection-bound). They are
@@ -130,7 +130,7 @@ forces) and whose output is consumed *after* the walk — that is a P3 hoist.
 P4 — Offline memory layout: sparse compaction, coalesced distribution, topology-helper indirection
 --------------------------------------------------------------------------------------------------
 
-**The pattern.** GRiD is a **code generator**: it knows the robot's topology and
+**The pattern.** GRiM is a **code generator**: it knows the robot's topology and
 the *structural sparsity* of its spatial transforms / inertias / Jacobians
 **offline**. Spend that offline knowledge to make the online reads cheap:
 
@@ -161,7 +161,7 @@ sets the tier) are first-order; an algorithm can be "fully parallel" on paper
 and still be slow if its accesses are strided or it carries known zeros.
 
 **The trade-off / cautions.** Compaction + custom layouts make the emit more
-robot-specialized (that is the GRiD bet — power users get hand-tuned per-robot
+robot-specialized (that is the GRiM bet — power users get hand-tuned per-robot
 code). Keep the *index math* in offline-baked helper arrays, not online
 branches. Topology helpers cost a little constant memory but remove online
 indirection and divergence.

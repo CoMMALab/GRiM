@@ -28,9 +28,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it",
+    pytest.skip("nvcc not on PATH; grim register_robot requires it",
                 allow_module_level=True)
 _IIWA = robot_urdf("iiwa14")
 if not _IIWA.exists():
@@ -49,7 +49,7 @@ def _parse(urdf_path):
 
 @pytest.fixture(scope="module")
 def iiwa_contact():
-    handle = _grid_rbd.register_robot(
+    handle = _grim.register_robot(
         "iiwa14_contact_fext_test", str(_IIWA), floating_base=False,
         contact_frames=_FRAMES,
     )
@@ -126,7 +126,7 @@ def _parse_floating(urdf_path):
 def go2_subset_contact():
     if not _GO2.exists():
         pytest.skip(f"go2 URDF not present at {_GO2}")
-    handle = _grid_rbd.register_robot(
+    handle = _grim.register_robot(
         "go2_contact_fext_subset_test", str(_GO2), floating_base=True,
         contact_frames=_GO2_FEET,
         algorithm_list=["inverse_dynamics", "forward_dynamics"],   # NO kinematics algorithm

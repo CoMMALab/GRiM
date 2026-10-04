@@ -3,7 +3,7 @@
 The notebooks under ``examples/notebooks/`` double as CI smoke tests: they are executed
 end-to-end via ``pytest --nbval-lax examples/notebooks/`` and validate numbers in-cell
 (asserts against ``RBDReference`` / closed-form checks), so a green run == passing
-docs. They require a real CUDA GPU + ``nvcc`` on PATH + ``grid_rbd`` installed —
+docs. They require a real CUDA GPU + ``nvcc`` on PATH + ``grim`` installed —
 the same triad as the python-wrapper smokes. nbval is required to collect ``.ipynb``
 files as tests; if it's absent the notebooks are skipped (so a plain ``pytest``
 without the dev extras doesn't error).
@@ -22,8 +22,8 @@ import pytest
 
 def _missing():
     reasons = []
-    if importlib.util.find_spec("grid_rbd") is None:
-        reasons.append("grid_rbd not installed (pip install -e .)")
+    if importlib.util.find_spec("grim") is None:
+        reasons.append("grim not installed (pip install -e .)")
     if importlib.util.find_spec("nbval") is None:
         reasons.append("nbval not installed (pip install -r install/requirements-dev.txt)")
     if shutil.which("nvcc") is None:

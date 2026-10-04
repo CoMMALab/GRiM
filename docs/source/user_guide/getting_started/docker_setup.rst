@@ -1,11 +1,11 @@
 Docker
 ======
 
-GRiD does not currently ship an official Docker image. The repo's two
+GRiM does not currently ship an official Docker image. The repo's two
 install scripts (``install/base_install.sh`` and ``install/developer_install.sh``) are
 the supported install path on bare-metal hosts.
 
-If you want to run GRiD in a container, the recipe below is a starting
+If you want to run GRiM in a container, the recipe below is a starting
 point that mirrors what the install scripts do. It is **not tested in
 CI** — adapt to your CUDA version and host arch before relying on it.
 
@@ -31,7 +31,7 @@ Reference Dockerfile sketch
    # Clone the repo (or COPY a local checkout in instead).
    WORKDIR /opt
    RUN git clone --recurse-submodules https://github.com/A2R-Lab/GRiD.git
-   WORKDIR /opt/GRiD
+   WORKDIR /opt/GRiM
 
    # End-user install (creates the .venv used by all scripts).
    RUN bash install/base_install.sh
@@ -42,7 +42,7 @@ Reference Dockerfile sketch
    RUN bash install/developer_install.sh
 
    # Make the CLI available on PATH.
-   ENV PATH="/opt/GRiD/.venv/bin:${PATH}"
+   ENV PATH="/opt/GRiM/.venv/bin:${PATH}"
 
    CMD ["bash"]
 

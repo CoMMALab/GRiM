@@ -8,7 +8,7 @@ import subprocess
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference.equivalents.reference_backend import build_project_adapter
 from RBDReference.tests.model_sources import resolve_robot_spec
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch, _build_cuda_samples
@@ -28,14 +28,14 @@ def test_full_momentum_contract(tmp_path, robot, base, dtype, tier):
     spec = _robot_spec(robot, base)
     model = build_project_adapter(spec, resolve_robot_spec(spec), base_mode=base)
     ref, nv = model.reference, model.nv
-    codegen = GRiDCodeGenerator(model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    codegen = GRiMCodeGenerator(model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-        codegen.gen_all_code(output_path=str(tmp_path / "grid.cuh"), algorithm_list=["dccrba"])
+        codegen.gen_all_code(output_path=str(tmp_path / "grim.cuh"), algorithm_list=["dccrba"])
     source = Path(__file__).with_name("cuda_momentum_contract_runner.cu")
     exe = tmp_path / "momentum.exe"
     arch = _detect_cuda_arch()
     cmd = [nvcc, "-std=c++17", "-O0", f"-arch=sm_{arch}", f"-DTEST_SCALAR={dtype}",
-           f"-DTEST_TIER=grid::{tier}", f"-I{tmp_path}", f"-I{ROOT / 'external/GLASS/include'}",
+           f"-DTEST_TIER=grim::{tier}", f"-I{tmp_path}", f"-I{ROOT / 'external/GLASS/include'}",
            str(source), "-o", str(exe)]
     compiled = subprocess.run(cmd, capture_output=True, text=True)
     assert compiled.returncode == 0, compiled.stderr

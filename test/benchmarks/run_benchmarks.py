@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Coordinator: run all GRiD and Pinocchio benchmarks across robots, bases, and batch sizes.
+"""Coordinator: run all GRiM and Pinocchio benchmarks across robots, bases, and batch sizes.
 
 Usage:
     python test/benchmarks/run_benchmarks.py
@@ -31,9 +31,9 @@ ROBOTS    = ["iiwa14", "go2", "g1"]
 BASES     = ["fixed", "floating"]
 BASELINES = ["grid", "pinocchio", "mjx"]
 
-# GRiD EE frames must be fixed-joint names (zero-DOF joints in the URDF).
+# GRiM EE frames must be fixed-joint names (zero-DOF joints in the URDF).
 # Pinocchio/MJX EE frames are link/body frame names (can be any named frame).
-EE_FRAMES_GRID: dict[str, str] = {
+EE_FRAMES_GRIM: dict[str, str] = {
     "iiwa14": "iiwa_joint_ee",
     "go2":    "FR_foot_joint",
     "g1":     "right_hand_palm_joint",
@@ -116,7 +116,7 @@ def merge_results(all_results: list[dict]) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run GRiD benchmarking suite")
+    parser = argparse.ArgumentParser(description="Run GRiM benchmarking suite")
     parser.add_argument("--robots",    nargs="+", default=ROBOTS,    choices=ROBOTS)
     parser.add_argument("--base",      nargs="+", default=BASES,     choices=BASES, dest="bases")
     parser.add_argument("--baselines", nargs="+", default=["grid", "pinocchio"], choices=BASELINES,
@@ -140,7 +140,7 @@ def main() -> None:
         for base in args.bases:
             for baseline in args.baselines:
                 i += 1
-                ee = (EE_FRAMES_GRID if baseline == "grid" else EE_FRAMES_PIN_MJX).get(robot, "")
+                ee = (EE_FRAMES_GRIM if baseline == "grid" else EE_FRAMES_PIN_MJX).get(robot, "")
                 output = RESULTS_DIR / f"{robot}_{base}_{baseline}_{host}.json"
                 print(f"[{ts()}] [{i}/{total}] {robot} {base} → {baseline} (EE: {ee or 'none'})...")
                 try:

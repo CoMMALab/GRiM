@@ -16,7 +16,7 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO))
-grid_rbd = pytest.importorskip("grid_rbd")
+grim = pytest.importorskip("grim")
 from ._subset_artifacts import register_subset, cache_key as _cache_key, random_state as _state  # noqa: E402
 
 pytestmark = pytest.mark.python_wrappers
@@ -57,7 +57,7 @@ def test_numpy_mujoco_twins_on_an_explicit_context(go2):
 
 def test_torch_mujoco_forward_and_backward(go2):
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     tv = gt.TorchRobotHandle(go2, _cache_key(go2), go2._so_path)
     q, qd, u = _state(go2)
     tq = torch.as_tensor(q, device="cuda").requires_grad_(True)
@@ -69,12 +69,12 @@ def test_torch_mujoco_forward_and_backward(go2):
 
 
 def test_numpy_mujoco_twins_match_the_torch_twins(go2):
-    """The numpy twins download through a retargeted host mirror (GridMirrorRetarget); the
+    """The numpy twins download through a retargeted host mirror (GrimMirrorRetarget); the
     torch twins copy device-to-device and never touch it. 2026-10-02: the twin C-ABI bodies
     had lost their copy-out without gaining the retarget and returned the result array
     UNWRITTEN — finite garbage that every isfinite check accepted. Compare values."""
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     tv = gt.TorchRobotHandle(go2, _cache_key(go2), go2._so_path)
     q, qd, u = _state(go2)
     tq, tqd, tu = (torch.as_tensor(x, device="cuda") for x in (q, qd, u))
@@ -100,7 +100,7 @@ def test_numpy_mujoco_twins_match_the_torch_twins(go2):
 def test_no_direct_op_or_twin_writes_outside_its_output(go2):
     """Floating base (NUM_JOINTS != NUM_VEL), primaries AND MuJoCo twins: the whole output is
     written and the guard words after it are not (see _cabi_canary)."""
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
     from ._cabi_canary import guarded_call
     assert all(ABI_SPECS[k].cabi_direct and ABI_SPECS[k].has_mjx_twin for k in DIRECT_BUILT)
     q, qd, u = _state(go2)
@@ -116,7 +116,7 @@ def test_no_direct_op_or_twin_writes_outside_its_output(go2):
 
 def test_jax_mujoco_forward_and_grad(go2):
     jax = pytest.importorskip("jax")
-    import jax.numpy as jnp, grid_rbd.jax as gj
+    import jax.numpy as jnp, grim.jax as gj
     jv = gj.JaxRobotHandle(go2, _cache_key(go2), go2._so_path)
     q, qd, u = _state(go2)
     jq, jqd, ju = (jnp.asarray(x) for x in (q, qd, u))

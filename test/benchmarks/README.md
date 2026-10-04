@@ -1,6 +1,6 @@
-# GRiD Benchmarks
+# GRiM Benchmarks
 
-Performance comparison of GRiD vs. Pinocchio vs. MJX across 13 core algorithms,
+Performance comparison of GRiM vs. Pinocchio vs. MJX across 13 core algorithms,
 for `iiwa14`, `baxter`, `go2`, `g1`, and `h2_plus` robots in fixed and
 floating-base configurations.
 
@@ -33,13 +33,13 @@ python -m venv .venv
 Then run benchmarks:
 
 ```bash
-# Full suite (GRiD + Pinocchio, all robots, fixed + floating):
+# Full suite (GRiM + Pinocchio, all robots, fixed + floating):
 .venv/bin/python test/benchmarks/run_benchmarks.py
 
 # Include MJX:
 .venv/bin/python test/benchmarks/run_benchmarks.py --baselines grid pinocchio mjx
 
-# Just GRiD, one robot (per-exe path: one TU/exe/process per algo, RAM-safe + crash-isolated):
+# Just GRiM, one robot (per-exe path: one TU/exe/process per algo, RAM-safe + crash-isolated):
 .venv/bin/python test/benchmarks/per_algo_bench.py --robot iiwa14 --base fixed
 
 # Just Pinocchio, one robot:
@@ -59,15 +59,15 @@ Results are saved to `test/benchmarks/results/` (gitignored) and
 
 ## Prerequisites
 
-### GRiD (CUDA)
+### GRiM (CUDA)
 
-CUDA Toolkit and `nvcc` must be on `PATH`.  These are already required to use GRiD itself.
+CUDA Toolkit and `nvcc` must be on `PATH`.  These are already required to use GRiM itself.
 
 ```bash
 nvcc --version   # should print CUDA release info
 ```
 
-GRiD uses a vendored `glass` SIMT linalg helper subset that needs no extra
+GRiM uses a vendored `glass` SIMT linalg helper subset that needs no extra
 SDK. The cuBLASDx-backed `glass-nvidia` path was removed in v2.0; see
 `docs/source/user_guide/concepts/cublasdx_removal_design.rst` for the
 rationale and the `archive/last-cublasdx` git tag for the historical code
@@ -90,7 +90,7 @@ headers.  The benchmark runner detects availability automatically — if not fou
 those algorithms are silently reported as null and the direct-API algorithms
 (end_effector_pose, end_effector_pose_gradient, idsva_so_body_frame, idsva_so_world_frame) still run.
 The dispatched `IDSVA_SO` row mirrors whichever variant the codegen picked.
-FDSVA_SO has no Pinocchio equivalent and is GRiD-only.
+FDSVA_SO has no Pinocchio equivalent and is GRiM-only.
 
 Install the cmeel-packaged version into the same venv as Pinocchio:
 
@@ -103,7 +103,7 @@ where the runner looks for it; no other configuration needed.  Bust the pinocchi
 binary cache after installing so the rebuild picks up `-DHAVE_CPPADCG`:
 
 ```bash
-rm -rf .grid_build_cache/cuda/pinocchio_benchmarks
+rm -rf .grim_build_cache/cuda/pinocchio_benchmarks
 ```
 
 If you'd rather use the system package or build from source, those still work too:
@@ -192,7 +192,7 @@ On macOS / Windows, CPU freq locking is not supported and a warning is printed.
 
 ## Understanding the Results
 
-### With-Memory vs. Compute-Only (GRiD)
+### With-Memory vs. Compute-Only (GRiM)
 
 | Label | Measures |
 |-------|----------|
@@ -231,9 +231,9 @@ MJX exposes a subset of algorithms via `mujoco.mjx`:
 MJX uses `jax.vmap` for batching and `jax.block_until_ready()` to ensure GPU completion
 before stopping the timer. The first two calls (JIT compilation + GPU warm-up) are discarded.
 
-### ABA vs. FD (GRiD forward dynamics)
+### ABA vs. FD (GRiM forward dynamics)
 
-GRiD has two forward dynamics implementations:
+GRiM has two forward dynamics implementations:
 - **forward_dynamics**: Minv + RNEA composition (`forward_dynamics`)
 - **aba**: Articulated Body Algorithm (`aba`) — independent implementation
 
@@ -245,7 +245,7 @@ Both are benchmarked and shown separately.
 
 The G1 humanoid has two distinct EE use cases:
 
-| Label | Frame (GRiD) | Frame (Pinocchio/MJX) | Use case |
+| Label | Frame (GRiM) | Frame (Pinocchio/MJX) | Use case |
 |-------|-------------|----------------------|----------|
 | `g1` (arm) | `right_hand_palm_joint` | `right_rubber_hand` | Manipulation |
 | `g1-foot` | — (no fixed ankle joint) | `right_ankle_roll_link` | Locomotion |
@@ -256,7 +256,7 @@ Both appear as separate rows in EE kinematics sections of `benchmark.md`.
 
 ## Reproducing the Multi-Version Comparison
 
-Side-by-side benchmark of two GRiD versions vs three external GPU/CPU
+Side-by-side benchmark of two GRiM versions vs three external GPU/CPU
 references: **pre-GLASS** (git ref `d2c0d18`, the last commit before the GLASS
 work), **glass** (HEAD with pure-SIMT GLASS), **pinocchio** (CPU codegen),
 **mjx** (MuJoCo MJX on JAX-GPU), and **frax** (Frax on JAX-GPU,
@@ -269,8 +269,8 @@ Frax exposes inverse_dynamics/forward_dynamics/crba/minv; the others render `—
 
 ```bash
 # 1. Clone + check out the working branch + init submodules.
-git clone <repo-url> GRiD-A2R
-cd GRiD-A2R
+git clone <repo-url> GRiM-A2R
+cd GRiM-A2R
 git checkout <branch>
 git submodule update --init --recursive
 
@@ -279,7 +279,7 @@ python -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pip install cmeel-cppadcodegen     # Pinocchio codegen-accelerated algos
 
-# 3. CUDA toolkit + nvcc on PATH (required for all GRiD columns).
+# 3. CUDA toolkit + nvcc on PATH (required for all GRiM columns).
 nvcc --version
 
 # 4. MuJoCo MJX for the mjx column (skip with --columns if not wanted).
@@ -295,8 +295,8 @@ nvcc --version
 **Run the sweep:**
 
 ```bash
-# Where the d2c0d18 worktree gets created (defaults to ../GRiD-A2R-pre-glass).
-export GRID_PRE_GLASS_WORKTREE=../GRiD-A2R-pre-glass
+# Where the d2c0d18 worktree gets created (defaults to ../GRiM-A2R-pre-glass).
+export GRIM_PRE_GLASS_WORKTREE=../GRiM-A2R-pre-glass
 
 # Single robot/base (fastest, ~5 min on iiwa14_fixed):
 .venv/bin/python test/benchmarks/run_multi_version.py \
@@ -309,7 +309,7 @@ export GRID_PRE_GLASS_WORKTREE=../GRiD-A2R-pre-glass
 .venv/bin/python test/benchmarks/run_multi_version.py --skip iiwa14_floating
 
 # Bump iter counts for more stable medians on fast/noisy hardware
-# (default: 10000 inner reps for single-call, 100 outer reps for batch on GRiD/Pin,
+# (default: 10000 inner reps for single-call, 100 outer reps for batch on GRiM/Pin,
 #  500 reps on MJX/Frax). 5x bumps roughly 5x the run time:
 .venv/bin/python test/benchmarks/run_multi_version.py \
     --single-call-iters 50000 --batch-iters 500
@@ -319,8 +319,8 @@ export GRID_PRE_GLASS_WORKTREE=../GRiD-A2R-pre-glass
 
 | Flag | Default | When to bump |
 |---|---|---|
-| `--single-call-iters N` | 10000 (GRiD/Pin) | Single-call timings show high variance — bump to 50k+ for sub-µs algos |
-| `--batch-iters N` | 100 (GRiD/Pin), 500 (MJX/Frax) | Batch medians noisy — bump 5–10× |
+| `--single-call-iters N` | 10000 (GRiM/Pin) | Single-call timings show high variance — bump to 50k+ for sub-µs algos |
+| `--batch-iters N` | 100 (GRiM/Pin), 500 (MJX/Frax) | Batch medians noisy — bump 5–10× |
 | `--pin-num-threads N` | auto (physical cores) | Sets Pinocchio's internal CPU_THREADS_GLOBAL. Auto-detect picks physical cores (NOT logical/SMT siblings — they hurt for batched-same-function workloads). Override if auto-detection is wrong (`PIN_PHYSICAL_CORES` env var also works). |
 | `--no-rdc` | off | ptxas hangs on floating-base; first thing to try |
 | `--no-licm-barrier` | off | ptxas still hangs after `--no-rdc`; strongest hammer |
@@ -330,11 +330,11 @@ export GRID_PRE_GLASS_WORKTREE=../GRiD-A2R-pre-glass
 **Pinocchio parallelism details:** the Pinocchio runner uses two layers of parallelism — outer subprocess fan-out (one per algo, for parallel cppadcg JIT compile) and inner thread pool (`CPU_THREADS_GLOBAL` worker threads splitting the batch loop across timesteps). To avoid CPU oversubscription, the outer fan-out is `max(1, physical_cores / internal_threads)`. With the default `internal_threads = physical_cores`, that's 1 subprocess at a time (each gets all cores). Override via `PIN_MAX_WORKERS` env var if you want more parallelism (e.g. when JIT compile dominates and batch run is fast).
 
 The orchestrator:
-1. Creates a worktree at `$GRID_PRE_GLASS_WORKTREE` checked out to `d2c0d18`
+1. Creates a worktree at `$GRIM_PRE_GLASS_WORKTREE` checked out to `d2c0d18`
    with the pinned submodule SHAs (idempotent — reuses if it already exists).
 2. Runs each requested column for each robot/base (pre-glass is fixed-base only).
 3. Writes per-column JSONs into `test/benchmarks/results/comparison/` with names
-   like `iiwa14_fixed_grid_pre_glass.json`, `iiwa14_fixed_grid_glass.json`, etc.
+   like `iiwa14_fixed_grim_pre_glass.json`, `iiwa14_fixed_grim_glass.json`, etc.
 4. Merges them into `benchmark_multi_version_<host>.json` and renders
    `test/benchmarks/benchmark_multi_version.md` with four columns + speedup
    ratios.
@@ -346,11 +346,11 @@ The orchestrator:
 - Floating-base rows show `—` in the pre_glass column (harness doesn't support
   it at `d2c0d18`).
 
-**Caches:** each version uses its own `.pytest_cache/grid_cuda/` directory
+**Caches:** each version uses its own `.pytest_cache/grim_cuda/` directory
 under its respective worktree, so codegen + binary caches don't collide.
 Pass `--no-recompile` to reuse cached binaries on rerun.
 
-**ccache (strongly recommended — large iteration speedup):** both the GRiD
+**ccache (strongly recommended — large iteration speedup):** both the GRiM
 nvcc compile and the Pinocchio g++ compile transparently route through
 `ccache` if it's on `$PATH`. Install with `sudo apt install ccache` (or
 `brew install ccache`).
@@ -360,11 +360,11 @@ preprocessed source + flags are cache hits and skip the heavy ptxas /
 Eigen-template work entirely — typically going from tens of seconds to
 under a second per compile. Most useful when:
 
-- Clearing `.pytest_cache/grid_benchmarks/` or `pinocchio_benchmarks/` but
+- Clearing `.pytest_cache/grim_benchmarks/` or `pinocchio_benchmarks/` but
   the underlying `.cu` / `.cpp` source hasn't changed.
 - Iterating on the harness Python code without touching codegen output.
 
-Disable per-binary with `GRID_NO_CCACHE=1` (GRiD) or `PIN_NO_CCACHE=1`
+Disable per-binary with `GRIM_NO_CCACHE=1` (GRiM) or `PIN_NO_CCACHE=1`
 (Pinocchio). Inspect cache stats with `ccache -s`; clear with `ccache -C`.
 Default cache size is 5 GB — bump if you're caching many builds:
 `ccache -M 20G`.
@@ -401,7 +401,7 @@ Default cache size is 5 GB — bump if you're caching many builds:
 test/benchmarks/
 ├── README.md                    ← this file
 ├── run_benchmarks.py            ← main coordinator
-├── per_algo_bench.py            ← per-exe GRiD orchestrator (one TU / exe / process per algo)
+├── per_algo_bench.py            ← per-exe GRiM orchestrator (one TU / exe / process per algo)
 ├── run_multi_version.py         ← multi-version comparison sweep (columns + baselines)
 ├── autotune_ffi.py              ← FFI-lane (bindings) launch-config autotuner
 ├── generate_report.py           ← JSON → benchmark.md
@@ -414,9 +414,9 @@ test/benchmarks/
 ├── .gitignore
 └── baselines/
     ├── grid/
-    │   ├── run.py               ← GRiD runner library (PER_ALGO_SPECS)
-    │   ├── timeGRiD_bindings.py ← bindings-lane timing script
-    │   └── timeGRiD_common.h    ← shared timing header for the per-algo TUs
+    │   ├── run.py               ← GRiM runner library (PER_ALGO_SPECS)
+    │   ├── timeGRiM_bindings.py ← bindings-lane timing script
+    │   └── timeGRiM_common.h    ← shared timing header for the per-algo TUs
     ├── pinocchio/
     │   ├── run.py               ← Pinocchio runner
     │   ├── timePinocchio.cpp    ← timing program

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Time MJX algorithms for one robot.
 
-Prints results in the same format as timeGRiD so parse_grid_output can be reused.
+Prints results in the same format as timeGRiM so parse_grim_output can be reused.
 Available algorithms: id (inverse), fd (forward), ee_pose (kinematics), id_du (Jacobian).
 All others (minv, aba, crba, fd_du, idsva_so, fdsva_so) are null for MJX.
 
@@ -34,7 +34,7 @@ SO_BATCH_SIZES = [int(x) for x in
 
 
 # ---------------------------------------------------------------------------
-# Output helpers (same format as timeGRiD)
+# Output helpers (same format as timeGRiM)
 # ---------------------------------------------------------------------------
 
 def _print_stats(label: str, n: int, times: np.ndarray) -> None:
@@ -50,7 +50,7 @@ def _print_stats(label: str, n: int, times: np.ndarray) -> None:
 # ---------------------------------------------------------------------------
 # JAX timing primitives
 #
-# Discipline (mirrors what the GRiD benchmark does on the C++ side):
+# Discipline (mirrors what the GRiM benchmark does on the C++ side):
 #   1. JIT-compile the function with a representative input. First call is
 #      always slow (XLA HLO lowering + ptx); ignore it.
 #   2. Run N_WARMUP_PASSES additional warmup calls. These cache device buffers,
@@ -145,7 +145,7 @@ def main() -> None:
     # ("Indexer must have integer or boolean type ... float32"). With no contacts
     # and no equality/limit constraints there is nothing to solve, and disabling
     # the constraint pass is exactly the unconstrained articulated-body dynamics
-    # GRiD computes — so this is both the apples-to-apples comparison and the fix.
+    # GRiM computes — so this is both the apples-to-apples comparison and the fix.
     model.opt.disableflags |= int(mujoco.mjtDisableBit.mjDSBL_CONSTRAINT)
 
     data  = mujoco.MjData(model)
@@ -255,8 +255,8 @@ def main() -> None:
 
     # FD_DU (Jacobian of forward dynamics qacc w.r.t. q, v, qfrc_applied).
     # d(qacc)/d(q,v,tau) via jax autodiff through mjx.forward — the mjx analogue of
-    # GRiD's analytic forward_dynamics_gradient (differentiate w.r.t. qfrc_applied,
-    # the generalized force = GRiD's tau, NOT ctrl which goes through the actuator).
+    # GRiM's analytic forward_dynamics_gradient (differentiate w.r.t. qfrc_applied,
+    # the generalized force = GRiM's tau, NOT ctrl which goes through the actuator).
     try:
         @jax.jit
         def _fd_du_jit(d):
@@ -345,7 +345,7 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # Derivative (gradient) batch timing: id_du + fd_du, BOTH compute-only and
-    # with-memory — the mjx autodiff analogue of GRiD's analytic gradients. We
+    # with-memory — the mjx autodiff analogue of GRiM's analytic gradients. We
     # emit WITH MEMORY too (was compute-only only) because the competitive
     # analysis/plots read batch_256_with_mem_us; without it the gradient bars
     # were null. vmap(jacobian(...)) is expensive, so fewer timed iters.
@@ -367,7 +367,7 @@ def main() -> None:
         )(d.qpos, d.qvel, d.qfrc_applied)
 
     # (label, per-sample jacobian fn, third-input field name) — id_du differentiates
-    # w.r.t. qacc, fd_du w.r.t. qfrc_applied (= GRiD's tau). The with-memory builder
+    # w.r.t. qacc, fd_du w.r.t. qfrc_applied (= GRiM's tau). The with-memory builder
     # writes that third field from numpy so the H2D transfer is timed fairly.
     _DERIVS = [
         ("INVERSE_DYNAMICS_GRADIENT", _id_du_one, "qacc"),
@@ -408,9 +408,9 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # SECOND-ORDER derivative timing (BENCH_SECOND_ORDER=1): the mjx autodiff
-    # analogue of GRiD's analytic idsva_so / fdsva_so bars. jacfwd over the
+    # analogue of GRiM's analytic idsva_so / fdsva_so bars. jacfwd over the
     # first-order jacobian closure — forward-over-reverse, the standard hessian
-    # composition. Labels match algo_registry so parse_grid_output attributes
+    # composition. Labels match algo_registry so parse_grim_output attributes
     # them to 'idsva_so' / 'fdsva_so'.
     #   IDSVA_SO: d²(qfrc_inverse)/d(q,v)²          (τ hessian, qacc held fixed)
     #   FDSVA_SO: d²(qacc)/d(q,v,qfrc_applied)²     (qdd hessian incl. tau cross terms)

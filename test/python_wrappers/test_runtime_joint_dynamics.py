@@ -18,7 +18,7 @@ Coverage (mirrors test_runtime_inertia.py's bit-identical-until-poked structure)
      surface is seen by all.
 
 iiwa14 fixed (damping 0.5x7, non-mimic — exact v-slot map for the analytic check) and fr3
-(damping+friction+mimic — mechanism checks only). fp32. Skips if grid_rbd/nvcc/URDF absent.
+(damping+friction+mimic — mechanism checks only). fp32. Skips if grim/nvcc/URDF absent.
 
 Run with:
     pytest test/python_wrappers/test_runtime_joint_dynamics.py -m python_wrappers -v
@@ -38,9 +38,9 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "bindings"))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 pytestmark = pytest.mark.python_wrappers
 
@@ -73,11 +73,11 @@ def _samples(nj, seed=0):
 @pytest.fixture(scope="module")
 def iiwa_builds():
     common = dict(urdf_path=str(_IIWA), floating_base=False, max_batch_size=8)
-    h_rt = _grid_rbd.register_robot(name="iiwa14_rtjd_pytest", use_joint_dynamics=True,
+    h_rt = _grim.register_robot(name="iiwa14_rtjd_pytest", use_joint_dynamics=True,
                                     runtime_joint_dynamics=True, force_rebuild=True, **common)
-    h_baked = _grid_rbd.register_robot(name="iiwa14_baked_jd_pytest", use_joint_dynamics=True,
+    h_baked = _grim.register_robot(name="iiwa14_baked_jd_pytest", use_joint_dynamics=True,
                                        force_rebuild=True, **common)
-    h_bare = _grid_rbd.register_robot(name="iiwa14_bare_jd_pytest", force_rebuild=True, **common)
+    h_bare = _grim.register_robot(name="iiwa14_bare_jd_pytest", force_rebuild=True, **common)
     return h_rt, h_baked, h_bare
 
 
@@ -186,15 +186,15 @@ def test_poke_seen_across_surfaces():
     """A poke through the numpy handle mutates the single device-resident
     d_joint_dynamics_params struct, so jax/torch (sharing it) see the poked values:
     numpy == jax == torch AFTER the mutation. Skips if jax/torch unavailable."""
-    gj = pytest.importorskip("grid_rbd.jax")
+    gj = pytest.importorskip("grim.jax")
     pytest.importorskip("jax")
-    gt = pytest.importorskip("grid_rbd.torch")
+    gt = pytest.importorskip("grim.torch")
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device not available for torch")
     common = dict(urdf_path=str(_IIWA), floating_base=False, max_batch_size=8,
                   use_joint_dynamics=True, runtime_joint_dynamics=True)
-    hn = _grid_rbd.register_robot(name="iiwa14_rtjd_ffi_pytest", force_rebuild=True, **common)
+    hn = _grim.register_robot(name="iiwa14_rtjd_ffi_pytest", force_rebuild=True, **common)
     hj = gj.register_robot(name="iiwa14_rtjd_ffi_pytest", **common)
     ht = gt.register_robot(name="iiwa14_rtjd_ffi_pytest", **common)
     nv = hn.num_vel
@@ -223,11 +223,11 @@ def test_fr3_mimic_untouched_equals_baked_and_zero_toggles():
     zeroing == bare. The analytic per-v-slot formula is skipped (mimic fold maps
     several jids into one v-slot; covered by the numpy test_joint_dynamics oracle)."""
     common = dict(urdf_path=str(_FR3), floating_base=False, max_batch_size=8)
-    h_rt = _grid_rbd.register_robot(name="fr3_rtjd_pytest", use_joint_dynamics=True,
+    h_rt = _grim.register_robot(name="fr3_rtjd_pytest", use_joint_dynamics=True,
                                     runtime_joint_dynamics=True, force_rebuild=True, **common)
-    h_baked = _grid_rbd.register_robot(name="fr3_baked_jd_pytest", use_joint_dynamics=True,
+    h_baked = _grim.register_robot(name="fr3_baked_jd_pytest", use_joint_dynamics=True,
                                        force_rebuild=True, **common)
-    h_bare = _grid_rbd.register_robot(name="fr3_bare_jd_pytest", force_rebuild=True, **common)
+    h_bare = _grim.register_robot(name="fr3_bare_jd_pytest", force_rebuild=True, **common)
     nj = h_rt.num_joints
     nv = h_rt.num_vel
     q, qd, u = _samples(nj, seed=21)

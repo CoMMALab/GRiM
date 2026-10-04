@@ -1,6 +1,6 @@
-// Validation for W3 Increment 0: the self-collision path THROUGH grid_collision::config_free.
+// Validation for W3 Increment 0: the self-collision path THROUGH grim_collision::config_free.
 //
-// config_free runs grid_cc_self_collision over the baked g_collision_self_cc_ranges before the
+// config_free runs grim_cc_self_collision over the baked g_collision_self_cc_ranges before the
 // environment checks. The SDF + range table are unit-tested standalone (test_cuda_collision_geometry.py
 // / build_self_cc_ranges), but the config_free -> self_collision binding was previously only exercised
 // with tiny radii (never actually self-colliding). This runner drives config_free with an EMPTY
@@ -10,21 +10,21 @@
 //   * huge radii on an ADJACENT-only pair (excluded from the ranges) => config_free == TRUE (free)
 //
 // fp32 (collision change-of-record). Correctness only, no timing.
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = float;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
 constexpr int NS = gc::NUM_COLLISION_SPHERES;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
 
-// config_free with an EMPTY environment: verdict is decided purely by grid_cc_self_collision.
-__global__ void selfcc_kernel(const T *d_q, const grid::robotModel<T> *m, int *d_free) {
+// config_free with an EMPTY environment: verdict is decided purely by grim_cc_self_collision.
+__global__ void selfcc_kernel(const T *d_q, const grim::robotModel<T> *m, int *d_free) {
     __shared__ T s_pos[3*NS];
     __shared__ T s_r[NS];
     gc::Environment<T> env{ nullptr, 0, nullptr, 0, nullptr, 0 };
@@ -34,8 +34,8 @@ __global__ void selfcc_kernel(const T *d_q, const grid::robotModel<T> *m, int *d
 }
 
 int main(){
-    const grid::robotModel<T> *d_m = grid::init_robotModel<T>();
-    size_t smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *d_m = grim::init_robotModel<T>();
+    size_t smem = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
 
     std::vector<T> hq(NQ); for(int i=0;i<NQ;++i) hq[i]=0.2f*sinf(0.7f*i)+0.1f;
     T *d_q; int *d_free;

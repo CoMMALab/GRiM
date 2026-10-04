@@ -37,7 +37,7 @@ _ALGOS = [
     "inverse_dynamics_gradient", "forward_dynamics_gradient", "aba",
     "idsva_so_world_frame", "fdsva_so", "integrator", "integrator_gradient",
 ]
-_ARCH = os.environ.get("GRID_CUDA_ARCH", "120")
+_ARCH = os.environ.get("GRIM_CUDA_ARCH", "120")
 
 
 def _has_cuda() -> bool:
@@ -45,7 +45,7 @@ def _has_cuda() -> bool:
 
 
 def _gen_header(build_dir: Path) -> None:
-    from grid_codegen import GRiDCodeGenerator
+    from grim_codegen import GRiMCodeGenerator
     from RBDReference.tests import MANIFEST_PATH
     from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
     from RBDReference.equivalents.reference_backend import build_project_adapter
@@ -53,9 +53,9 @@ def _gen_header(build_dir: Path) -> None:
     spec = [c["spec"] for c in iter_robot_cases(MANIFEST_PATH, base_mode="floating")
             if c["spec"].robot_id == "go2"][0]
     pm = build_project_adapter(spec, resolve_robot_spec(spec), base_mode="floating")
-    cg = GRiDCodeGenerator(pm.robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+    cg = GRiMCodeGenerator(pm.robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as dn, contextlib.redirect_stdout(dn):
-        cg.gen_all_code(include_homogenous_transforms=True, output_path=str(build_dir / "grid.cuh"),
+        cg.gen_all_code(include_homogenous_transforms=True, output_path=str(build_dir / "grim.cuh"),
                         algorithm_list=_ALGOS, enable_floating_second_order=True,
                         enable_mujoco_kernels=True)
 

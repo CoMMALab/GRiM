@@ -1,7 +1,7 @@
 """Referee: generated device-fn signature uniformity across robot topologies.
 
 Pins the 2026-06-21 consumer-bug fixes (@610ee62 + @dba67d4, see
-docs/open-tasks/archive/grid_interface_uniformity_2026-06-21.md): the
+docs/open-tasks/archive/grim_interface_uniformity_2026-06-21.md): the
 load_update_XmatsHom_helpers overloads must carry `int *s_topology_helpers`
 on EVERY robot — serial chains included (they pass nullptr and skip the
 topology-copy body) — so generic callers see one signature per arity, never
@@ -17,7 +17,7 @@ import re
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from config import robot_urdf
 from URDFParser import URDFParser
 
@@ -29,8 +29,8 @@ def generated_header(request, tmp_path_factory):
     name = request.param
     parser = URDFParser()
     robot = parser.parse(str(robot_urdf(name)), floating_base=(name == "go2"))
-    gen = GRiDCodeGenerator(robot)
-    out = tmp_path_factory.mktemp("sig_" + name) / "grid.cuh"
+    gen = GRiMCodeGenerator(robot)
+    out = tmp_path_factory.mktemp("sig_" + name) / "grim.cuh"
     gen.gen_all_code(output_path=str(out), enable_mujoco_kernels=False)
     return name, out.read_text()
 

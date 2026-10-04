@@ -7,10 +7,10 @@ Overview
 --------
 A trajectory optimizer needs more than dynamics: it needs the discrete step
 ``x_{k+1} = f(x_k, u_k)``, the derivatives of that step, and the costs and
-constraints of the problem, all batched over the knot points. GRiD generates
+constraints of the problem, all batched over the knot points. GRiM generates
 these alongside the dynamics so that a whole shooting or collocation
 iteration can stay on the GPU. The integrator family lives in the ``grid``
-namespace; the costs and barriers are emitted as a sibling ``grid_plant``
+namespace; the costs and barriers are emitted as a sibling ``grim_plant``
 namespace and mirrored on the Python handles.
 
 Signature
@@ -99,10 +99,10 @@ Implementation
 The Python references are ``plant_step``, ``plant_step_gradient``,
 ``plant_step_hessian`` and the cost and barrier functions of the
 ``_plant.py`` mixin of RBDReference. The CUDA generators are
-``grid_codegen/algorithms/_integrator.py``, ``_integrator_gradient.py`` and
-``_plant.py``, which emits the ``grid_plant`` namespace.
+``grim_codegen/algorithms/_integrator.py``, ``_integrator_gradient.py`` and
+``_plant.py``, which emits the ``grim_plant`` namespace.
 
-In GRiD
+In GRiM
 -------
 The integrator composes forward dynamics (the mass-matrix-inverse path) with
 the chosen scheme inside one kernel, so the four acceleration stages of

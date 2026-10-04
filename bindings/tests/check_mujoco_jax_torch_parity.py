@@ -34,8 +34,8 @@ def _cmp(name, ref, got, results):
 
 
 def main():
-    import grid_rbd.jax as gjax
-    import grid_rbd.torch as gtorch
+    import grim.jax as gjax
+    import grim.torch as gtorch
     import torch
     import jax.numpy as jnp
 
@@ -44,7 +44,7 @@ def main():
     # NOTE: nothing is skipped here. fdsva_so mjx was un-skipped 2026-06-21 (jax+torch match
     # the numpy mujoco oracle on go2-floating, max |Δ| ~9e-5 fp32). The old ">48KB opt-in gap"
     # reason was stale (go2-floating fdsva_so uses 85KB smem and launches fine via
-    # init_grid_kernel_attrs). The LITE/MINIMAL spilled-epilogue concern is a separate
+    # init_grim_kernel_attrs). The LITE/MINIMAL spilled-epilogue concern is a separate
     # perf-phase item; the default tier exercised here does not spill.
     th = gtorch.get_robot("go2_mjx_all_val")
     ref = jh._base  # numpy handle (proven mjx oracle)

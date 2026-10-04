@@ -1181,7 +1181,7 @@ z
     </g>
    </g>
    <g id="text_50">
-    <!-- GRiD JAX resident call (device in, device out) -->
+    <!-- GRiM JAX resident call (device in, device out) -->
     <g transform="translate(73.406641 18.649688) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-47" d="M 3809 666 
@@ -1915,7 +1915,7 @@ z
     </g>
    </g>
    <g id="text_94">
-    <!-- GRiD JAX resident call (device in, device out) -->
+    <!-- GRiM JAX resident call (device in, device out) -->
     <g transform="translate(281.286641 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2411,7 +2411,7 @@ iVBORw0KGgoAAAANSUhEUgAAARIAAACaCAYAAABlo8ciAAABw0lEQVR4nO3dzUkDURiG0WgmaAhZCLZl
     </g>
    </g>
    <g id="text_138">
-    <!-- GRiD JAX resident call (device in, device out) -->
+    <!-- GRiM JAX resident call (device in, device out) -->
     <g transform="translate(489.166641 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2850,7 +2850,7 @@ iVBORw0KGgoAAAANSUhEUgAAARIAAACaCAYAAABlo8ciAAABGElEQVR4nO3UsQ3CQAAEQYNlkOi/SFJH
     </g>
    </g>
    <g id="text_182">
-    <!-- GRiD JAX resident call (device in, device out) -->
+    <!-- GRiM JAX resident call (device in, device out) -->
     <g transform="translate(697.046641 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2942,7 +2942,7 @@ z
    </g>
   </g>
   <g id="text_183">
-   <!-- Baseline / GRiD. Blue: GRiD faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
+   <!-- Baseline / GRiM. Blue: GRiM faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
    <g transform="translate(283.847461 184.474716) scale(0.075 -0.075)">
     <defs>
      <path id="DejaVuSans-2f" d="M 1625 4666 

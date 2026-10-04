@@ -17,7 +17,7 @@ def test_stage_sizes_and_exact_batches():
     assert len(list(p.jobs("core", p.ROBOTS))) == 45
     assert len(list(p.jobs("wrappers", p.ROBOTS))) == 48      # 3 robots x 2 ops x (5 surfaces + 3 allocate-once)
     assert len(list(p.jobs("table", p.ROBOTS))) == 3*len(p.OPERATIONS)*len(p.TABLE_BACKENDS)
-    assert all(job["backend"] == "grid_cuda" for job in list(p.jobs("core", ["iiwa14"]))[::len(p.PRIMARY["inverse_dynamics"])][:1])
+    assert all(job["backend"] == "grim_cuda" for job in list(p.jobs("core", ["iiwa14"]))[::len(p.PRIMARY["inverse_dynamics"])][:1])
 
 
 @pytest.mark.parametrize("args", [("core",["fake"]), ("core",["iiwa14"],["fake"]),
@@ -31,24 +31,24 @@ def test_capability_gaps_are_not_library_claims():
     assert p.capability("mjx","idsva_so","iiwa14").startswith("excluded_method:")
     assert p.capability("frax","inverse_dynamics","g1").startswith("model_mismatch:")
     assert p.capability("pinocchio","end_effector_pose_hessian","iiwa14").startswith("adapter_pending:")
-    assert all(p.capability("grid_cuda",op,"g1") is None for op in p.CORE)
-    assert p.capability("grid_cuda","minv","g1") is None and p.capability("grid_cuda","end_effector_pose_hessian","g1").startswith("adapter_pending:")
-    assert p.capability("grid_native","idsva_so","g1").startswith("adapter_pending:")
+    assert all(p.capability("grim_cuda",op,"g1") is None for op in p.CORE)
+    assert p.capability("grim_cuda","minv","g1") is None and p.capability("grim_cuda","end_effector_pose_hessian","g1").startswith("adapter_pending:")
+    assert p.capability("grim_native","idsva_so","g1").startswith("adapter_pending:")
     assert p.capability("pinocchio_plain","ccrba","g1") is None and p.capability("pinocchio","ccrba","g1").startswith("adapter_pending:")
     assert p.capability("mjx","crba","go2") is None and p.capability("mujoco_warp","crba","go2") is None
     assert p.capability("bard","generalized_gravity","g1") is None and p.capability("frax","crba","iiwa14") is None
     assert p.capability("mjx","ccrba","iiwa14").startswith("adapter_pending:")
     # allocate-once companions: NumPy only where the API has out=; torch/JAX everywhere
-    assert p.capability("grid_numpy_prealloc","inverse_dynamics","g1").startswith("not_applicable:")
-    assert all(p.capability("grid_numpy_prealloc",op,"g1") is None for op in p.NUMPY_OUT_OPS)
-    assert all(p.capability(b,op,"g1") is None for b in ("grid_torch_prealloc","grid_jax_prealloc") for op in p.CORE)
+    assert p.capability("grim_numpy_prealloc","inverse_dynamics","g1").startswith("not_applicable:")
+    assert all(p.capability("grim_numpy_prealloc",op,"g1") is None for op in p.NUMPY_OUT_OPS)
+    assert all(p.capability(b,op,"g1") is None for b in ("grim_torch_prealloc","grim_jax_prealloc") for op in p.CORE)
     assert set(p.PREALLOC) <= set(p.WRAPPERS) and set(p.PREALLOC.values()) <= set(p.WRAPPERS)
 
 
 def test_jax_pinned_floor_matches_the_bindings_and_selects_cells():
     """The figure draws a JAX allocate-once bar only where to_host took the pinned route."""
     import re
-    source = (p.ROOT / "bindings/grid_rbd/jax/__init__.py").read_text()
+    source = (p.ROOT / "bindings/grim/jax/__init__.py").read_text()
     floor = re.search(r"^_PINNED_MIN_BYTES = (.+)$", source, re.M).group(1)
     assert eval(floor, {"__builtins__": {}}) == p.JAX_PINNED_MIN_BYTES
     row = lambda op, entries: {"operation": op, "entries": entries}
@@ -61,7 +61,7 @@ def test_jax_pinned_floor_matches_the_bindings_and_selects_cells():
 
 def test_numpy_out_ops_match_the_bindings_table():
     """The benchmark's notion of "NumPy has out=" is the bindings' py_out_param flag."""
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
     assert p.NUMPY_OUT_OPS == {k for k, s in ABI_SPECS.items() if s.py_out_param}
 
 
@@ -97,7 +97,7 @@ def test_warning_repeat_is_retained_but_never_relabeled_validated():
 
 @pytest.mark.parametrize('tamper', ['none', 'strict', 'nonfinite', 'unstable'])
 def test_warning_export_requires_policy_and_safety_checks(tmp_path,tamper):
-    job=list(p.jobs('table',['iiwa14'],['grid_jax'],['forward_dynamics_gradient']))[0]
+    job=list(p.jobs('table',['iiwa14'],['grim_jax'],['forward_dynamics_gradient']))[0]
     check=p.agreement(np.array([1000.,.01]),np.array([1000.,0.]))
     capture=dict(accuracy_policy='fp32-fd-warnings',adapter=dict(dtype='float32'),cells=[dict(
         batch=16,status='accuracy_warning',comparison_eligible=True,oracle_agreement=check,
@@ -182,7 +182,7 @@ def test_jax_cache_environment_is_persistent_and_owner_controlled(tmp_path,monke
 
 @pytest.mark.parametrize('finite',[True,False])
 def test_preparation_worker_never_times_or_claims_accuracy(tmp_path,monkeypatch,finite):
-    from test.benchmarks.release import worker, fixtures, grid_adapter
+    from test.benchmarks.release import worker, fixtures, grim_adapter
     calls=[]
     class FakeFixture:
         def __init__(self,robot,count):
@@ -201,10 +201,10 @@ def test_preparation_worker_never_times_or_claims_accuracy(tmp_path,monkeypatch,
         def normalize(self,x):return x
     def no_timer(*args):raise AssertionError('Preparation must not collect timings')
     monkeypatch.setattr(fixtures,'Fixture',FakeFixture)
-    monkeypatch.setattr(grid_adapter,'GridAdapter',FakeAdapter)
+    monkeypatch.setattr(grim_adapter,'GrimAdapter',FakeAdapter)
     monkeypatch.setattr(worker,'timed',no_timer)
     path=tmp_path/'prepared.json'
-    monkeypatch.setattr(sys,'argv',['worker','--robot','g1','--backend','grid_jax','--operation','inverse_dynamics',
+    monkeypatch.setattr(sys,'argv',['worker','--robot','g1','--backend','grim_jax','--operation','inverse_dynamics',
         '--batches','16','32','--warmups','1','--iterations','1','--prepare-only','--output',str(path)])
     if finite:worker.main()
     else:
@@ -325,7 +325,7 @@ def test_atomic_json_rejects_nan_without_overwriting(tmp_path):
 
 
 def row(repeat=0, **kw):
-    return dict(robot="iiwa14", operation="inverse_dynamics", backend="grid_jax", batch=16,
+    return dict(robot="iiwa14", operation="inverse_dynamics", backend="grim_jax", batch=16,
         repeat=repeat, expected_repeats=1, purpose="smoke", dtype="float32", method="analytical",
         status="validated", reason="", host_us=10., resident_us=4., contract="x",
         urdf_sha256="u",input_values_sha256="i",max_abs_error=0.,relative_l2_error=0.,**kw)
@@ -381,25 +381,25 @@ def test_negative_delta_is_flagged_not_clipped():
 
 
 def test_positive_aggregate_delta_does_not_erase_bad_repeat():
-    from test.benchmarks.release.report import decompose, grid_stack
+    from test.benchmarks.release.report import decompose, grim_stack
     rows = [dict(robot="iiwa14", operation="inverse_dynamics", batch=16,
-                 backend="grid_cuda", host_us=12., resident_us=4.,
+                 backend="grim_cuda", host_us=12., resident_us=4.,
                  boundary_flag="negative total-minus-resident in one repeat"),
             dict(robot="iiwa14", operation="inverse_dynamics", batch=16,
-                 backend="grid_jax", host_us=20., resident_us=10., boundary_flag="")]
+                 backend="grim_jax", host_us=20., resident_us=10., boundary_flag="")]
     d = decompose(rows)[0]
     assert d["memory_traffic_us"] is None
     assert "inconsistent per-repeat boundaries" in d["flags"]
     lookup = {(r["robot"], r["operation"], r["backend"], r["batch"]): r for r in rows}
-    assert grid_stack(lookup, "iiwa14", "inverse_dynamics", 16, "grid_jax") == (4., None, 8., ["memory"])
+    assert grim_stack(lookup, "iiwa14", "inverse_dynamics", 16, "grim_jax") == (4., None, 8., ["memory"])
 
 
 def test_incomplete_stack_draws_actual_total_not_partial_sum():
     import matplotlib.pyplot as plt
-    from test.benchmarks.release.report import draw_grid_stack
+    from test.benchmarks.release.report import draw_grim_stack
     fig, ax = plt.subplots()
     try:
-        total = draw_grid_stack(ax, 0., .5, (4., 8., None, ["wrapper"]),
+        total = draw_grim_stack(ax, 0., .5, (4., 8., None, ["wrapper"]),
                                 dict(host_us=10., host_min_us=9., host_max_us=11.))
         assert total == 10.
         assert [p.get_height() for p in ax.patches] == [10.]
@@ -443,8 +443,8 @@ def test_website_api_plot_uses_requested_boundaries_and_palette(tmp_path, monkey
     assert [x[3] for x in API_BOUNDARIES] == ["#00693e", "#c4dd88", "#267aba", "#d94415", "#8a6996"]
     rows = []
     for op in p.WRAPPER_OPS:
-        for backend, host in (("grid_cuda", 20.), ("grid_native", 25.), ("grid_numpy", 30.),
-                              ("grid_torch", 40.), ("grid_jax", 50.)):
+        for backend, host in (("grim_cuda", 20.), ("grim_native", 25.), ("grim_numpy", 30.),
+                              ("grim_torch", 40.), ("grim_jax", 50.)):
             rows.append(dict(robot="iiwa14", operation=op, backend=backend, batch=16,
                              host_us=host, host_min_us=host-1, host_max_us=host+1,
                              resident_us=10., resident_min_us=9., resident_max_us=11.))
@@ -499,21 +499,21 @@ def test_timeout_terminates_worker(tmp_path):
 def test_native_bridge_cpu_fake_abi(tmp_path):
     """Compile and exercise the real native timer without loading CUDA."""
     source=tmp_path/"fake.cpp"
-    source.write_text('extern "C" int grid_rbd_inverse_dynamics(long long c,const float*q,const float*v,const float*a,float*out,int b,float g,const float*f){for(int i=0;i<b;++i)out[i]=q[i]+v[i]+a[i];return c==99?-9:0;}')
+    source.write_text('extern "C" int grim_inverse_dynamics(long long c,const float*q,const float*v,const float*a,float*out,int b,float g,const float*f){for(int i=0;i<b;++i)out[i]=q[i]+v[i]+a[i];return c==99?-9:0;}')
     fake=tmp_path/"fake.so"; bridge=tmp_path/"bridge.so"
     for src,out in [(source,fake),(Path(p.__file__).with_name("native_bridge.cpp"),bridge)]:
         subprocess.run(["g++","-std=c++17","-shared","-fPIC",str(src),"-ldl","-o",str(out)],check=True)
-    lib=ctypes.CDLL(str(bridge)); fn=lib.grid_release_time
+    lib=ctypes.CDLL(str(bridge)); fn=lib.grim_release_time
     fp=ctypes.POINTER(ctypes.c_float); dp=ctypes.POINTER(ctypes.c_double)
     fn.argtypes=[ctypes.c_char_p,ctypes.c_char_p,ctypes.c_longlong,fp,fp,fp,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double,dp,fp]
     inp=np.arange(4,dtype=np.float32); out=np.empty_like(inp); times=np.empty(3)
-    args=[str(fake).encode(),b"grid_rbd_inverse_dynamics",0,*([inp.ctypes.data_as(fp)]*3),4,4,2,3,0.02,times.ctypes.data_as(dp),out.ctypes.data_as(fp)]
+    args=[str(fake).encode(),b"grim_inverse_dynamics",0,*([inp.ctypes.data_as(fp)]*3),4,4,2,3,0.02,times.ctypes.data_as(dp),out.ctypes.data_as(fp)]
     assert fn(*args)==0
     np.testing.assert_array_equal(out,3*inp)
     assert np.isfinite(times).all() and (times>=0).all()
     args[2]=99; assert fn(*args)==-9
     args[1]=b"unapproved_symbol"; assert fn(*args)==-2
-    args[1]=b"grid_rbd_inverse_dynamics"; args[2]=0; args[10]=-1.0; assert fn(*args)==-1
+    args[1]=b"grim_inverse_dynamics"; args[2]=0; args[10]=-1.0; assert fn(*args)==-1
 
 
 def test_release_pool_runs_every_slice_once_on_persistent_threads(tmp_path):
@@ -551,7 +551,7 @@ def test_release_pool_runs_every_slice_once_on_persistent_threads(tmp_path):
 
 def test_overhead_decomposition_differences_and_negative_flags():
     from test.benchmarks.release.report import decompose
-    cells={"grid_cuda":(12.,4.),"grid_native":(15.,None),"grid_numpy":(22.,None),"grid_jax":(400.,9.),"grid_torch":(300.,3.),
+    cells={"grim_cuda":(12.,4.),"grim_native":(15.,None),"grim_numpy":(22.,None),"grim_jax":(400.,9.),"grim_torch":(300.,3.),
            "pinocchio":(30.,None),"pinocchio_plain":(70.,None)}
     rows=[dict(robot="iiwa14",operation="inverse_dynamics",batch=16,backend=b,host_us=h,resident_us=r) for b,(h,r) in cells.items()]
     d=decompose(rows)[0]
@@ -559,7 +559,7 @@ def test_overhead_decomposition_differences_and_negative_flags():
     assert (d["jax_dispatch_us"],d["jax_round_trip_us"]) == (5.,391.)
     assert (d["pinocchio_codegen_us"],d["pinocchio_standard_api_overhead_us"]) == (30.,40.)
     assert d["torch_dispatch_us"] is None and "torch_dispatch_us: negative" in d["flags"]
-    assert decompose([r for r in rows if r["backend"] not in {"grid_cuda","pinocchio_plain"}]) == []
+    assert decompose([r for r in rows if r["backend"] not in {"grim_cuda","pinocchio_plain"}]) == []
 
 
 def test_plot_handles_single_robot_and_missing_backends(tmp_path):
@@ -572,8 +572,8 @@ def test_plot_handles_single_robot_and_missing_backends(tmp_path):
 
 
 def test_stacked_and_composition_figures_from_synthetic_rows(tmp_path):
-    from test.benchmarks.release.report import plot_stacked_comparison, plot_grid_composition, grid_stack
-    cells={"grid_cuda":(12.,4.),"grid_native":(15.,None),"grid_numpy":(22.,None),"grid_jax":(400.,9.),"grid_torch":(10.,3.),
+    from test.benchmarks.release.report import plot_stacked_comparison, plot_grim_composition, grim_stack
+    cells={"grim_cuda":(12.,4.),"grim_native":(15.,None),"grim_numpy":(22.,None),"grim_jax":(400.,9.),"grim_torch":(10.,3.),
            "pinocchio":(30.,None),"pinocchio_plain":(70.,None),"mjx":(900.,300.),"mujoco_warp":(500.,600.)}
     rows=[]
     for op in ("inverse_dynamics","inverse_dynamics_gradient","idsva_so"):
@@ -581,13 +581,13 @@ def test_stacked_and_composition_figures_from_synthetic_rows(tmp_path):
             rows+=[dict(robot="iiwa14",operation=op,backend=b,batch=batch,host_us=h,resident_us=r,dtype="float32",status="validated")
                    for b,(h,r) in cells.items()]
     lookup={(r["robot"],r["operation"],r["backend"],r["batch"]):r for r in rows}
-    assert grid_stack(lookup,"iiwa14","inverse_dynamics",16,"grid_jax")==(4.,8.,388.,[])
-    compute,memory,wrapper,flags=grid_stack(lookup,"iiwa14","inverse_dynamics",16,"grid_torch")
+    assert grim_stack(lookup,"iiwa14","inverse_dynamics",16,"grim_jax")==(4.,8.,388.,[])
+    compute,memory,wrapper,flags=grim_stack(lookup,"iiwa14","inverse_dynamics",16,"grim_torch")
     assert (compute,memory,wrapper,flags)==(4.,8.,None,["wrapper"])
     assert plot_stacked_comparison(rows,tmp_path,"smoke").exists()
-    assert plot_grid_composition(rows,tmp_path,"smoke").exists()
-    assert (tmp_path/"comparison_stacked.png").stat().st_size>1000 and (tmp_path/"grid_composition.png").stat().st_size>1000
-    assert plot_stacked_comparison([r for r in rows if r["backend"]!="grid_cuda" and r["operation"]=="minv"],tmp_path,"smoke") is None
+    assert plot_grim_composition(rows,tmp_path,"smoke").exists()
+    assert (tmp_path/"comparison_stacked.png").stat().st_size>1000 and (tmp_path/"grim_composition.png").stat().st_size>1000
+    assert plot_stacked_comparison([r for r in rows if r["backend"]!="grim_cuda" and r["operation"]=="minv"],tmp_path,"smoke") is None
 
 
 def test_homepage_core_palette_and_hessian_baseline_selection(tmp_path, monkeypatch):
@@ -600,12 +600,12 @@ def test_homepage_core_palette_and_hessian_baseline_selection(tmp_path, monkeypa
     monkeypatch.setattr(Axes, "errorbar", reject_whiskers)
     rows=[]
     for op in ("inverse_dynamics", "idsva_so"):
-        for b in ("grid_cuda", "grid_jax", "pinocchio", "pinocchio_plain", "mujoco_cpu", "mjx", "mujoco_warp", "bard", "frax"):
+        for b in ("grim_cuda", "grim_jax", "pinocchio", "pinocchio_plain", "mujoco_cpu", "mjx", "mujoco_warp", "bard", "frax"):
             if op == "idsva_so" and b in ("mujoco_cpu", "mjx", "mujoco_warp"):
                 continue
-            h = 12. if b == "grid_cuda" else 40.
+            h = 12. if b == "grim_cuda" else 40.
             rows.append(dict(robot="iiwa14", operation=op, backend=b, batch=16,
-                             host_us=h, resident_us=4. if b in ("grid_cuda", "grid_jax", "mjx", "mujoco_warp") else None,
+                             host_us=h, resident_us=4. if b in ("grim_cuda", "grim_jax", "mjx", "mujoco_warp") else None,
                              host_min_us=h-1, host_max_us=h+1, status="validated", dtype="float32"))
     colors = defaultdict(list)
     original = Axes.bar
@@ -631,24 +631,24 @@ def test_homepage_core_palette_and_hessian_baseline_selection(tmp_path, monkeypa
     assert colors[0].index("#003c73") < colors[0].index("#267aba")
     assert legends[0]["ncol"] == 4
     labels = [h.get_label() for h in legends[0]["handles"]]
-    assert labels == ["GRiD CUDA Device - GPU", " ", " ",
+    assert labels == ["GRiM CUDA Device - GPU", " ", " ",
                       "Pinocchio Codegen - CPU", "Pinocchio Standard API - CPU", " ",
                       "Mujoco - CPU", "Mujoco Warp - GPU", "Mujoco XLA (MJX) - GPU",
-                      "GPU-CPU I/O Overhead", "GRiD Jax Wrapper Overhead", " "]
+                      "GPU-CPU I/O Overhead", "GRiM Jax Wrapper Overhead", " "]
     svg=path.read_text()
     assert all(label not in svg for label in ("BARD", "Frax", "N/C", "DRAFT", "Whiskers"))
-    assert "GPU-CPU I/O Overhead" in svg and "GRiD Jax Wrapper Overhead" in svg
+    assert "GPU-CPU I/O Overhead" in svg and "GRiM Jax Wrapper Overhead" in svg
     assert "fp64 required by the evaluated library path/build" in svg
     assert "I/O overhead not resolved reliably" in svg and "▼" in svg
 
 
 def test_report_earlier_capture_supersedes_same_cell(tmp_path):
-    """core and wrappers both plan the GRiD CUDA/JAX RNEA cells; the first capture
+    """core and wrappers both plan the GRiM CUDA/JAX RNEA cells; the first capture
     listed wins, later duplicates are recorded as superseded, never as extra repeats."""
     from test.benchmarks.release.report import main as report_main
     import sys as _sys
     plan=json.loads(subprocess.run([_sys.executable,"-m","test.benchmarks.release.collect","--stage","wrappers","--smoke",
-        "--robots","iiwa14","--backends","grid_cuda","--operations","inverse_dynamics"],cwd=p.ROOT,text=True,capture_output=True,check=True).stdout)
+        "--robots","iiwa14","--backends","grim_cuda","--operations","inverse_dynamics"],cwd=p.ROOT,text=True,capture_output=True,check=True).stdout)
     for name in ("first","second"):
         (tmp_path/name).mkdir(); p.write_json(tmp_path/name/"plan.json",plan)
     out=tmp_path/"report"
@@ -672,22 +672,22 @@ def test_contract_ignores_momentary_clock_fields():
 
 def test_speedup_best_and_throughput_figures(tmp_path):
     from test.benchmarks.release.report import plot_speedup, plot_best_competitor, plot_throughput
-    cells={"grid_cuda":(12.,4.),"grid_jax":(400.,9.),"pinocchio":(30.,None),"pinocchio_plain":(70.,None),"mjx":(900.,300.),"mujoco_warp":(500.,600.)}
+    cells={"grim_cuda":(12.,4.),"grim_jax":(400.,9.),"pinocchio":(30.,None),"pinocchio_plain":(70.,None),"mjx":(900.,300.),"mujoco_warp":(500.,600.)}
     rows=[dict(robot="iiwa14",operation=op,backend=b,batch=batch,host_us=h,resident_us=r,dtype="float32",status="validated")
           for op in ("inverse_dynamics","minv") for batch in (16,256) for b,(h,r) in cells.items()]
-    assert plot_speedup(rows,tmp_path,"smoke","grid_jax","host_us","host_us","t","speedup_full").exists()
-    assert plot_speedup(rows,tmp_path,"smoke","grid_jax","resident_us","resident_us","t","speedup_resident").exists()
+    assert plot_speedup(rows,tmp_path,"smoke","grim_jax","host_us","host_us","t","speedup_full").exists()
+    assert plot_speedup(rows,tmp_path,"smoke","grim_jax","resident_us","resident_us","t","speedup_resident").exists()
     assert plot_best_competitor(rows,tmp_path,"smoke").exists() and plot_throughput(rows,tmp_path,"smoke").exists()
-    assert plot_speedup([r for r in rows if r["backend"].startswith("grid_")],tmp_path,"smoke","grid_jax","host_us","host_us","t","none") is None
+    assert plot_speedup([r for r in rows if r["backend"].startswith("grim_")],tmp_path,"smoke","grim_jax","host_us","host_us","t","none") is None
 
 
 def test_report_uncollected_placeholder_never_shadows_a_later_collected_cell(tmp_path):
     """A capture whose chain died leaves planned cells with no job; listing it first
     must not hide the same cell collected by a later capture (2026-09-26: the g1
-    grid_cuda remainder was reported not_collected behind the dead chain's plan)."""
+    grim_cuda remainder was reported not_collected behind the dead chain's plan)."""
     from test.benchmarks.release.report import main as report_main
     import sys as _sys
-    job=list(p.jobs('table',['iiwa14'],['grid_cuda'],['crba']))[0]
+    job=list(p.jobs('table',['iiwa14'],['grim_cuda'],['crba']))[0]
     plan=dict(jobs=[job],batches=[16],repeats=1,purpose='smoke',iterations=2,warmups=2,accuracy_policy='strict')
     (tmp_path/'dead').mkdir(); p.write_json(tmp_path/'dead'/'plan.json',plan)
     later=tmp_path/'later'; later.mkdir(); p.write_json(later/'plan.json',plan)
@@ -714,7 +714,7 @@ def test_cpu_power_is_recorded_and_part_of_the_contract(tmp_path):
     import sys as _sys
     keys = set(cpu_power())
     assert {"governor", "energy_performance_preference", "affinity", "scaling_max_khz"} <= keys
-    jobs = list(p.jobs('table', ['iiwa14'], ['grid_cuda', 'pinocchio'], ['crba']))
+    jobs = list(p.jobs('table', ['iiwa14'], ['grim_cuda', 'pinocchio'], ['crba']))
     good = p.agreement(np.array([1000., 0.]), np.array([1000., 0.]))
     for name, job, governor in (("a", jobs[0], "powersave"), ("b", jobs[1], "performance")):
         d = tmp_path / name; d.mkdir()
@@ -732,7 +732,7 @@ def test_cpu_power_is_recorded_and_part_of_the_contract(tmp_path):
 
 
 def test_forward_dynamics_rows_are_labelled_fd_not_aba():
-    # GRiD's timed forward_dynamics is the mass-matrix-inverse path, and MJX / Warp solve with
+    # GRiM's timed forward_dynamics is the mass-matrix-inverse path, and MJX / Warp solve with
     # their own factorisations; "ABA" named an algorithm none of the timed rows necessarily run.
     from test.benchmarks.release.report import OP_LABELS, SHORT_OP
     assert (OP_LABELS["forward_dynamics"], OP_LABELS["forward_dynamics_gradient"], OP_LABELS["fdsva_so"]) == ("FD", "grad FD", "Hessian FD")

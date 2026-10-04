@@ -5,7 +5,7 @@ name: Peer Suites (opt-in)
 # external/URDFParser (parser units) — AT THEIR PINNED SHAs. Deliberately NOT
 # part of the default cpu-lane in verify-gpu-proof.yml: each peer repo now has
 # its own CI on push, and this lane exists to prove the exact pinned
-# combination inside GRiD on demand (e.g. before/after a pin bump).
+# combination inside GRiM on demand (e.g. before/after a pin bump).
 #
 # Triggers: manual dispatch, plus a self-validation run when this workflow
 # file itself changes. (workflow_dispatch is only offered by GitHub once the

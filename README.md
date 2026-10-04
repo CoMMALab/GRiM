@@ -1,4 +1,4 @@
-# GRiD
+# GRiM
 [![CI](https://img.shields.io/github/actions/workflow/status/A2R-Lab/GRiD/verify-gpu-proof.yml?branch=main&style=flat-square&label=CI)](https://github.com/A2R-Lab/GRiD/actions/workflows/verify-gpu-proof.yml)
 [![docs](https://img.shields.io/github/actions/workflow/status/A2R-Lab/GRiD/gh-pages.yml?branch=main&style=flat-square&label=docs)](https://a2r-lab.github.io/GRiD/)
 [![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
@@ -8,16 +8,16 @@
 
 A GPU-accelerated library for robot dynamics, kinematics, and collisions, with analytical derivatives and Hessians for supported numerical operations.
 
-![The GRiD package ecosystem: a user's URDF goes through URDFParser to the code generator (built on GLASS) and RBDReference, producing CUDA C++ with NumPy, JAX, and PyTorch wrappers; benchmarks and tests, backed by pytest-gpu-proof and external oracles, produce validated outputs and performance benchmarks.](docs/imgs/GRiD.png)
+![The GRiM package ecosystem: a user's URDF goes through URDFParser to the code generator (built on GLASS) and RBDReference, producing CUDA C++ with NumPy, JAX, and PyTorch wrappers; benchmarks and tests, backed by pytest-gpu-proof and external oracles, produce validated outputs and performance benchmarks.](docs/imgs/GRiM.png)
 
-GRiD turns a URDF into optimized, per-robot CUDA C++ for rigid-body dynamics, kinematics, their analytical
+GRiM turns a URDF into optimized, per-robot CUDA C++ for rigid-body dynamics, kinematics, their analytical
 first- and second-order derivatives and a trajectory-optimization plant layer, then hands you that code three
 ways — a numpy handle, a `jax.jit`-able FFI surface, or `torch.autograd`-aware ops — from one content-addressed
 `.so` cache. One CUDA block per problem, batched, bit-deterministic and thread-count invariant; the same
 model and API rebuild for each target architecture (one artifact per `sm_XX`), with runtime memory
 adaptation from embedded Jetson class devices to desktop GPUs. Website: https://a2r-lab.github.io/GRiD/.
 
-GRiD builds on our [URDFParser](https://github.com/A2R-Lab/URDFParser), [RBDReference](https://github.com/A2R-Lab/RBDReference), and [GLASS](https://github.com/A2R-Lab/GLASS) packages (URDF parsing, Pinocchio-validated reference dynamics, and GPU linear algebra), together with its own bundled code generator. Using its scripts, users can easily generate and test optimized rigid body dynamics CUDA C++ code for their URDF files.
+GRiM builds on our [URDFParser](https://github.com/A2R-Lab/URDFParser), [RBDReference](https://github.com/A2R-Lab/RBDReference), and [GLASS](https://github.com/A2R-Lab/GLASS) packages (URDF parsing, Pinocchio-validated reference dynamics, and GPU linear algebra), together with its own bundled code generator. Using its scripts, users can easily generate and test optimized rigid body dynamics CUDA C++ code for their URDF files.
 
 Ongoing development and the upcoming rerelease live in [A2R-Lab/GRiD](https://github.com/A2R-Lab/GRiD).
 The [original ICRA 2022 paper](https://a2r-lab.org/publication/grid/) describes the
@@ -31,8 +31,8 @@ is documented separately.
 
 | Task | Start here |
 |------|------------|
-| **Call GRiD from Python** (numpy/JAX/torch) | `grid_rbd.load_robot("robot.urdf", backend=...)` — [Python wrappers docs](https://a2r-lab.github.io/GRiD/user_guide/tutorials/python_wrappers.html) · [agent guide](bindings/examples/AGENT_INTEGRATION_GUIDE.md) |
-| **Generate CUDA for a new robot** | `grid-generate config/robot_assets/iiwa14.urdf` — see Quick Start below |
+| **Call GRiM from Python** (numpy/JAX/torch) | `grim.load_robot("robot.urdf", backend=...)` — [Python wrappers docs](https://a2r-lab.github.io/GRiD/user_guide/tutorials/python_wrappers.html) · [agent guide](bindings/examples/AGENT_INTEGRATION_GUIDE.md) |
+| **Generate CUDA for a new robot** | `grim-generate config/robot_assets/iiwa14.urdf` — see Quick Start below |
 | **Fit a humanoid build in RAM** | [fast robot setup](https://a2r-lab.github.io/GRiD/user_guide/getting_started/fast_robot_setup.html) (`algorithm_list=`, `enable_mujoco_kernels=False`) |
 | **Add an algorithm** | [adding an algorithm](https://a2r-lab.github.io/GRiD/user_guide/tutorials/adding_an_algorithm.html) |
 | **Run tests / fix a red receipt CI job** | [CUDA validation](https://a2r-lab.github.io/GRiD/user_guide/tutorials/cuda_validation.html) + `test/run_gpu_proof.sh --help` |
@@ -47,7 +47,7 @@ is documented separately.
 
 ## Quick Start
 
-Install (creates a local venv and registers the `grid-generate` CLI):
+Install (creates a local venv and registers the `grim-generate` CLI):
 ```shell
 bash install/base_install.sh
 source .venv/bin/activate
@@ -57,9 +57,9 @@ Generate CUDA code for your robot (ten ready-to-use URDFs ship in
 `config/robot_assets/` — iiwa14, go2, fr3, g1, h1_2, …):
 ```shell
 # Via the installed CLI (works on a clean base install):
-grid-generate config/robot_assets/iiwa14.urdf                # arm, fixed base
-grid-generate config/robot_assets/go2.urdf -f                # quadruped, floating base
-grid-generate path/to/robot.urdf [-t EE_JOINT_NAME] [-n NAMESPACE] [-f] [--algorithm-list LIST] [-o OUT.cuh]
+grim-generate config/robot_assets/iiwa14.urdf                # arm, fixed base
+grim-generate config/robot_assets/go2.urdf -f                # quadruped, floating base
+grim-generate path/to/robot.urdf [-t EE_JOINT_NAME] [-n NAMESPACE] [-f] [--algorithm-list LIST] [-o OUT.cuh]
 
 # Or via a hardcoded zero-config example (these two pull their URDFs from the
 # robot_descriptions package — a DEV dependency; install install/requirements-dev.txt first):
@@ -73,7 +73,7 @@ Validate and debug:
 python examples/codegen/print_reference_values.py path/to/robot.urdf
 
 # Compile and run the CUDA print kernel (requires nvcc):
-python examples/codegen/print_grid.py path/to/robot.urdf
+python examples/codegen/print_grim.py path/to/robot.urdf
 ```
 
 Write your own CUDA kernel against the generated header:
@@ -90,9 +90,9 @@ bash examples/cuda/build_and_validate.sh   # generate → nvcc → run → valid
 > 2.14; needs CUDA 12+ and g++ ≥ 10).
 
 ## Usage
-+ `grid-generate PATH_TO_URDF` — generate `grid.cuh`; add `-d` for full debug mode, `-f` for floating base, `-t JOINT_NAME` to target a specific end-effector joint
++ `grim-generate PATH_TO_URDF` — generate `grim.cuh`; add `-d` for full debug mode, `-f` for floating base, `-t JOINT_NAME` to target a specific end-effector joint
 + `python examples/codegen/print_reference_values.py PATH_TO_URDF` — print CPU reference values for all algorithms to validate CUDA output
-+ `python examples/codegen/print_grid.py PATH_TO_URDF` — compile and run the CUDA print kernel against the generated header
++ `python examples/codegen/print_grim.py PATH_TO_URDF` — compile and run the CUDA print kernel against the generated header
 
 ## Floating-Base Conventions
 Floating-base parsing and the Python reference path now accept a public
@@ -105,7 +105,7 @@ floating-base convention flag. The default is Pinocchio-compatible:
   `q = [x, y, z, qw, qx, qy, qz]`,
   `v = [wx, wy, wz, vx, vy, vz]`
 
-GRiD normalizes both public conventions into one shared internal floating-base
+GRiM normalizes both public conventions into one shared internal floating-base
 representation, so the code generator and `RBDReference` stay consistent under
 the hood while callers can choose the input/output ordering they need.
 
@@ -119,9 +119,9 @@ policy lives in the
 
 
 ## Current Support
-GRiD currently fully supports any robot model consisting of revolute, prismatic, and fixed joints that does not have closed kinematic loops. Arbitrary/skew joint axes (a non-cardinal `<axis>`) are also supported via a dense 6-vector motion subspace — currently for `inverse_dynamics` and `crba` only (cardinal-axis robots stay byte-identical; other algorithms and the helical/planar/spherical joint types are later stages).
+GRiM currently fully supports any robot model consisting of revolute, prismatic, and fixed joints that does not have closed kinematic loops. Arbitrary/skew joint axes (a non-cardinal `<axis>`) are also supported via a dense 6-vector motion subspace — currently for `inverse_dynamics` and `crba` only (cardinal-axis robots stay byte-identical; other algorithms and the helical/planar/spherical joint types are later stages).
 
-GRiD implements the full modern rigid-body-dynamics stack: RNEA / CRBA / ABA /
+GRiM implements the full modern rigid-body-dynamics stack: RNEA / CRBA / ABA /
 Minv / forward dynamics; analytical first-order gradients (ID + FD, incl.
 external-force gradients); the second-order derivatives (IDSVA-SO both frames
 with a codegen-time dispatcher, FDSVA-SO); the kinematics family (EE pose /
@@ -133,7 +133,7 @@ regressors); the inertial-parameter (π) family (the joint-torque regressor
 ∂q̈/∂π); contact-frame wrench mapping (`contact_fext` /
 `register_robot(contact_frames=...)`); runtime tool/payload welding
 (`attach_tool`/`tool_fext`); runtime multi-target positions; the collision
-family (two-tier `config_free`); a trajectory-optimization `grid_plant`
+family (two-tier `config_free`); a trajectory-optimization `grim_plant`
 cost/step layer; and
 runtime-mutable inertia/transform/joint-dynamics tables. The **complete
 per-algorithm catalog with citations and per-feature detail** lives in the
@@ -151,8 +151,8 @@ Additional algorithms and features are in development. If you have a particular 
 
 | Directory | Owns | Entry doc |
 |-----------|------|-----------|
-| `grid_codegen/` | the code-generation engine: emits `grid.cuh` AND the checked-in generated binding regions, all driven by the `abi_specs.py` table | [codegen architecture](https://a2r-lab.github.io/GRiD/user_guide/concepts/codegen_architecture.html) |
-| `bindings/` | the `grid-rbd` Python package (numpy/jax/torch handles over a cached per-robot `.so`) | [`bindings/README.md`](bindings/README.md) · [agent guide](bindings/examples/AGENT_INTEGRATION_GUIDE.md) |
+| `grim_codegen/` | the code-generation engine: emits `grim.cuh` AND the checked-in generated binding regions, all driven by the `abi_specs.py` table | [codegen architecture](https://a2r-lab.github.io/GRiD/user_guide/concepts/codegen_architecture.html) |
+| `bindings/` | the `grim` Python package (numpy/jax/torch handles over a cached per-robot `.so`) | [`bindings/README.md`](bindings/README.md) · [agent guide](bindings/examples/AGENT_INTEGRATION_GUIDE.md) |
 | `external/` | the peer-product submodules: `GLASS` (GPU linear algebra), `RBDReference` (Pinocchio-validated numpy oracle), `URDFParser` | each submodule's README |
 | `examples/` | the start-here track: `notebooks/` (Python tour), `codegen/`, `cuda/` | [`examples/README.md`](examples/README.md) |
 | `test/` | pytest suites + the split-suite/receipt machinery (`run_split_suite.py`, `run_gpu_proof.sh`, `compile_sched.py`) | [CUDA validation](https://a2r-lab.github.io/GRiD/user_guide/tutorials/cuda_validation.html) |
@@ -161,20 +161,20 @@ Additional algorithms and features are in development. If you have a particular 
 | `install/` | install scripts (`base_install.sh`, `developer_install.sh`) + requirements files | [installation guide](https://a2r-lab.github.io/GRiD/user_guide/getting_started/installation.html) |
 
 ## C++ API
-For each algorithm GRiD emits four layers: `*_inner` (core math on
+For each algorithm GRiM emits four layers: `*_inner` (core math on
 shared-mem inputs), `*_device` (allocates scratch + calls `_inner`),
 `*_kernel` (global entry point with batched timestep loop), and the
 host wrapper (CPU launcher with H↔D copies). See the
 [codegen architecture docs](https://a2r-lab.github.io/GRiD/user_guide/concepts/codegen_architecture.html)
 for the rationale and concrete signatures.
 
-## Python API (`grid-rbd`)
+## Python API (`grim`)
 
-For Python users the `grid-rbd` package (in [`bindings/`](bindings/)) wraps
+For Python users the `grim` package (in [`bindings/`](bindings/)) wraps
 the per-robot codegen behind a register-then-run UX with `numpy`, `jax`,
 and `torch` backends. It ships as part of the single repo distribution — a
 `pip install -e .` (what `install/base_install.sh` runs) installs the codegen
-toolkit *and* the `grid_rbd` wrapper together. The base install is minimal;
+toolkit *and* the `grim` wrapper together. The base install is minimal;
 pick a backend extra for the surface you want:
 
 ```bash
@@ -188,10 +188,10 @@ See the [install matrix in `bindings/README.md`](bindings/README.md#install-edit
 for what each extra unlocks (and the torch CUDA-wheel note).
 
 ```python
-import grid_rbd
+import grim
 
 # numpy (default), jax, or torch; urdf_string= also accepted instead of urdf_path
-handle = grid_rbd.register_robot("iiwa14", urdf_path="iiwa.urdf", backend="torch")
+handle = grim.register_robot("iiwa14", urdf_path="iiwa.urdf", backend="torch")
 
 qdd = handle.forward_dynamics(q, qd, u)   # autograd-aware torch.Tensor
 qdd.sum().backward()                      # gradients flow to q, qd, u
@@ -199,7 +199,7 @@ qdd.sum().backward()                      # gradients flow to q, qd, u
 
 The `torch` backend exposes autograd-aware `inverse_dynamics` / `forward_dynamics` /
 `aba` / `integrator` (analytic backward passes) plus CUDA-Graphs capture,
-and the handle also surfaces the `grid_plant` cost/barrier methods. `inverse_dynamics`
+and the handle also surfaces the `grim_plant` cost/barrier methods. `inverse_dynamics`
 (alias `rnea`) / `forward_dynamics` (alias `fd`) take an optional `qdd=` (the
 autograd gradient is qdd-aware, returning the correct ∂τ/∂(q,q̇) including the
 ∂(M·q̈)/∂q term), and all three backends expose the value ops `coriolis_matrix`,
@@ -217,8 +217,8 @@ is only the numpy handle's fp64-in/fp64-out convenience cast on an fp32 build
 [`bindings/README.md`](bindings/README.md) and the
 [Python wrappers docs](https://a2r-lab.github.io/GRiD/user_guide/tutorials/python_wrappers.html).
 
-## Citing GRiD
-To cite GRiD in your research, please use the following bibtex for our paper ["GRiD: GPU-Accelerated Rigid Body Dynamics with Analytical Gradients"](https://brianplancher.com/publication/grid/):
+## Citing GRiM
+To cite GRiM in your research, please use the following bibtex for our paper ["GRiD: GPU-Accelerated Rigid Body Dynamics with Analytical Gradients"](https://brianplancher.com/publication/grid/):
 ```
 @inproceedings{plancher2022grid,
   title={GRiD: GPU-Accelerated Rigid Body Dynamics with Analytical Gradients}, 
@@ -238,14 +238,14 @@ caveats; the [benchmark harness](test/benchmarks/) reproduces the collection.
 
 ![Core-operation speedups against seven baseline modes, with timing boundaries and fp64 exceptions labeled.](docs/source/_static/release/speedup_core.png)
 
-Ratios are baseline time divided by GRiD time; above 1× favors GRiD. Each column names its timing boundary: GRiD host
-calls including copies against the CPU libraries, and GRiD compute-only calls against the GPU libraries' resident
+Ratios are baseline time divided by GRiM time; above 1× favors GRiM. Each column names its timing boundary: GRiM host
+calls including copies against the CPU libraries, and GRiM compute-only calls against the GPU libraries' resident
 calls. `*` marks cells where the evaluated baseline path required fp64 and `~` a side whose run means span more than
 1.5×. Colors are clipped at 100×.
 
-![Clustered GRiD, Pinocchio and MuJoCo timing bars on three robots; Hessians compare GRiD with Pinocchio's standard API only.](docs/source/_static/release/stacked_core.png)
+![Clustered GRiM, Pinocchio and MuJoCo timing bars on three robots; Hessians compare GRiM with Pinocchio's standard API only.](docs/source/_static/release/stacked_core.png)
 
-Microseconds per complete batch on a log axis. GRiD's bar splits into its CUDA compute-only call, the GPU–CPU I/O
+Microseconds per complete batch on a log axis. GRiM's bar splits into its CUDA compute-only call, the GPU–CPU I/O
 increment, and the JAX wrapper increment. These are differences of measured call times, not isolated measurements of
 each component.
 
@@ -267,11 +267,11 @@ and Docker, see the full
 ### Bench harness `nvcc` hangs on floating-base kernels (sm_8x)
 
 On Ampere (sm_86 / CUDA 12.6) the bench harness can wedge `nvcc` /
-`ptxas` at 100 % CPU when compiling heavy floating-base GRiD harnesses.
+`ptxas` at 100 % CPU when compiling heavy floating-base GRiM harnesses.
 Pass `--ptxas-opt-level 2` to `test/benchmarks/run_multi_version.py` — it
 forwards `-Xptxas -O2` to floating-base compiles only. Blackwell (sm_120) does
-not hit this. Typical user code that includes `grid.cuh` and calls the
-batch host wrappers (e.g. `grid::forward_dynamics<T>(...)`) does not
+not hit this. Typical user code that includes `grim.cuh` and calls the
+batch host wrappers (e.g. `grim::forward_dynamics<T>(...)`) does not
 trigger the hang — it's specific to the timing-bench template surface.
 
 

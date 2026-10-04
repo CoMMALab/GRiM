@@ -1,6 +1,6 @@
 // Reuse the existing analytical FDSVA synthesis and codegen getters, not its
 // historical random inputs, timing boundaries, or hard-coded batch sweep.
-#define GRID_RELEASE_PIN_HELPERS_ONLY
+#define GRIM_RELEASE_PIN_HELPERS_ONLY
 #include "../baselines/pinocchio/timePinocchio.cpp"
 #include "pin_codegen_init.h"
 #include "release_pool.h"

@@ -10,7 +10,7 @@ propagation with gravity baked into the main sweep, no separate gravity
 shim. Mirrors `RBDReference.idsva_so_world_frame` line-for-line.
 
 Runs by default; iiwa14-floating is the default robot.
-Set GRID_CUDA_IDSVA_SO_WORLD_FRAME_ROBOTS=iiwa14,go2,g1 to exercise more.
+Set GRIM_CUDA_IDSVA_SO_WORLD_FRAME_ROBOTS=iiwa14,go2,g1 to exercise more.
 """
 
 import contextlib
@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -62,7 +62,7 @@ def _world_frame_robot_ids() -> tuple[str, ...]:
     # fr3 is the floating MIMIC sentinel validated through the world-frame path (NOT
     # the B4-broken body-frame inner). Override with the env var to subset.
     return _comma_separated_env(
-        "GRID_CUDA_IDSVA_SO_WORLD_FRAME_ROBOTS", "iiwa14,go2,g1,h1_2,fr3"
+        "GRIM_CUDA_IDSVA_SO_WORLD_FRAME_ROBOTS", "iiwa14,go2,g1,h1_2,fr3"
     )
 
 
@@ -70,19 +70,19 @@ def _world_frame_base_modes() -> tuple[str, ...]:
     # EXP-1 (perf_idsva_so_bigrobot.md): the world-frame inner is now a PRODUCTION path
     # for high-DOF FIXED-base robots (NV >= NV_FIXED_WORLD_THRESHOLD), not just floating.
     # Default keeps the original floating-only coverage; set
-    # GRID_CUDA_IDSVA_SO_WORLD_FRAME_BASES=fixed (or "floating,fixed") to exercise the
+    # GRIM_CUDA_IDSVA_SO_WORLD_FRAME_BASES=fixed (or "floating,fixed") to exercise the
     # fixed-base world-frame emission the EXP-1 routing now selects for g1/h1_2/h2_plus.
-    return _comma_separated_env("GRID_CUDA_IDSVA_SO_WORLD_FRAME_BASES", "floating")
+    return _comma_separated_env("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_BASES", "floating")
 
 
 def _world_frame_target_shared_bytes() -> int:
-    raw = os.environ.get("GRID_CUDA_IDSVA_SO_WORLD_FRAME_TARGET_SHARED_BYTES", "100000")
+    raw = os.environ.get("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TARGET_SHARED_BYTES", "100000")
     try:
         value = int(raw)
     except ValueError:
-        pytest.fail("GRID_CUDA_IDSVA_SO_WORLD_FRAME_TARGET_SHARED_BYTES must be an integer.")
+        pytest.fail("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TARGET_SHARED_BYTES must be an integer.")
     if value <= 0:
-        pytest.fail("GRID_CUDA_IDSVA_SO_WORLD_FRAME_TARGET_SHARED_BYTES must be positive.")
+        pytest.fail("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TARGET_SHARED_BYTES must be positive.")
     return value
 
 
@@ -95,14 +95,14 @@ def _robot_spec(robot_id: str, base_mode: str):
 
 def _world_frame_samples(project_model):
     sample_names = _comma_separated_env(
-        "GRID_CUDA_IDSVA_SO_WORLD_FRAME_SAMPLE_NAMES", "zero,conservative"
+        "GRIM_CUDA_IDSVA_SO_WORLD_FRAME_SAMPLE_NAMES", "zero,conservative"
     )
     try:
-        random_count = int(os.environ.get("GRID_CUDA_IDSVA_SO_WORLD_FRAME_RANDOM_SAMPLES", "0"))
+        random_count = int(os.environ.get("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_RANDOM_SAMPLES", "0"))
     except ValueError:
-        pytest.fail("GRID_CUDA_IDSVA_SO_WORLD_FRAME_RANDOM_SAMPLES must be an integer.")
+        pytest.fail("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_RANDOM_SAMPLES must be an integer.")
     if random_count < 0:
-        pytest.fail("GRID_CUDA_IDSVA_SO_WORLD_FRAME_RANDOM_SAMPLES must be non-negative.")
+        pytest.fail("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_RANDOM_SAMPLES must be non-negative.")
     include_corner_samples = sample_names == ("all",) or any(
         name not in {"zero", "conservative"} for name in sample_names
     )
@@ -118,17 +118,17 @@ def _world_frame_samples(project_model):
     if missing:
         available = ", ".join(sorted(samples_by_name))
         pytest.fail(
-            "Unknown GRID_CUDA_IDSVA_SO_WORLD_FRAME_SAMPLE_NAMES value(s): "
+            "Unknown GRIM_CUDA_IDSVA_SO_WORLD_FRAME_SAMPLE_NAMES value(s): "
             f"{', '.join(missing)}. Available samples: {available}"
         )
     return [samples_by_name[name] for name in sample_names]
 
 
 def _generate_world_frame_header(project_model, build_dir: Path, target_shared_bytes: int) -> Path:
-    header_path = build_dir / "grid.cuh"
-    env_updates = {"GRID_CUDA_TARGET_SHARED_MEM_BYTES": str(target_shared_bytes)}
+    header_path = build_dir / "grim.cuh"
+    env_updates = {"GRIM_CUDA_TARGET_SHARED_MEM_BYTES": str(target_shared_bytes)}
     with _temporary_env(env_updates):
-        codegen = GRiDCodeGenerator(
+        codegen = GRiMCodeGenerator(
             project_model.robot,
             DEBUG_MODE=False,
             NEED_PRINT_MAT=False,
@@ -167,22 +167,22 @@ def _compile_world_frame_runner(build_dir: Path):
         str(executable),
         str(runner_copy),
     ]
-    threads = os.environ.get("GRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS")
+    threads = os.environ.get("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS")
     if threads:
         try:
             thread_count = int(threads)
         except ValueError:
             pytest.fail(
-                "GRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS must be an integer when set."
+                "GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS must be an integer when set."
             )
         if thread_count <= 0:
-            pytest.fail("GRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS must be positive when set.")
+            pytest.fail("GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS must be positive when set.")
     else:
         # Session-random multi-warp count (non-multiple of 32) so the SO kernels
         # are probed across warp counts over time, catching thread-count races
         # that a fixed block size hides. Override with the env var to reproduce.
         thread_count = _random_thread_count()
-    cmd.insert(-1, f"-DGRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS={thread_count}")
+    cmd.insert(-1, f"-DGRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS={thread_count}")
     result = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)
     if result.returncode != 0:
         pytest.fail(

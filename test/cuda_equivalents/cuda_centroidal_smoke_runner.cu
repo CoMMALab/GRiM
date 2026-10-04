@@ -1,5 +1,5 @@
 // CUDA smoke runner for the generated centroidal / energy device kernels and
-// the grid_plant CoM / centroidal-momentum costs (D1b + D1c).
+// the grim_plant CoM / centroidal-momentum costs (D1b + D1c).
 //
 // Input on stdin (whitespace-separated floats):
 //   q (NUM_POS) qd (NUM_VEL)
@@ -18,7 +18,7 @@
 //   ccrba_h         1 x 6                       ccrba_device momentum h
 //   energy          1 x 3                       energy_device [KE, PE, mechanical]
 //
-// Emitted blocks (D1c: the grid_plant CoM / momentum costs):
+// Emitted blocks (D1c: the grim_plant CoM / momentum costs):
 //   com_cost_value  1 x 1
 //   com_cost_grad   1 x NX                      [J_com^T W r ; 0]   (NX = NQ+NV)
 //   com_cost_hess   NX x NX                     J_com^T W J_com (q-block only)
@@ -35,7 +35,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 template <typename T>
 void read_vector(T *dst, int count) {
@@ -64,8 +64,8 @@ void print_vector(const std::string &name, const T *data, int count) {
     print_matrix_col_major(name, data, 1, count);
 }
 
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 constexpr int NX = NQ + NV;
 constexpr int NM = 2 * NV;
 static_assert(NM <= NX, "shared output buffers must fit both cost layouts");
@@ -82,7 +82,7 @@ template <typename T> __host__ __device__ T momDes_off(int r) { return static_ca
 // ----- D1b: drive the 5 centroidal device functions -----
 template <typename T>
 __global__ void centroidal_kernel(const T *g_q, const T *g_qd,
-                                  const grid::robotModel<T> *d_robotModel, T gravity,
+                                  const grim::robotModel<T> *d_robotModel, T gravity,
                                   T *o_grav, T *o_nle, T *o_com, T *o_jcom,
                                   T *o_A, T *o_h, T *o_energy) {
     __shared__ T s_q[NQ], s_qd[NV];
@@ -97,15 +97,15 @@ __global__ void centroidal_kernel(const T *g_q, const T *g_qd,
     for (int i = tid; i < NV; i += nth) s_qd[i] = g_qd[i];
     __syncthreads();
 
-    grid::generalized_gravity_device<T>(s_grav, s_q, s_qd, d_robotModel, gravity);
+    grim::generalized_gravity_device<T>(s_grav, s_q, s_qd, d_robotModel, gravity);
     __syncthreads();
-    grid::nonlinear_effects_device<T>(s_nle, s_q, s_qd, d_robotModel, gravity);
+    grim::nonlinear_effects_device<T>(s_nle, s_q, s_qd, d_robotModel, gravity);
     __syncthreads();
-    grid::com_device<T>(s_com, s_q, d_robotModel);
+    grim::com_device<T>(s_com, s_q, d_robotModel);
     __syncthreads();
-    grid::ccrba_device<T>(s_ccrba, s_q, s_qd, d_robotModel);
+    grim::ccrba_device<T>(s_ccrba, s_q, s_qd, d_robotModel);
     __syncthreads();
-    grid::energy_device<T>(s_energy, s_q, s_qd, d_robotModel, gravity);
+    grim::energy_device<T>(s_energy, s_q, s_qd, d_robotModel, gravity);
     __syncthreads();
 
     for (int i = tid; i < NV; i += nth) { o_grav[i] = s_grav[i]; o_nle[i] = s_nle[i]; }
@@ -117,10 +117,10 @@ __global__ void centroidal_kernel(const T *g_q, const T *g_qd,
     __syncthreads();
 }
 
-// ----- D1c: drive the grid_plant CoM / momentum costs -----
+// ----- D1c: drive the grim_plant CoM / momentum costs -----
 template <typename T>
 __global__ void cost_kernel(const T *g_q, const T *g_qd,
-                            const grid::robotModel<T> *d_robotModel,
+                            const grim::robotModel<T> *d_robotModel,
                             unsigned char *d_workspace,
                             T *o_cv, T *o_cg, T *o_ch,
                             T *o_mv, T *o_mg, T *o_mh) {
@@ -141,8 +141,8 @@ __global__ void cost_kernel(const T *g_q, const T *g_qd,
     __syncthreads();
 
     // Realize the CoM / momentum so p_des / h_des are (realized + fixed offset).
-    grid::com_device<T>(s_com, s_q, d_robotModel);
-    grid::ccrba_device<T>(s_ccrba, s_q, s_qd, d_robotModel);
+    grim::com_device<T>(s_com, s_q, d_robotModel);
+    grim::ccrba_device<T>(s_ccrba, s_q, s_qd, d_robotModel);
     __syncthreads();
     if (tid == 0) {
         for (int r = 0; r < 3; ++r) s_pdes[r] = s_com[r] + comDes_off<T>(r);
@@ -151,30 +151,30 @@ __global__ void cost_kernel(const T *g_q, const T *g_qd,
     __syncthreads();
 
     // ---- com cost ----
-    grid_plant::com_cost<T>(s_out, s_q, s_pdes, s_cW, s_cost_scratch, d_robotModel);
+    grim_plant::com_cost<T>(s_out, s_q, s_pdes, s_cW, s_cost_scratch, d_robotModel);
     __syncthreads(); if (tid == 0) o_cv[0] = s_out[0]; __syncthreads();
     // Poison the destination: the CoM API must overwrite the entire padded tail.
     for (int i = tid; i < NX; i += nth) s_grad[i] = static_cast<T>(12345);
     __syncthreads();
-    grid_plant::com_cost_gradient<T, false>(s_grad, s_q, s_pdes, s_cW, s_cost_scratch, d_robotModel);
+    grim_plant::com_cost_gradient<T, false>(s_grad, s_q, s_pdes, s_cW, s_cost_scratch, d_robotModel);
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_cg[i] = s_grad[i];
     __syncthreads();
-    grid_plant::com_cost_hessian<T, false>(s_hess, s_q, s_cW, s_cost_scratch, d_robotModel);
+    grim_plant::com_cost_hessian<T, false>(s_hess, s_q, s_cW, s_cost_scratch, d_robotModel);
     __syncthreads();
     for (int i = tid; i < NX * NX; i += nth) o_ch[i] = s_hess[i];
     __syncthreads();
 
     // ---- momentum cost ----
-    grid_plant::momentum_cost<T>(s_out, s_q, s_qd, s_hdes, s_mW, s_cost_scratch, d_robotModel, d_workspace);
+    grim_plant::momentum_cost<T>(s_out, s_q, s_qd, s_hdes, s_mW, s_cost_scratch, d_robotModel, d_workspace);
     __syncthreads(); if (tid == 0) o_mv[0] = s_out[0]; __syncthreads();
     for (int i = tid; i < NM; i += nth) s_grad[i] = static_cast<T>(12345);
     __syncthreads();
-    grid_plant::momentum_cost_gradient<T, false>(s_grad, s_q, s_qd, s_hdes, s_mW, s_cost_scratch, d_robotModel, d_workspace);
+    grim_plant::momentum_cost_gradient<T, false>(s_grad, s_q, s_qd, s_hdes, s_mW, s_cost_scratch, d_robotModel, d_workspace);
     __syncthreads();
     for (int i = tid; i < NM; i += nth) o_mg[i] = s_grad[i];
     __syncthreads();
-    grid_plant::momentum_cost_hessian<T, false>(s_hess, s_q, s_qd, s_mW, s_cost_scratch, d_robotModel, d_workspace);
+    grim_plant::momentum_cost_hessian<T, false>(s_hess, s_q, s_qd, s_mW, s_cost_scratch, d_robotModel, d_workspace);
     __syncthreads();
     for (int i = tid; i < NM * NM; i += nth) o_mh[i] = s_hess[i];
     __syncthreads();
@@ -192,9 +192,9 @@ void dcopy_out(const std::string &name, T *dptr, int rows, int cols) {
 template <typename T>
 void run() {
     const T gravity = static_cast<T>(-9.81);
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     std::vector<T> h_q(NQ), h_qd(NV);
     read_vector(h_q.data(), NQ);
@@ -213,20 +213,20 @@ void run() {
     T *o_cv = dmalloc<T>(1), *o_cg = dmalloc<T>(NX), *o_ch = dmalloc<T>(NX * NX);
     T *o_mv = dmalloc<T>(1), *o_mg = dmalloc<T>(NM), *o_mh = dmalloc<T>(NM * NM);
     unsigned char *workspace = nullptr;
-    gpuErrchk(cudaMalloc(&workspace, grid::GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));
-    gpuErrchk(cudaMemset(workspace, 0, grid::GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()));
+    gpuErrchk(cudaMalloc(&workspace, grim::GRIM_WORKSPACE_BYTES_PER_TIMESTEP<T>()));
+    gpuErrchk(cudaMemset(workspace, 0, grim::GRIM_WORKSPACE_BYTES_PER_TIMESTEP<T>()));
 
-    const int nthreads = grid::MAX_PERF_LEVEL_THREADS;
-    // The centroidal device functions compose the grid:: XmatsHom kinematics
+    const int nthreads = grim::MAX_PERF_LEVEL_THREADS;
+    // The centroidal device functions compose the grim:: XmatsHom kinematics
     // + EE-Jacobian arena via auto-allocating wrappers (extern __shared__); size
     // each kernel's dynamic smem to the max device requirement it composes.
     // generalized_gravity / nonlinear_effects share the ID_BIAS arena; com /
     // ccrba / energy each have their own. Size to the max over all five.
-    size_t dyn = grid::COM_DYNAMIC_SHARED_MEM_BYTES<T>();
-    if (grid::CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grid::CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>();
-    if (grid::ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grid::ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>();
-    if (grid::INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grid::INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>();
-    if (grid::DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grid::DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn = grim::COM_DYNAMIC_SHARED_MEM_BYTES<T>();
+    if (grim::CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grim::CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>();
+    if (grim::ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grim::ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>();
+    if (grim::INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grim::INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>();
+    if (grim::DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>() > dyn) dyn = grim::DCCRBA_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(centroidal_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn);
     cudaFuncSetAttribute(cost_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn);
 
@@ -234,7 +234,7 @@ void run() {
         o_grav, o_nle, o_com, o_jcom, o_A, o_h, o_energy);
     // Fail loudly on a bad launch: an unchecked launch failure leaves the (zeroed)
     // outputs untouched, which then masquerades as a real (wrong) result the Python
-    // oracle would silently diff against. gpuErrchkKernel() (from grid.cuh) does
+    // oracle would silently diff against. gpuErrchkKernel() (from grim.cuh) does
     // cudaPeekAtLastError() + cudaDeviceSynchronize() and aborts on any error.
     gpuErrchkKernel();
 
@@ -259,7 +259,7 @@ void run() {
     dcopy_out("mom_cost_hess", o_mh, NM, NM);
 
     gpuErrchk(cudaFree(workspace));
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main() {

@@ -1,4 +1,4 @@
-"""A3 / C4 slice-4 offline proof: bindings/grid_rbd/_out_transform.py must
+"""A3 / C4 slice-4 offline proof: bindings/grim/_out_transform.py must
 reproduce the HAND transform chains byte-for-byte on random buffers.
 
 The hand chains below are transcribed VERBATIM from _handle.py (the oracle
@@ -13,7 +13,7 @@ module is framework-agnostic by construction).
 import numpy as np
 import pytest
 
-from grid_rbd._out_transform import apply_out_layout
+from grim._out_transform import apply_out_layout
 
 B, NV, NEE, NB = 3, 5, 2, 7
 rng = np.random.default_rng(42)
@@ -116,7 +116,7 @@ def test_flat_passthrough_and_leading_axes():
 
 
 def test_every_out_layout_row_is_a_known_class():
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
     KNOWN = {"flat", "reshape", "colmajor", "colmajor_whole", "vec_then_colmajor",
              "colmajor_then_vec", "grad_concat", "ee_grad", "dccrba", "so_slabs",
              "minv"}

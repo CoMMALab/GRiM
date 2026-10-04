@@ -30,16 +30,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it",
+    pytest.skip("nvcc not on PATH; grim register_robot requires it",
                 allow_module_level=True)
 _IIWA = robot_urdf("iiwa14")
 if not _IIWA.exists():
     pytest.skip(f"iiwa14 URDF not present at {_IIWA}", allow_module_level=True)
 
 from test.python_wrappers.test_runtime_inertia import _build_perturbed_oracle, _max_rel_err
-from grid_rbd._payload import compose_payload_inertia
+from grim._payload import compose_payload_inertia
 
 pytestmark = pytest.mark.python_wrappers
 
@@ -60,7 +60,7 @@ def _oracle():
 
 @pytest.fixture(scope="module")
 def iiwa_tool():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_tool_pytest", urdf_path=str(_IIWA),
         floating_base=False, enable_tool=True, max_batch_size=8)
 
@@ -94,14 +94,14 @@ def test_attach_payload_matches_oracle(iiwa_tool, samples):
     composite[row] = compose_payload_inertia(baked[row], mass, com, inertia)
     oracle = _build_perturbed_oracle(_IIWA, False, composite)
 
-    grid_c = iiwa_tool.inverse_dynamics(q, qd)
-    grid_M = iiwa_tool.crba(q)
+    grim_c = iiwa_tool.inverse_dynamics(q, qd)
+    grim_M = iiwa_tool.crba(q)
     for i, (qi, qdi) in enumerate(zip(q, qd)):
         c_ref, *_ = oracle.inverse_dynamics(qi.astype(np.float64), qdi.astype(np.float64),
                                             GRAVITY=-9.81)
         M_ref = oracle.crba(qi.astype(np.float64))
-        assert _max_rel_err(grid_c[i], c_ref) < 5e-3
-        assert _max_rel_err(np.asarray(grid_M[i]).reshape(M_ref.shape), M_ref) < 5e-3
+        assert _max_rel_err(grim_c[i], c_ref) < 5e-3
+        assert _max_rel_err(np.asarray(grim_M[i]).reshape(M_ref.shape), M_ref) < 5e-3
     iiwa_tool.detach_tool()
 
 

@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - 'docs/**'
-      - 'bindings/grid_rbd/**'
-      - 'grid_codegen/**'
+      - 'bindings/grim/**'
+      - 'grim_codegen/**'
       - 'external/**'
       - 'pyproject.toml'
       - '.gitmodules'
@@ -14,8 +14,8 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'bindings/grid_rbd/**'
-      - 'grid_codegen/**'
+      - 'bindings/grim/**'
+      - 'grim_codegen/**'
       - 'external/**'
       - 'pyproject.toml'
       - '.gitmodules'
@@ -45,7 +45,7 @@ jobs:
         run: python -m unittest discover -s docs -p 'test_site.py' -v
       - name: Build documentation (fail on warnings)
         env:
-          GRID_DOCS_REF: ${{ github.head_ref || github.ref_name }}
+          GRIM_DOCS_REF: ${{ github.head_ref || github.ref_name }}
         run: python -m sphinx -b html -W --keep-going docs/source docs/build/html
       - name: Assemble cover, docs, and legacy redirects
         run: python docs/build_site.py

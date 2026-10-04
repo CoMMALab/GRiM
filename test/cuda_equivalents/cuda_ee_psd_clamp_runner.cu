@@ -1,4 +1,4 @@
-// Robot-general self-check for the PSD_CLAMP option of grid_plant::ee_pos_cost_hessian.
+// Robot-general self-check for the PSD_CLAMP option of grim_plant::ee_pos_cost_hessian.
 //
 // Two guarantees, checked on the NV x NV q-block of the NX x NX cost hessian:
 //   (1) SPD GUARANTEE: with a desired EE position FAR from p(q), the residual-weighted
@@ -10,18 +10,18 @@
 //       psd_reg_eps and preserves the rest, so the max entrywise change must be <= eps (it does not
 //       perturb the well-conditioned part), and the result must be SPD.
 //
-// Correctness only (no timing): the GPU is shared. Self-contained (grid.cuh only).
-#define GRID_HEADER
-#include "grid.cuh"
+// Correctness only (no timing): the GPU is shared. Self-contained (grim.cuh only).
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <algorithm>
 
 using T = double;
-constexpr int NQ  = grid::NUM_POS;
-constexpr int NV  = grid::NUM_VEL;
-constexpr int NEE = grid::NUM_EES;
+constexpr int NQ  = grim::NUM_POS;
+constexpr int NV  = grim::NUM_VEL;
+constexpr int NEE = grim::NUM_EES;
 constexpr int NX  = NQ + NV;
 static_assert(NQ == NV, "runner assumes fixed-base (NUM_POS == NUM_VEL)");
 
@@ -30,17 +30,17 @@ static_assert(NQ == NV, "runner assumes fixed-base (NUM_POS == NUM_VEL)");
 template <bool CLAMP>
 __global__ void hess_kernel(T *d_hess, const T *d_q, const T *d_pdes, const T *d_W,
                             T *d_pose, T *d_grad, T *d_d2ee,
-                            const grid::robotModel<T> *m, T eps) {
+                            const grim::robotModel<T> *m, T eps) {
     extern __shared__ __align__(16) T s_arena[];
     // GAUSS_NEWTON=false (full Newton), MUJOCO_OUTPUT=false, PSD_CLAMP=CLAMP.
-    grid_plant::ee_pos_cost_hessian<T, 0, false, false, false, CLAMP>(
+    grim_plant::ee_pos_cost_hessian<T, 0, false, false, false, CLAMP>(
         d_hess, d_q, d_pdes, d_W, d_pose, d_grad, d_d2ee, s_arena, m, eps);
 }
 
 // Emit p(q) (rows 0..2 of the EE pose) so the zero-residual case can target it exactly.
-__global__ void pose_kernel(T *d_p, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void pose_kernel(T *d_p, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_pose[6*NEE];
-    grid::end_effector_pose_device<T>(s_pose, d_q, m); // self-contained; fills 6*NEE pose
+    grim::end_effector_pose_device<T>(s_pose, d_q, m); // self-contained; fills 6*NEE pose
     __syncthreads();
     if (threadIdx.x == 0) for (int r=0;r<3;++r) d_p[r]=s_pose[r];
 }
@@ -65,9 +65,9 @@ static void extract_qblock(const std::vector<T>& hh, std::vector<double>& qb){
 }
 
 int main(){
-    const grid::robotModel<T> *d_m = grid::init_robotModel<T>();
+    const grim::robotModel<T> *d_m = grim::init_robotModel<T>();
     const T eps = 1e-6;
-    size_t inner  = grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t inner  = grim::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t clampw = (size_t)(NV*NV + (2*NV*NV+2*NV+4))*sizeof(T);
     size_t smem   = std::max(inner, clampw);
 

@@ -1,16 +1,16 @@
 Installation
 ============
 
-GRiD is a single repository with its peer products (``GLASS``, ``RBDReference``,
+GRiM is a single repository with its peer products (``GLASS``, ``RBDReference``,
 ``URDFParser``) vendored as git submodules under ``external/``. Clone with
 ``--recursive`` so those populate, then run the install script — a single
-``pip install -e .`` installs the codegen toolkit and the ``grid_rbd`` Python
+``pip install -e .`` installs the codegen toolkit and the ``grim`` Python
 wrapper together (see the :doc:`../../index` quick-start for the extras).
 
 .. code-block:: shell
 
     git clone --recursive https://github.com/A2R-Lab/GRiD.git
-    cd GRiD
+    cd GRiM
 
 If you already cloned without ``--recursive``, populate the submodules with
 ``git submodule update --init --recursive``.
@@ -31,10 +31,10 @@ What each activity needs:
 
    * - Activity
      - Requirements
-   * - Import ``grid_codegen`` / generate ``grid.cuh``
+   * - Import ``grim_codegen`` / generate ``grim.cuh``
      - Python ≥ 3.10, the ``external/`` submodules populated. No GPU, no
        ``nvcc``.
-   * - ``grid_rbd.register_robot`` / ``warm_robot`` (first call per robot)
+   * - ``grim.register_robot`` / ``warm_robot`` (first call per robot)
      - the CUDA Toolkit's ``nvcc`` on ``PATH`` (the toolkit that matches your
        driver), a host C++ compiler, and an NVIDIA GPU present (the compute
        capability is read from ``nvidia-smi`` unless you pass ``cuda_arch=``).
@@ -65,7 +65,7 @@ Install Python Dependencies
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The simplest path is to use the provided install scripts, which create a
-local ``.venv`` and register the ``grid-generate`` CLI.
+local ``.venv`` and register the ``grim-generate`` CLI.
 
 For end-user installs (just the runtime + CLI):
 
@@ -131,11 +131,11 @@ Add the following to ``~/.bashrc``
 
 .. note::
 
-    GRiD requires a C++17-capable host compiler (e.g. ``g++ >= 7`` or
+    GRiM requires a C++17-capable host compiler (e.g. ``g++ >= 7`` or
     ``clang++ >= 5``). The benchmark and codegen runtime compile with
     ``-std=c++17``, needed for inline variables in the bench common
     header. With the ``[torch]`` extra the per-robot ``.so`` is compiled
     with whatever standard the installed torch's ATen headers demand
     (``-std=c++20`` from torch 2.14 on, detected from the header guard), so
     a torch-enabled build needs an nvcc and host compiler that accept C++20
-    (CUDA 12+, ``g++ >= 10``). ``GRID_RBD_CXX_STD`` forces the standard.
+    (CUDA 12+, ``g++ >= 10``). ``GRIM_CXX_STD`` forces the standard.

@@ -15,9 +15,9 @@ import statistics
 from .protocol import CORE, EXTRA, PRIMARY, ROBOTS, WRAPPER_OPS, WRAPPERS, TABLE_BACKENDS, digest, overhead, write_json
 from .protocol import TIMED_STATUSES, cell_accuracy_status, ACCURACY_FOOTNOTE
 
-LABELS = {"grid_cuda": "GRiD CUDA host call", "grid_native": "GRiD C ABI", "grid_numpy": "GRiD NumPy", "grid_jax": "GRiD JAX",
-          "grid_torch": "GRiD PyTorch", "grid_numpy_prealloc": "GRiD NumPy (allocate-once)",
-          "grid_torch_prealloc": "GRiD PyTorch (allocate-once)", "grid_jax_prealloc": "GRiD JAX (allocate-once)", "pinocchio": "Pinocchio CPU (codegen)", "pinocchio_plain": "Pinocchio CPU (standard API)", "mjx": "MJX",
+LABELS = {"grim_cuda": "GRiM CUDA host call", "grim_native": "GRiM C ABI", "grim_numpy": "GRiM NumPy", "grim_jax": "GRiM JAX",
+          "grim_torch": "GRiM PyTorch", "grim_numpy_prealloc": "GRiM NumPy (allocate-once)",
+          "grim_torch_prealloc": "GRiM PyTorch (allocate-once)", "grim_jax_prealloc": "GRiM JAX (allocate-once)", "pinocchio": "Pinocchio CPU (codegen)", "pinocchio_plain": "Pinocchio CPU (standard API)", "mjx": "MJX",
           "mujoco_warp": "MuJoCo Warp", "mujoco_cpu": "MuJoCo CPU", "bard": "BARD", "frax": "Frax"}
 OP_LABELS = {**dict(zip(CORE, ("RNEA", "grad RNEA", "Hessian RNEA"))),
              "minv": "M⁻¹", "forward_dynamics": "FD", "forward_dynamics_gradient": "grad FD", "fdsva_so": "Hessian FD",
@@ -26,9 +26,9 @@ OP_LABELS = {**dict(zip(CORE, ("RNEA", "grad RNEA", "Hessian RNEA"))),
              "ccrba": "centroidal momentum matrix", "coriolis_matrix": "Coriolis matrix"}
 
 
-BACKEND_HUE = {"grid_cuda": "#2a78d6", "grid_native": "#2a78d6", "grid_numpy": "#2a78d6",
-               "grid_jax": "#2a78d6", "grid_torch": "#2a78d6", "grid_numpy_prealloc": "#2a78d6",
-               "grid_torch_prealloc": "#2a78d6", "grid_jax_prealloc": "#2a78d6", "pinocchio": "#eb6834", "pinocchio_plain": "#c94d1f",
+BACKEND_HUE = {"grim_cuda": "#2a78d6", "grim_native": "#2a78d6", "grim_numpy": "#2a78d6",
+               "grim_jax": "#2a78d6", "grim_torch": "#2a78d6", "grim_numpy_prealloc": "#2a78d6",
+               "grim_torch_prealloc": "#2a78d6", "grim_jax_prealloc": "#2a78d6", "pinocchio": "#eb6834", "pinocchio_plain": "#c94d1f",
                "mjx": "#1baf7a", "mujoco_warp": "#eda100", "mujoco_cpu": "#e87ba4",
                "bard": "#008300", "frax": "#4a3aa7"}
 
@@ -204,18 +204,18 @@ def aggregate(rows):
     return output
 
 
-# Overhead decomposition of GRiD's own surfaces around the CUDA host call.
+# Overhead decomposition of GRiM's own surfaces around the CUDA host call.
 # Each term is a difference of two measured means of the same cell; a negative
 # difference is reported as None with a flag, never clamped.
 DECOMPOSITION = (
-    ("kernel_compute_us", "grid_cuda", "resident_us", None, None),
-    ("memory_traffic_us", "grid_cuda", "host_us", "grid_cuda", "resident_us"),
-    ("c_abi_staging_us", "grid_native", "host_us", "grid_cuda", "host_us"),
-    ("numpy_python_us", "grid_numpy", "host_us", "grid_native", "host_us"),
-    ("jax_dispatch_us", "grid_jax", "resident_us", "grid_cuda", "resident_us"),
-    ("jax_round_trip_us", "grid_jax", "host_us", "grid_jax", "resident_us"),
-    ("torch_dispatch_us", "grid_torch", "resident_us", "grid_cuda", "resident_us"),
-    ("torch_round_trip_us", "grid_torch", "host_us", "grid_torch", "resident_us"),
+    ("kernel_compute_us", "grim_cuda", "resident_us", None, None),
+    ("memory_traffic_us", "grim_cuda", "host_us", "grim_cuda", "resident_us"),
+    ("c_abi_staging_us", "grim_native", "host_us", "grim_cuda", "host_us"),
+    ("numpy_python_us", "grim_numpy", "host_us", "grim_native", "host_us"),
+    ("jax_dispatch_us", "grim_jax", "resident_us", "grim_cuda", "resident_us"),
+    ("jax_round_trip_us", "grim_jax", "host_us", "grim_jax", "resident_us"),
+    ("torch_dispatch_us", "grim_torch", "resident_us", "grim_cuda", "resident_us"),
+    ("torch_round_trip_us", "grim_torch", "host_us", "grim_torch", "resident_us"),
     ("pinocchio_codegen_us", "pinocchio", "host_us", None, None),
     ("pinocchio_standard_api_overhead_us", "pinocchio_plain", "host_us", "pinocchio", "host_us"),
 )
@@ -223,7 +223,7 @@ DECOMPOSITION = (
 
 def decompose(rows):
     lookup = {(r["robot"], r["operation"], r["backend"], r["batch"]): r for r in rows}
-    keys = sorted({(r["robot"], r["operation"], r["batch"]) for r in rows if r["backend"] in {"grid_cuda", "pinocchio_plain"}})
+    keys = sorted({(r["robot"], r["operation"], r["batch"]) for r in rows if r["backend"] in {"grim_cuda", "pinocchio_plain"}})
     output = []
     for robot, op, batch in keys:
         row = {"robot": robot, "operation": op, "batch": batch, "flags": []}
@@ -263,8 +263,8 @@ def plot(rows, directory, kind, purpose):
     lookup = {(r["robot"], r["operation"], r["backend"], r["batch"]): r for r in rows}
     fig, axes = plt.subplots(len(ops), len(robots), figsize=(max(10,5.3*len(robots)), 3.3*len(ops)), squeeze=False)
     colors = {b: BACKEND_HUE[b] for b in LABELS}   # fixed validated palette, shared with the stacked figure
-    colors.update({"grid_cuda": "#0d366b", "grid_native": "#184f95", "grid_numpy": "#256abf", "grid_jax": "#3987e5", "grid_torch": "#86b6ef",
-                   "grid_numpy_prealloc": "#7fa8dc", "grid_jax_prealloc": "#9cc3f2", "grid_torch_prealloc": "#c2daf7"})
+    colors.update({"grim_cuda": "#0d366b", "grim_native": "#184f95", "grim_numpy": "#256abf", "grim_jax": "#3987e5", "grim_torch": "#86b6ef",
+                   "grim_numpy_prealloc": "#7fa8dc", "grim_jax_prealloc": "#9cc3f2", "grim_torch_prealloc": "#c2daf7"})
     for oi, op in enumerate(ops):
         row_values = [v for r in rows if r["operation"] == op and r["backend"] in selected(op)
                       for v in (r.get("resident_us"),r.get("host_min_us"),r.get("host_max_us")) if v is not None and v > 0]
@@ -306,15 +306,15 @@ def plot(rows, directory, kind, purpose):
     fig.suptitle(banner(purpose, f"{kind.title()} comparison · median of run means; whiskers show run-mean range"), fontsize=12)
     if kind == "table":
         fig.set_size_inches(max(10, 5.3*len(robots)), 3.3*len(ops))
-    fig.text(.5,.095,"* fp64 arithmetic exception. Red triangle: negative timing delta, not stacked. N/C: not collected.\nGRiD CUDA host call: base = compute-only kernel launch, cap = H2D/D2H of one call. Other stacked bases include resident API dispatch. Unstacked bars are full-call only.",ha="center",fontsize=8)
+    fig.text(.5,.095,"* fp64 arithmetic exception. Red triangle: negative timing delta, not stacked. N/C: not collected.\nGRiM CUDA host call: base = compute-only kernel launch, cap = H2D/D2H of one call. Other stacked bases include resident API dispatch. Unstacked bars are full-call only.",ha="center",fontsize=8)
     fig.tight_layout(rect=(0,.15,1,.93))
     fig.savefig(directory / f"{kind}.svg")
     fig.savefig(directory / f"{kind}.png", dpi=140)
     plt.close(fig)
 
-# ── Stacked comparison and GRiD composition figures ─────────────────────────
+# ── Stacked comparison and GRiM composition figures ─────────────────────────
 # Categorical hue per backend in a fixed, validated order (dataviz reference
-# palette, light mode); every GRiD surface shares the blue slot. The GRiD bar
+# palette, light mode); every GRiM surface shares the blue slot. The GRiM bar
 # is stacked from the CUDA host-call boundaries: compute (kernel), memory
 # (with-memory minus compute) and wrapper (API full call minus with-memory),
 # in three ordinal steps of the same hue. Competitors with a resident boundary
@@ -323,7 +323,7 @@ def plot(rows, directory, kind, purpose):
 # (BACKEND_HUE is defined near the top of the module.)
 SEGMENT_HUE = {"compute": "#184f95", "memory": "#3987e5", "wrapper": "#86b6ef"}
 COMPETITOR_ORDER = ("pinocchio", "pinocchio_plain", "mjx", "mujoco_warp", "mujoco_cpu", "bard", "frax")
-SURFACE_LABELS = {"grid_native": "C ABI", "grid_numpy": "NumPy", "grid_jax": "JAX", "grid_torch": "PyTorch"}
+SURFACE_LABELS = {"grim_native": "C ABI", "grim_numpy": "NumPy", "grim_jax": "JAX", "grim_torch": "PyTorch"}
 HOMEPAGE_SEGMENTS = {"compute": "#00693e", "memory": "#e2e2e2", "wrapper": "#707070"}
 HOMEPAGE_BASELINES = (
     ("pinocchio", "Pinocchio Codegen - CPU", "#d94415"),
@@ -334,10 +334,10 @@ HOMEPAGE_BASELINES = (
 )
 
 
-def grid_stack(lookup, robot, op, batch, api):
-    """(compute, memory, wrapper, flags) for one cell from grid_cuda + the API row;
+def grim_stack(lookup, robot, op, batch, api):
+    """(compute, memory, wrapper, flags) for one cell from grim_cuda + the API row;
     a missing or negative term is None (never clamped)."""
-    cuda = lookup.get((robot, op, "grid_cuda", batch), {})
+    cuda = lookup.get((robot, op, "grim_cuda", batch), {})
     surface = lookup.get((robot, op, api, batch), {})
     compute, with_mem, full = cuda.get("resident_us"), cuda.get("host_us"), surface.get("host_us")
     memory = overhead(with_mem, compute)
@@ -352,7 +352,7 @@ def grid_stack(lookup, robot, op, batch, api):
     return compute, memory, wrapper, flags
 
 
-def draw_grid_stack(ax, x, width, parts, surface, *, palette=None, show_whiskers=True):
+def draw_grim_stack(ax, x, width, parts, surface, *, palette=None, show_whiskers=True):
     """Never display an incomplete decomposition as the measured full call."""
     compute, memory, wrapper, flags = parts
     colors = palette or {"compute": SEGMENT_HUE["compute"], "memory": ".80", "wrapper": ".92"}
@@ -394,8 +394,8 @@ def _panel_grid(ops, robots, purpose, title):
     return plt, fig, axes
 
 
-def plot_stacked_comparison(rows, directory, purpose, api="grid_jax", ops=CORE, stem="comparison_stacked", *, show_title=True, homepage_style=False):
-    """The given operations (core by default): GRiD (one API surface) as a
+def plot_stacked_comparison(rows, directory, purpose, api="grim_jax", ops=CORE, stem="comparison_stacked", *, show_title=True, homepage_style=False):
+    """The given operations (core by default): GRiM (one API surface) as a
     compute/memory/wrapper stack beside every competitor that has data, per
     batch size, log axis."""
     from matplotlib.patches import Patch
@@ -404,8 +404,8 @@ def plot_stacked_comparison(rows, directory, purpose, api="grid_jax", ops=CORE, 
     if homepage_style:
         hues.update({b: color for b, _, color in HOMEPAGE_BASELINES})
     used_competitors = set()
-    # a panel needs the GRiD stack (the CUDA host call) to exist for that operation
-    ops = [op for op in ops if any(r["operation"] == op and r["backend"] == "grid_cuda" and r["host_us"] for r in rows)]
+    # a panel needs the GRiM stack (the CUDA host call) to exist for that operation
+    ops = [op for op in ops if any(r["operation"] == op and r["backend"] == "grim_cuda" and r["host_us"] for r in rows)]
     robots = [r for r in ROBOTS if any(x["robot"] == r for x in rows)]
     if not ops or not robots:
         return None
@@ -431,20 +431,20 @@ def plot_stacked_comparison(rows, directory, purpose, api="grid_jax", ops=CORE, 
                 for bi, backend in enumerate(backends):
                     x = xi - .4 + width*(bi + .5)
                     if backend == "grid":
-                        compute, memory, wrapper, flags = grid_stack(lookup, robot, op, batch, api)
+                        compute, memory, wrapper, flags = grim_stack(lookup, robot, op, batch, api)
                         if compute is None:
                             if not homepage_style:
                                 ax.text(x, .025, "N/C", rotation=90, ha="center", va="bottom", fontsize=5.5, transform=ax.get_xaxis_transform())
                             continue
                         api_row = lookup.get((robot, op, api, batch), {})
-                        bottom = draw_grid_stack(ax, x, width*.85, (compute, memory, wrapper, flags), api_row,
+                        bottom = draw_grim_stack(ax, x, width*.85, (compute, memory, wrapper, flags), api_row,
                                                  palette=HOMEPAGE_SEGMENTS if homepage_style else None,
                                                  show_whiskers=not homepage_style)
                         if bottom is None:
                             continue
                         values += [bottom, api_row.get("host_max_us", bottom), compute]
-                        marks = "".join(m for m, hit in (("*", any(lookup.get((robot, op, b, batch), {}).get("dtype") == "float64" for b in ("grid_cuda", api))),
-                                                          ("†", any(lookup.get((robot, op, b, batch), {}).get("status") == "accuracy_warning" for b in ("grid_cuda", api)))) if hit)
+                        marks = "".join(m for m, hit in (("*", any(lookup.get((robot, op, b, batch), {}).get("dtype") == "float64" for b in ("grim_cuda", api))),
+                                                          ("†", any(lookup.get((robot, op, b, batch), {}).get("status") == "accuracy_warning" for b in ("grim_cuda", api)))) if hit)
                         if marks:
                             ax.annotate(marks, (x, bottom), xytext=(0, 3), textcoords="offset points", ha="center")
                         continue
@@ -483,20 +483,20 @@ def plot_stacked_comparison(rows, directory, purpose, api="grid_jax", ops=CORE, 
             for ri in range(len(robots)):
                 axes[oi, ri].set_yscale("log")
                 axes[oi, ri].set_ylim(min(finite)*.5, max(finite)*1.6)
-    handles = [Patch(color=SEGMENT_HUE["compute"], label="GRiD CUDA compute-only call (includes launch + sync)"),
-               Patch(facecolor=".80", edgecolor=".4", hatch="////", label="Full-call − resident wall time (GRiD CUDA: transfer increment)"),
-               Patch(facecolor=".92", edgecolor=".4", hatch="....", label=f"GRiD {SURFACE_LABELS[api]} full call − CUDA full call")]
+    handles = [Patch(color=SEGMENT_HUE["compute"], label="GRiM CUDA compute-only call (includes launch + sync)"),
+               Patch(facecolor=".80", edgecolor=".4", hatch="////", label="Full-call − resident wall time (GRiM CUDA: transfer increment)"),
+               Patch(facecolor=".92", edgecolor=".4", hatch="....", label=f"GRiM {SURFACE_LABELS[api]} full call − CUDA full call")]
     handles += [Patch(color=BACKEND_HUE[b], label=LABELS[b])
                 for b in COMPETITOR_ORDER if any(r["backend"] == b and r["host_us"] for r in rows)]
     if homepage_style:
         columns = [
-            [Patch(color=HOMEPAGE_SEGMENTS["compute"], label="GRiD CUDA Device - GPU")],
+            [Patch(color=HOMEPAGE_SEGMENTS["compute"], label="GRiM CUDA Device - GPU")],
             [Patch(color=color, label=label) for b, label, color in HOMEPAGE_BASELINES
              if b in used_competitors and b.startswith("pinocchio")],
             [Patch(color=color, label=label) for b, label, color in HOMEPAGE_BASELINES
              if b in used_competitors and not b.startswith("pinocchio")],
             [Patch(facecolor=HOMEPAGE_SEGMENTS["memory"], edgecolor=".4", hatch="////", label="GPU-CPU I/O Overhead"),
-             Patch(facecolor="white", edgecolor=HOMEPAGE_SEGMENTS["wrapper"], hatch="....", label="GRiD Jax Wrapper Overhead")],
+             Patch(facecolor="white", edgecolor=HOMEPAGE_SEGMENTS["wrapper"], hatch="....", label="GRiM Jax Wrapper Overhead")],
         ]
         # Matplotlib fills columns first; padding keeps families top-aligned.
         height = max(map(len, columns))
@@ -525,19 +525,19 @@ def plot_stacked_comparison(rows, directory, purpose, api="grid_jax", ops=CORE, 
     return directory / f"{stem}.svg"
 
 
-def plot_grid_composition(rows, directory, purpose):
-    """Wrapper operations: each GRiD surface as compute + memory + its own
+def plot_grim_composition(rows, directory, purpose):
+    """Wrapper operations: each GRiM surface as compute + memory + its own
     wrapper overhead on a linear axis (same compute and memory in every bar)."""
     from matplotlib.patches import Patch
     surfaces = [b for b in SURFACE_LABELS if any(r["backend"] == b and r["host_us"] for r in rows)]
-    ops = [op for op in WRAPPER_OPS if any(r["operation"] == op and r["backend"] == "grid_cuda" for r in rows)]
+    ops = [op for op in WRAPPER_OPS if any(r["operation"] == op and r["backend"] == "grim_cuda" for r in rows)]
     robots = [r for r in ROBOTS if any(x["robot"] == r for x in rows)]
     if not surfaces or not ops or not robots:
         return None
     batches = sorted({r["batch"] for r in rows})
     lookup = {(r["robot"], r["operation"], r["backend"], r["batch"]): r for r in rows}
     plt, fig, axes = _panel_grid(ops, robots, purpose,
-        "GRiD surfaces · compute-only CUDA call + transfer increment + API increment · full-call run ranges")
+        "GRiM surfaces · compute-only CUDA call + transfer increment + API increment · full-call run ranges")
     width = .8/len(surfaces)
     for oi, op in enumerate(ops):
         for ri, robot in enumerate(robots):
@@ -545,11 +545,11 @@ def plot_grid_composition(rows, directory, purpose):
             for xi, batch in enumerate(batches):
                 for si, surface in enumerate(surfaces):
                     x = xi - .4 + width*(si + .5)
-                    compute, memory, wrapper, flags = grid_stack(lookup, robot, op, batch, surface)
+                    compute, memory, wrapper, flags = grim_stack(lookup, robot, op, batch, surface)
                     if compute is None:
                         ax.text(x, .025, "N/C", rotation=90, ha="center", va="bottom", fontsize=5.5, transform=ax.get_xaxis_transform())
                         continue
-                    bottom = draw_grid_stack(ax, x, width*.85, (compute, memory, wrapper, flags),
+                    bottom = draw_grim_stack(ax, x, width*.85, (compute, memory, wrapper, flags),
                                              lookup.get((robot, op, surface, batch), {}))
                     if bottom is None:
                         continue
@@ -567,10 +567,10 @@ def plot_grid_composition(rows, directory, purpose):
     fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=8, bbox_to_anchor=(.5, .02))
     fig.text(.5, .095, "Bars per batch: " + ", ".join(SURFACE_LABELS[s] for s in surfaces) + ". Red triangle: decomposition unavailable; full-call total shown.", ha="center", fontsize=8)
     fig.tight_layout(rect=(0, .14, 1, .93))
-    fig.savefig(directory / "grid_composition.svg")
-    fig.savefig(directory / "grid_composition.png", dpi=140)
+    fig.savefig(directory / "grim_composition.svg")
+    fig.savefig(directory / "grim_composition.png", dpi=140)
     plt.close(fig)
-    return directory / "grid_composition.svg"
+    return directory / "grim_composition.svg"
 
 
 # ── Presentation figures: speedup heatmaps, best competitor, throughput ──────
@@ -586,7 +586,7 @@ SHORT_OP = {"inverse_dynamics": "RNEA", "inverse_dynamics_gradient": "∇RNEA", 
             "crba": "M", "nonlinear_effects": "C·q̇+g", "generalized_gravity": "g", "ccrba": "A_G", "coriolis_matrix": "C"}
 # Explicit symmetric stops: every ratio below 1 is red, 1 is exactly white,
 # and every ratio above 1 is blue. An odd LUT size includes the exact midpoint.
-SPEEDUP_CMAP = LinearSegmentedColormap.from_list("grid_speedup", [
+SPEEDUP_CMAP = LinearSegmentedColormap.from_list("grim_speedup", [
     (0., "#b52626"), (.25, "#efaaa0"), (.5, "#ffffff"),
     (.75, "#85b7dc"), (1., "#12538d")], N=257)
 
@@ -602,13 +602,13 @@ def unstable(row, field):
     return bool(lo and hi and hi / lo > UNSTABLE_SPREAD)
 
 
-def cell_marks(grid_row, grid_field, comp_row, comp_field):
+def cell_marks(grim_row, grim_field, comp_row, comp_field):
     """'*' when a side is fp64, '†' when a side is a retained accuracy warning,
     '~' when a side's repeats of the compared boundary spread by more than 1.5×."""
-    rows = [r for r in (grid_row, comp_row) if r]
+    rows = [r for r in (grim_row, comp_row) if r]
     return ("*" if any(r.get("dtype") == "float64" for r in rows) else "") + \
            ("†" if any(r.get("status") == "accuracy_warning" for r in rows) else "") + \
-           ("~" if unstable(grid_row, grid_field) or unstable(comp_row, comp_field) else "")
+           ("~" if unstable(grim_row, grim_field) or unstable(comp_row, comp_field) else "")
 
 
 def _ratio_heatmap(ax, matrix, row_labels, col_labels, title, vmax=100., marks=None):
@@ -636,18 +636,18 @@ def _ratio_heatmap(ax, matrix, row_labels, col_labels, title, vmax=100., marks=N
     return im
 
 
-def _ratio_rows(rows, grid_backend):
-    ops = [op for op in CORE + EXTRA if any(r["operation"] == op and r["backend"] == grid_backend and r["host_us"] for r in rows)]
+def _ratio_rows(rows, grim_backend):
+    ops = [op for op in CORE + EXTRA if any(r["operation"] == op and r["backend"] == grim_backend and r["host_us"] for r in rows)]
     robots = [ro for ro in ROBOTS if any(r["robot"] == ro for r in rows)]
     return [(op, ro) for op in ops for ro in robots]
 
 
-def plot_speedup(rows, directory, purpose, grid_backend, grid_field, comp_field, title, name):
+def plot_speedup(rows, directory, purpose, grim_backend, grim_field, comp_field, title, name):
     import numpy as np
     lookup = {(r["robot"], r["operation"], r["backend"], r["batch"]): r for r in rows}
     batches = sorted({r["batch"] for r in rows})
     comps = [c for c in COMPETITOR_ORDER_ALL if any(r["backend"] == c and r.get(comp_field) for r in rows)]
-    cells = [(op, ro) for op, ro in _ratio_rows(rows, grid_backend)
+    cells = [(op, ro) for op, ro in _ratio_rows(rows, grim_backend)
              if any(lookup.get((ro, op, c, b), {}).get(comp_field) for c in comps for b in batches)]
     if not comps or not cells:
         return None
@@ -657,13 +657,13 @@ def plot_speedup(rows, directory, purpose, grid_backend, grid_field, comp_field,
     fig, axes = plt.subplots(1, len(comps), figsize=(2.6*len(comps) + 1.6, .28*len(labels) + 1.8), squeeze=False, sharey=True)
     for ci, comp in enumerate(comps):
         matrix = [[(lambda g, c: c / g if (g and c) else np.nan)(
-            lookup.get((ro, op, grid_backend, b), {}).get(grid_field), lookup.get((ro, op, comp, b), {}).get(comp_field))
+            lookup.get((ro, op, grim_backend, b), {}).get(grim_field), lookup.get((ro, op, comp, b), {}).get(comp_field))
             for b in batches] for op, ro in cells]
-        marks = [[cell_marks(lookup.get((ro, op, grid_backend, b)), grid_field, lookup.get((ro, op, comp, b)), comp_field) for b in batches] for op, ro in cells]
+        marks = [[cell_marks(lookup.get((ro, op, grim_backend, b)), grim_field, lookup.get((ro, op, comp, b)), comp_field) for b in batches] for op, ro in cells]
         _ratio_heatmap(axes[0, ci], matrix, labels, batches, LABELS[comp], marks=marks)
         axes[0, ci].set_xlabel("batch")
     fig.suptitle(banner(purpose, title), fontsize=11)
-    fig.text(.5, .01, "Ratio > 1: GRiD faster. Diverging scale centred on 1×, log spaced, clipped at 100×. '–': no matched cell (adapter pending, excluded, or failed validation). * a side computes in fp64. † a side is a retained fp32 accuracy warning. ~ a side's three run means spread by more than 1.5×.", ha="center", fontsize=7.5)
+    fig.text(.5, .01, "Ratio > 1: GRiM faster. Diverging scale centred on 1×, log spaced, clipped at 100×. '–': no matched cell (adapter pending, excluded, or failed validation). * a side computes in fp64. † a side is a retained fp32 accuracy warning. ~ a side's three run means spread by more than 1.5×.", ha="center", fontsize=7.5)
     fig.tight_layout(rect=(0, .03, 1, .94))
     fig.savefig(directory / f"{name}.svg"); fig.savefig(directory / f"{name}.png", dpi=150)
     plt.close(fig)
@@ -674,10 +674,10 @@ def plot_best_competitor(rows, directory, purpose):
     import numpy as np
     lookup = {(r["robot"], r["operation"], r["backend"], r["batch"]): r for r in rows}
     batches = sorted({r["batch"] for r in rows})
-    panels = (("grid_jax", "host_us", "host_us", "GRiD JAX full call vs the fastest competitor full call"),
-              ("grid_jax", "resident_us", "resident_us", "GRiD JAX resident vs the fastest GPU competitor resident"),
-              ("grid_cuda", "host_us", "host_us", "GRiD CUDA host call (with memory) vs the fastest competitor full call"))
-    cells = [(op, ro) for op, ro in _ratio_rows(rows, "grid_jax")
+    panels = (("grim_jax", "host_us", "host_us", "GRiM JAX full call vs the fastest competitor full call"),
+              ("grim_jax", "resident_us", "resident_us", "GRiM JAX resident vs the fastest GPU competitor resident"),
+              ("grim_cuda", "host_us", "host_us", "GRiM CUDA host call (with memory) vs the fastest competitor full call"))
+    cells = [(op, ro) for op, ro in _ratio_rows(rows, "grim_jax")
              if any(lookup.get((ro, op, c, b), {}).get("host_us") for c in COMPETITOR_ORDER_ALL for b in batches)]
     if not cells:
         return None
@@ -697,7 +697,7 @@ def plot_best_competitor(rows, directory, purpose):
             matrix.append(line); marks.append(mline)
         _ratio_heatmap(axes[0, pi], matrix, labels, batches, ttl, marks=marks)
         axes[0, pi].set_xlabel("batch")
-    fig.suptitle(banner(purpose, "GRiD against the fastest competitor measured for each cell, same boundary on both sides"), fontsize=11)
+    fig.suptitle(banner(purpose, "GRiM against the fastest competitor measured for each cell, same boundary on both sides"), fontsize=11)
     fig.tight_layout(rect=(0, .02, 1, .94))
     fig.savefig(directory / "best_competitor.svg"); fig.savefig(directory / "best_competitor.png", dpi=150)
     plt.close(fig)
@@ -712,8 +712,8 @@ def plot_throughput(rows, directory, purpose):
     if not ops or not robots:
         return None
     batches = sorted({r["batch"] for r in rows})
-    backends = ["grid_cuda", "grid_jax", "grid_torch", "grid_numpy"] + list(COMPETITOR_ORDER_ALL)
-    styles = {"grid_cuda": "-", "grid_jax": "--", "grid_torch": "-.", "grid_numpy": ":", "pinocchio_plain": ":"}
+    backends = ["grim_cuda", "grim_jax", "grim_torch", "grim_numpy"] + list(COMPETITOR_ORDER_ALL)
+    styles = {"grim_cuda": "-", "grim_jax": "--", "grim_torch": "-.", "grim_numpy": ":", "pinocchio_plain": ":"}
     fig, axes = plt.subplots(len(ops), len(robots), figsize=(5*len(robots), 3.2*len(ops)), squeeze=False)
     for oi, op in enumerate(ops):
         for ri, ro in enumerate(robots):
@@ -753,7 +753,7 @@ def main():
     # Captures are read in order; a cell (robot, operation, backend, batch, repeat)
     # already produced by an earlier capture supersedes the same cell in a later
     # one — so a narrow re-collection goes FIRST, and the core and wrappers
-    # captures (which both plan the GRiD CUDA/JAX RNEA cells) can be reported
+    # captures (which both plan the GRiM CUDA/JAX RNEA cells) can be reported
     # together without being mistaken for extra repeats.
     # A planned cell that an earlier capture never collected (a chain that died,
     # a worker that was never reached) is only a placeholder: it must not shadow
@@ -789,12 +789,12 @@ def main():
     for kind in ("core", "wrappers", "table"):
         plot(rows,args.output,kind,raw[0]["purpose"])
     stacked = plot_stacked_comparison(rows, args.output, raw[0]["purpose"])
-    composition = plot_grid_composition(rows, args.output, raw[0]["purpose"])
+    composition = plot_grim_composition(rows, args.output, raw[0]["purpose"])
     purpose = raw[0]["purpose"]
     extra_figures = [f for f in (
-        plot_speedup(rows, args.output, purpose, "grid_jax", "host_us", "host_us", "Speedup of GRiD (JAX API, full call) over each competitor's full call", "speedup_full"),
-        plot_speedup(rows, args.output, purpose, "grid_jax", "resident_us", "resident_us", "Speedup of GRiD (JAX API, resident) over each GPU competitor's resident call", "speedup_resident"),
-        plot_speedup(rows, args.output, purpose, "grid_cuda", "host_us", "host_us", "Speedup of GRiD (CUDA host call with memory) over each competitor's full call", "speedup_kernel"),
+        plot_speedup(rows, args.output, purpose, "grim_jax", "host_us", "host_us", "Speedup of GRiM (JAX API, full call) over each competitor's full call", "speedup_full"),
+        plot_speedup(rows, args.output, purpose, "grim_jax", "resident_us", "resident_us", "Speedup of GRiM (JAX API, resident) over each GPU competitor's resident call", "speedup_resident"),
+        plot_speedup(rows, args.output, purpose, "grim_cuda", "host_us", "host_us", "Speedup of GRiM (CUDA host call with memory) over each competitor's full call", "speedup_kernel"),
         plot_best_competitor(rows, args.output, purpose),
         plot_throughput(rows, args.output, purpose)) if f]
     decomposition = decompose(rows)
@@ -812,7 +812,7 @@ def main():
     dcols = ["robot", "operation", "batch"] + [d[0] for d in DECOMPOSITION] + ["flags"]
     dtable = "<tr>"+"".join(f"<th>{c}</th>" for c in dcols)+"</tr>"
     dtable += "".join("<tr>"+"".join(f"<td>{esc(round(r[c], 1) if isinstance(r[c], float) else r[c])}</td>" for c in dcols)+"</tr>" for r in decomposition)
-    (args.output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>GRiD benchmark draft</title><style>body{font:14px system-ui;margin:2rem}td,th{padding:.5rem;border:1px solid #ddd}table{border-collapse:collapse}img{max-width:100%}</style><h1>DRAFT benchmark audit</h1><p>Not publication-approved. Smoke captures are functional checks, not performance evidence. All times are microseconds per batch; summary is median of run means. Gray caps are paired boundary differences, not isolated transfer timings. Precision exceptions are explicit. No speedup claims are generated.</p><a href="table.csv">CSV</a> · <a href="table.json">Full provenance and error metrics</a> · <a href="decomposition.csv">Overhead decomposition CSV</a><h2>Core</h2><img src="core.svg">'+('<h2>Stacked comparison (GRiD compute + memory + wrapper vs competitors)</h2><img src="comparison_stacked.svg">' if stacked else '')+'<h2>Wrappers</h2><img src="wrappers.svg">'+('<h2>Table operations</h2><img src="table.svg">' if (args.output / "table.svg").exists() else '')+('<h2>GRiD surface composition</h2><img src="grid_composition.svg">' if composition else '')+'<h2>Speedup and throughput views</h2>'+''.join(f'<h3>{f.stem}</h3><img src="{f.name}">' for f in extra_figures)+'<h2>GRiD overhead decomposition (µs per batch, differences of medians of run means)</h2><p>kernel_compute = CUDA host call compute-only; memory_traffic = with-memory host call minus compute-only; c_abi_staging = C ABI minus CUDA host call; numpy_python = NumPy minus C ABI; *_dispatch = framework resident minus compute-only; *_round_trip = framework full-call minus resident. Pinocchio rows show the selected thread count in the main table (threads column, best of the recorded variants).</p><table>'+dtable+'</table><h2>All planned cells</h2><table>'+table+'</table>\n')
+    (args.output / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>GRiM benchmark draft</title><style>body{font:14px system-ui;margin:2rem}td,th{padding:.5rem;border:1px solid #ddd}table{border-collapse:collapse}img{max-width:100%}</style><h1>DRAFT benchmark audit</h1><p>Not publication-approved. Smoke captures are functional checks, not performance evidence. All times are microseconds per batch; summary is median of run means. Gray caps are paired boundary differences, not isolated transfer timings. Precision exceptions are explicit. No speedup claims are generated.</p><a href="table.csv">CSV</a> · <a href="table.json">Full provenance and error metrics</a> · <a href="decomposition.csv">Overhead decomposition CSV</a><h2>Core</h2><img src="core.svg">'+('<h2>Stacked comparison (GRiM compute + memory + wrapper vs competitors)</h2><img src="comparison_stacked.svg">' if stacked else '')+'<h2>Wrappers</h2><img src="wrappers.svg">'+('<h2>Table operations</h2><img src="table.svg">' if (args.output / "table.svg").exists() else '')+('<h2>GRiM surface composition</h2><img src="grim_composition.svg">' if composition else '')+'<h2>Speedup and throughput views</h2>'+''.join(f'<h3>{f.stem}</h3><img src="{f.name}">' for f in extra_figures)+'<h2>GRiM overhead decomposition (µs per batch, differences of medians of run means)</h2><p>kernel_compute = CUDA host call compute-only; memory_traffic = with-memory host call minus compute-only; c_abi_staging = C ABI minus CUDA host call; numpy_python = NumPy minus C ABI; *_dispatch = framework resident minus compute-only; *_round_trip = framework full-call minus resident. Pinocchio rows show the selected thread count in the main table (threads column, best of the recorded variants).</p><table>'+dtable+'</table><h2>All planned cells</h2><table>'+table+'</table>\n')
     print(args.output / "index.html")
     with (args.output / "index.html").open("a") as stream:
         stream.write('<h2>Accuracy disclosure</h2><p>'+html.escape(ACCURACY_FOOTNOTE)+

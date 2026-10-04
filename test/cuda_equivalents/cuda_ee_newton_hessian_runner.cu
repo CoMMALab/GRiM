@@ -1,7 +1,7 @@
 // Permanent regression gate for the full-Newton EE-position cost Hessian
-// (grid_plant::ee_pos_cost_hessian, PR #19). Self-checking, no external oracle:
+// (grim_plant::ee_pos_cost_hessian, PR #19). Self-checking, no external oracle:
 // the true Hessian is verified against a central finite-difference of the
-// analytic gradient (grid_plant::ee_pos_cost_gradient), and the Gauss-Newton
+// analytic gradient (grim_plant::ee_pos_cost_gradient), and the Gauss-Newton
 // variant is checked to differ from it by EXACTLY the residual-weighted
 // curvature term it drops.
 //
@@ -12,48 +12,48 @@
 // Fixed-base only (NUM_POS == NUM_VEL), so a q-perturbation FD is well defined
 // (no quaternion tangent handling). fp64 throughout to expose the curvature well
 // above float32 cancellation. Prints "PASS"/"FAIL" and the three metrics; exit
-// code 0 on PASS. Robot-general via the grid:: dimension constants.
+// code 0 on PASS. Robot-general via the grim:: dimension constants.
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
-#define GRID_HEADER
-#include "grid.cuh"   // self-contained: vendors barrier.cuh + all glass ops into grid::glass
+#define GRIM_HEADER
+#include "grim.cuh"   // self-contained: vendors barrier.cuh + all glass ops into grim::glass
 
 using T = double;
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
-constexpr int NEE = grid::NUM_EES;   // the inner fills pose/grad/hess for ALL end-effectors
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
+constexpr int NEE = grim::NUM_EES;   // the inner fills pose/grad/hess for ALL end-effectors
 constexpr int NX = NQ + NV;
 constexpr int EE = 0;
 
 // The ee_pos_cost_{gradient,hessian} internal arena (s_scratch) is robot-sized —
 // it scales with the joint count, so it goes in DYNAMIC shared memory, sized at
-// launch from the generated grid:: macros and opted-in via cudaFuncSetAttribute
+// launch from the generated grim:: macros and opted-in via cudaFuncSetAttribute
 // (mirrors cuda_plant_smoke_runner.cu). The small fixed I/O buffers stay static.
 extern __shared__ __align__(16) T s_dyn[];
 
 __global__ void grad_kernel(T *d_grad, const T *d_q, const T *d_pdes, const T *d_W,
-                            const grid::robotModel<T> *d_rm) {
+                            const grim::robotModel<T> *d_rm) {
     __shared__ T s_q[NQ], s_pdes[3], s_W[3], s_pose[6 * NEE], s_grad_out[NX];
     __shared__ T s_dee[6 * NV * NEE];
     for (int i = threadIdx.x; i < NQ; i += blockDim.x) s_q[i] = d_q[i];
     for (int i = threadIdx.x; i < 3;  i += blockDim.x) { s_pdes[i] = d_pdes[i]; s_W[i] = d_W[i]; }
     __syncthreads();
-    grid_plant::ee_pos_cost_gradient<T, EE, false>(s_grad_out, s_q, s_pdes, s_W, s_pose, s_dee, s_dyn, d_rm);
+    grim_plant::ee_pos_cost_gradient<T, EE, false>(s_grad_out, s_q, s_pdes, s_W, s_pose, s_dee, s_dyn, d_rm);
     __syncthreads();
     for (int i = threadIdx.x; i < NX; i += blockDim.x) d_grad[i] = s_grad_out[i];
 }
 
 template <bool GN>
 __global__ void hess_kernel(T *d_hess, const T *d_q, const T *d_pdes, const T *d_W,
-                            const grid::robotModel<T> *d_rm) {
+                            const grim::robotModel<T> *d_rm) {
     __shared__ T s_q[NQ], s_pdes[3], s_W[3], s_pose[6 * NEE];
     __shared__ T s_dee[6 * NV * NEE], s_d2ee[6 * NV * NV * NEE], s_hess[NX * NX];
     for (int i = threadIdx.x; i < NQ; i += blockDim.x) s_q[i] = d_q[i];
     for (int i = threadIdx.x; i < 3;  i += blockDim.x) { s_pdes[i] = d_pdes[i]; s_W[i] = d_W[i]; }
     __syncthreads();
-    grid_plant::ee_pos_cost_hessian<T, EE, false, GN>(s_hess, s_q, s_pdes, s_W,
+    grim_plant::ee_pos_cost_hessian<T, EE, false, GN>(s_hess, s_q, s_pdes, s_W,
                                                       s_pose, s_dee, s_d2ee, s_dyn, d_rm);
     __syncthreads();
     for (int i = threadIdx.x; i < NX * NX; i += blockDim.x) d_hess[i] = s_hess[i];
@@ -62,7 +62,7 @@ __global__ void hess_kernel(T *d_hess, const T *d_q, const T *d_pdes, const T *d
 static size_t g_grad_dyn = 0, g_hess_dyn = 0;
 
 static void grad_at(const std::vector<T> &q, T *d_buf, T *d_q, T *d_pdes, T *d_W,
-                    const grid::robotModel<T> *d_rm, std::vector<T> &out) {
+                    const grim::robotModel<T> *d_rm, std::vector<T> &out) {
     cudaMemcpy(d_q, q.data(), NQ * sizeof(T), cudaMemcpyHostToDevice);
     grad_kernel<<<1, 64, g_grad_dyn>>>(d_buf, d_q, d_pdes, d_W, d_rm);
     cudaMemcpy(out.data(), d_buf, NX * sizeof(T), cudaMemcpyDeviceToHost);
@@ -70,13 +70,13 @@ static void grad_at(const std::vector<T> &q, T *d_buf, T *d_q, T *d_pdes, T *d_W
 
 int main() {
     static_assert(NQ == NV, "cuda_ee_newton_hessian_runner is fixed-base only (NUM_POS == NUM_VEL)");
-    grid::robotModel<T> *d_rm = grid::init_robotModel<T>();
+    grim::robotModel<T> *d_rm = grim::init_robotModel<T>();
 
     // Size dynamic smem to each kernel's robot-dependent arena; the Newton hess
     // path needs the hessian arena, the grad kernel the gradient arena. Raise the
     // opt-in cap so big-joint-count robots fit.
-    g_grad_dyn = grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
-    g_hess_dyn = grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
+    g_grad_dyn = grim::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    g_hess_dyn = grim::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(grad_kernel,         cudaFuncAttributeMaxDynamicSharedMemorySize, (int)g_grad_dyn);
     cudaFuncSetAttribute(hess_kernel<false>,  cudaFuncAttributeMaxDynamicSharedMemorySize, (int)g_hess_dyn);
     cudaFuncSetAttribute(hess_kernel<true>,   cudaFuncAttributeMaxDynamicSharedMemorySize, (int)g_hess_dyn);

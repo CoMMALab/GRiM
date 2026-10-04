@@ -1,6 +1,6 @@
 """Pin the per-timestep INPUT ABI of the generated header (`h_q_qd_u` / `d_q_qd_u`).
 
-This is a PUBLISHED contract, not an internal detail: consumers that use `grid.cuh`
+This is a PUBLISHED contract, not an internal detail: consumers that use `grim.cuh`
 directly (GATO, MPCGPU, PDDP, any hand-written host code) pack this buffer
 themselves, with no Python-side guard to catch a mistake.
 
@@ -22,7 +22,7 @@ Floating base is new and about to be adopted downstream, so the ABI is pinned he
 
 In this raw buffer ``qd``/``u``/``qdd`` occupy **nq**-wide slots: the nv meaningful
 values fill the LEADING entries and the trailing entry is a pad. This is internal to
-the kernels and the compiled wrapper: every public surface of ``grid_rbd`` (NumPy,
+the kernels and the compiled wrapper: every public surface of ``grim`` (NumPy,
 JAX, PyTorch, C ABI) takes and returns velocity-like vectors at the nv width and
 stages the padded rows itself (2026-09-26 width contract).
 
@@ -82,12 +82,12 @@ def test_input_block_is_three_num_pos_slots(tmp_path, robot_id, base_mode):
             f"(NUM_POS={num_pos}, NUM_VEL={num_vel}). A tight packing would put it at "
             f"{num_pos + num_vel} — that is the silent-corruption bug this test exists for.")
 
-    # The named offset constants are the ABI as consumers see it in grid.cuh —
+    # The named offset constants are the ABI as consumers see it in grim.cuh —
     # they must agree with the offsets the kernels actually slice at.
-    assert c["GRID_Q_OFFSET"] == 0
-    assert c["GRID_QD_OFFSET"] == num_pos, "GRID_QD_OFFSET must equal NUM_POS (slot 1)"
-    assert c["GRID_U_OFFSET"] == 2 * num_pos, "GRID_U_OFFSET must equal 2*NUM_POS (slot 2)"
-    assert c["GRID_QDD_OFFSET"] == c["GRID_U_OFFSET"], (
+    assert c["GRIM_Q_OFFSET"] == 0
+    assert c["GRIM_QD_OFFSET"] == num_pos, "GRIM_QD_OFFSET must equal NUM_POS (slot 1)"
+    assert c["GRIM_U_OFFSET"] == 2 * num_pos, "GRIM_U_OFFSET must equal 2*NUM_POS (slot 2)"
+    assert c["GRIM_QDD_OFFSET"] == c["GRIM_U_OFFSET"], (
         "qdd shares slot 2 with u (the q|qd|qdd kernels read the same offset)")
 
 

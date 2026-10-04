@@ -2,7 +2,7 @@
 //  (1) VERDICT: the broad(sphere)->fine(capsule) config_free must equal an independent
 //      fine-only capsule check on EVERY (config, obstacle) pair — this is the covering
 //      property of the DERIVED broad spheres (built from the rows at bake time) plus the
-//      grid_cc_config_free_capsule mask logic, end-to-end.
+//      grim_cc_config_free_capsule mask logic, end-to-end.
 //  (2) NARROWING: on a sparse probe set the mask must show a PARTIAL flag (fine pass ran
 //      but skipped rows) — non-vacuous, same policy as the sphere two-tier gate.
 //  (3) GRADIENT: collision_distance_gradient (envelope-theorem composition over BOTH
@@ -10,23 +10,23 @@
 //      collision_distance in q. T=double, h=1e-6, max rel err < 1e-4.
 //  (4) PAIRS: with a single obstacle, collision_distance_pairs must equal the reduced
 //      collision_distance bitwise (same SDF call, no argmin ambiguity).
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = double;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 constexpr int NB = gc::NUM_COLLISION_SPHERES_BROAD;
 constexpr int NR = gc::NUM_COLLISION_ROWS;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
 
 // (1)+(2): two-tier verdict vs independent fine-only capsule check, per obstacle.
-__global__ void gate_kernel(const T *q0, const grid::robotModel<T> *m,
+__global__ void gate_kernel(const T *q0, const grim::robotModel<T> *m,
                             const gc::Sphere<T> *obs, int nobs, int *two_out, int *fine_out, int *rechk_out) {
     __shared__ T s_q[NQ], s_bpos[3*NB], s_br[NB], s_seg[6*NR], s_rr[NR];
     for (int i = threadIdx.x; i < NQ; i += blockDim.x) s_q[i] = q0[i];
@@ -36,14 +36,14 @@ __global__ void gate_kernel(const T *q0, const grid::robotModel<T> *m,
         bool two = gc::config_free<T>(s_q, m, env, s_bpos, s_br, s_seg, s_rr, nullptr);
         __syncthreads();  // s_seg/s_rr now hold this config's fine capsule batch
         bool fine = true;
-        if (gc::grid_cc_self_collision_capsules<T>(s_seg, s_rr, gc::g_collision_self_cc_ranges, gc::NUM_COLLISION_SELF_CC_RANGES))
+        if (gc::grim_cc_self_collision_capsules<T>(s_seg, s_rr, gc::g_collision_self_cc_ranges, gc::NUM_COLLISION_SELF_CC_RANGES))
             fine = false;
         else
             for (int i = 0; i < NR; ++i)
-                if (gc::grid_cc_capsule_in_environment<T>(env, gc::grid_cc_row_capsule<T>(s_seg, s_rr, i))) { fine = false; break; }
+                if (gc::grim_cc_capsule_in_environment<T>(env, gc::grim_cc_row_capsule<T>(s_seg, s_rr, i))) { fine = false; break; }
         // narrowing witness with self ranges disabled (env-only), same policy as the sphere gate
         int rc = NR;
-        gc::grid_cc_config_free_capsule<T>(env,
+        gc::grim_cc_config_free_capsule<T>(env,
             s_bpos, s_br, gc::g_collision_self_cc_ranges_broad, 0, NB, gc::g_collision_sphere_link_broad,
             s_seg, s_rr, gc::g_collision_self_cc_ranges, 0, NR, gc::g_collision_row_link, &rc);
         if (threadIdx.x == 0) { two_out[o] = two ? 1 : 0; fine_out[o] = fine ? 1 : 0; rechk_out[o] = rc; }
@@ -52,7 +52,7 @@ __global__ void gate_kernel(const T *q0, const grid::robotModel<T> *m,
 }
 
 // (3)+(4): analytic clearance Jacobian vs central FD + pairs/reduced bitwise consistency.
-__global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, const gc::Sphere<T> *obs1,
+__global__ void fd_kernel(const T *q0, const grim::robotModel<T> *m, const gc::Sphere<T> *obs1,
                           T *maxrel_out, int *pairs_ok_out) {
     __shared__ T s_q[NQ], s_seg[6*NR], s_rr[NR], s_nrm[3*NR], s_t[NR];
     __shared__ T s_dist[NR], s_ddist[NR*NV], s_pg[3*NV*2*NR];
@@ -100,10 +100,10 @@ __global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, const gc::S
 int main(int argc, char **argv) {
     const bool quick = (argc > 1);   // sanitizer runs: coarse obstacle grid + fewer configs
     const double ostep = quick ? 0.4 : 0.15;
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t sb = grid::MULTI_TARGET_POSITION_BROAD_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t sf = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t sg = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t sb = grim::MULTI_TARGET_POSITION_BROAD_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t sf = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t sg = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t smem = sb; if (sf > smem) smem = sf; if (sg > smem) smem = sg;
     cudaFuncSetAttribute(gate_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
     cudaFuncSetAttribute(fd_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);

@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen.algo_registry import ALGO_DESCRIPTORS, ALGO_REGISTRY
-from grid_codegen.abi_specs import ABI_SPECS
+from grim_codegen.algo_registry import ALGO_DESCRIPTORS, ALGO_REGISTRY
+from grim_codegen.abi_specs import ABI_SPECS
 
 REPO = Path(__file__).resolve().parents[1]
 DOCS = REPO / "docs" / "source"
@@ -36,7 +36,7 @@ BENCH_EXEMPT = {
     "collision": "collision-geometry family is timed by its own harness (native vs config_free A/B), not the per-algo bench",
     "f_ext_contact": "contact f_ext is a device helper consumed inside ID/FD launches; timed through those rows",
     "integrator_hessian": "plant_step_hessian surface; second-order integrator timing is covered by the SO rows + plant bench",
-    "plant": "grid_plant is a composition layer over the timed kernels (cost/barrier/step); no kernel of its own",
+    "plant": "grim_plant is a composition layer over the timed kernels (cost/barrier/step); no kernel of its own",
 }
 # Bench rows that are twins of a registry key (mjx convention variants), not algorithms.
 BENCH_TWIN_SUFFIXES = ("_mjx",)
@@ -63,7 +63,7 @@ ABI_PY_ALIAS = {
 
 def _bench_specs():
     spec = importlib.util.spec_from_file_location(
-        "grid_bench_run", REPO / "test" / "benchmarks" / "baselines" / "grid" / "run.py")
+        "grim_bench_run", REPO / "test" / "benchmarks" / "baselines" / "grid" / "run.py")
     sys.path.insert(0, str(REPO / "test" / "benchmarks" / "baselines" / "grid"))
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
@@ -71,9 +71,9 @@ def _bench_specs():
 
 
 def _backend_method_names():
-    from grid_rbd._handle import RobotHandle
+    from grim._handle import RobotHandle
     names = {a for a in dir(RobotHandle) if not a.startswith("_")}
-    for mod in ("grid_rbd.jax", "grid_rbd.torch"):
+    for mod in ("grim.jax", "grim.torch"):
         try:
             m = __import__(mod, fromlist=["_"])
         except Exception:
@@ -195,6 +195,6 @@ def test_tutorial_ee_pose_representation_matches_implementation():
     _, notes = rows["end_effector_pose"]
     assert "[xyz, rpy]" in notes and "6 per EE" in notes, notes
     assert "fk_batched" in notes and "7-coordinate" in notes, notes
-    from grid_rbd._handle import RobotHandle
+    from grim._handle import RobotHandle
     doc = RobotHandle.end_effector_pose.__doc__ or ""
     assert "rpy" in doc and "6*NUM_EES" in doc, doc[:120]

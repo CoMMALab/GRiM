@@ -51,7 +51,7 @@ def mujoco_model(fixture, directory, dense_jacobian=False):
     model.jnt_stiffness[:] = 0
     model.opt.gravity[:] = [0, 0, -9.81]
     if (model.nq, model.nv) != (fixture.nq, fixture.nv):
-        raise ValueError(f"Model mismatch: MuJoCo {(model.nq, model.nv)} vs GRiD {(fixture.nq, fixture.nv)}")
+        raise ValueError(f"Model mismatch: MuJoCo {(model.nq, model.nv)} vs GRiM {(fixture.nq, fixture.nv)}")
     target_joint = root.find(f"joint[@name='{fixture.target}']")
     if target_joint is None:
         raise ValueError(f"Unknown target joint {fixture.target}")

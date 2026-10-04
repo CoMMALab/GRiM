@@ -1,7 +1,7 @@
 #!/bin/bash
-# Autotune GRiD launch configs for YOUR robot + GPU, then write a
+# Autotune GRiM launch configs for YOUR robot + GPU, then write a
 # config/launch_configs/<robot>/<gpu>.json override that codegen bakes into
-# grid_launch_config.cuh (A1 launch-config feature).
+# grim_launch_config.cuh (A1 launch-config feature).
 #
 # WHAT IT DOES
 #   1. Detects your GPU (name + compute capability) and derives the GPU key
@@ -127,7 +127,7 @@ BEST_FILE="$REPO_ROOT/test/benchmarks/results/autotune_best_${HOST}.json"
 
 # ---- run the autotune sweep (RAM-safe serial; single-timing OFF) ---------
 # One per_algo_bench.py invocation per base (the per-exe cutover: small per-algo TUs, one exe/process,
-# crash-isolated -- replaces the monolithic run.py path). Each writes a per-cell *_grid_glass.json with
+# crash-isolated -- replaces the monolithic run.py path). Each writes a per-cell *_grim_glass.json with
 # algo_picks into $SWEEPDIR; sweep_to_autotune_best.py then merges just THIS run's valid picks into a
 # clean autotune_best_<host>.json (no stale-entry accumulation). --compile-jobs 1 => one TU at a time.
 SWEEPDIR="$REPO_ROOT/test/benchmarks/results/autotune_sweep_${ROBOT}"
@@ -141,7 +141,7 @@ else
         --robot "$ROBOT" --base "$b" \
         --mode autotune --stage sweep --autotune-N "$AUTOTUNE_N" \
         --compile-jobs 1 \
-        --output "$SWEEPDIR/${ROBOT}_${b}_grid_glass.json" \
+        --output "$SWEEPDIR/${ROBOT}_${b}_grim_glass.json" \
       || { echo "ERROR: autotune sweep failed for $ROBOT/$b." >&2; exit 1; }
     echo "=== [$ROBOT/$b] autotune sweep DONE $(date) ==="
   done
@@ -176,10 +176,10 @@ cat <<EOF
 
 Next steps:
   1. Re-run codegen + rebuild so the host launchers pick up your tuned values
-     (codegen bakes config/launch_configs/<robot>/<gpu>.json into grid_launch_config.cuh):
+     (codegen bakes config/launch_configs/<robot>/<gpu>.json into grim_launch_config.cuh):
 
-         grid-generate <urdf> ...      # your usual codegen for $ROBOT
-         # then rebuild your GRiD / bindings as usual
+         grim-generate <urdf> ...      # your usual codegen for $ROBOT
+         # then rebuild your GRiM / bindings as usual
 
   2. (Optional, please do!) PR the JSON to crowdsource the matrix:
          git add config/launch_configs/$ROBOT/$GPU_KEY.json

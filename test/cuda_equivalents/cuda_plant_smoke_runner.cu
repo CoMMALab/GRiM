@@ -1,11 +1,11 @@
-// CUDA smoke runner for the generated grid_plant cost/constraint/step kernels.
+// CUDA smoke runner for the generated grim_plant cost/constraint/step kernels.
 //
 // Input on stdin (whitespace-separated floats), matching _sample_to_stdin:
 //   q (NUM_POS) qd (NUM_VEL) u (NUM_VEL) dt
 //
 // The runner builds DETERMINISTIC desired vectors / weights / bounds / mu as
 // fixed functions of the DOF index (mirrored exactly in the Python test), then
-// drives the grid_plant primitives from a single-block kernel and prints the
+// drives the grim_plant primitives from a single-block kernel and prints the
 // results in BEGIN/END framed blocks (column-major).
 //
 // Emitted blocks:
@@ -26,14 +26,14 @@
 //   ctrl_barrier_value           1 x 1
 //   ctrl_barrier_grad            1 x NU
 //   plant_dAB                    (2*NV) x (3*NV)   (plant_step_gradient output)
-//   integrator_dAB              (2*NV) x (3*NV)   (grid::integrator_gradient — pass-through oracle)
+//   integrator_dAB              (2*NV) x (3*NV)   (grim::integrator_gradient — pass-through oracle)
 //   plant_x_kp1                  1 x (NUM_POS + NUM_VEL)
 //   integrator_x_kp1            1 x (NUM_POS + NUM_VEL)
 //   ee_pos                       1 x 3             (the EE position p(q), for the Python FD oracle)
-// The centroidal blocks below are emitted ONLY when GRID_PLANT_HAS_COM_COST &&
-// GRID_PLANT_HAS_MOMENTUM_COST are defined (com/ccrba present); otherwise a single
+// The centroidal blocks below are emitted ONLY when GRIM_PLANT_HAS_COM_COST &&
+// GRIM_PLANT_HAS_MOMENTUM_COST are defined (com/ccrba present); otherwise a single
 // `com_cost_skipped` sentinel is emitted in their place:
-//   com_cost_value               1 x 1             (grid_plant::com_cost)
+//   com_cost_value               1 x 1             (grim_plant::com_cost)
 //   com_cost_grad                1 x NX            (q-block = J_com^T W r; qd-block zero)
 //   com_cost_hess                NX x NX           (top-left NV x NV q-block = J_com^T W J_com)
 //   (momentum_cost: the full tangent-state GN cost is covered by
@@ -46,7 +46,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 #ifndef PLANT_EE
 #define PLANT_EE 0
@@ -79,8 +79,8 @@ void print_vector(const std::string &name, const T *data, int count) {
     print_matrix_col_major(name, data, 1, count);
 }
 
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 constexpr int NX = NQ + NV;
 constexpr int NU = NV;
 
@@ -100,7 +100,7 @@ template <typename T> __host__ __device__ T com_W_val(int r)    { return static_
 // A single-block kernel: fill the deterministic setup, then call every primitive.
 template <typename T>
 __global__ void plant_kernel(const T *g_q, const T *g_qd, const T *g_u, T dt,
-                             const grid::robotModel<T> *d_robotModel, T gravity,
+                             const grim::robotModel<T> *d_robotModel, T gravity,
                              // outputs (global)
                              T *o_state_val, T *o_state_grad, T *o_state_hess,
                              T *o_input_val, T *o_input_grad, T *o_input_hess,
@@ -115,7 +115,7 @@ __global__ void plant_kernel(const T *g_q, const T *g_qd, const T *g_u, T dt,
     __shared__ T s_scratch[NX];
     __shared__ T s_out[1];
     __shared__ T s_grad[NX], s_hess[NX * NX];
-    __shared__ T s_eePos[6 * grid::NUM_EES], s_deePos[6 * NV * grid::NUM_EES];
+    __shared__ T s_eePos[6 * grim::NUM_EES], s_deePos[6 * NV * grim::NUM_EES];
     // Dynamic arena for the caller-scratch EE-cost inners (the launch reserves
     // END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES; s_scratch[NX] above is the
     // tiny reduction buffer for the quadratic/barrier costs and is far too small here).
@@ -152,18 +152,18 @@ __global__ void plant_kernel(const T *g_q, const T *g_qd, const T *g_u, T dt,
     __syncthreads();
 
     // ---- quadratic state cost ----
-    grid_plant::quadratic_state_cost<T>(s_out, s_x, s_xdes, s_Q, s_scratch);
+    grim_plant::quadratic_state_cost<T>(s_out, s_x, s_xdes, s_Q, s_scratch);
     __syncthreads(); if (tid == 0) o_state_val[0] = s_out[0]; __syncthreads();
     // FLOATING base: the STATE cost grad/hess gain a trailing `s_q` (xyzw config,
     // used ONLY to build R under MUJOCO_OUTPUT). On the pin path (<T,false>) it is
     // unused, so the config prefix s_x is a valid pass. Fixed-base has no such arg
     // (the signatures differ by ARG COUNT), so gate compile-time on NUM_POS!=NUM_VEL.
-    if constexpr (grid::NUM_POS != grid::NUM_VEL) {
-        grid_plant::quadratic_state_cost_gradient<T, false>(s_grad, s_x, s_xdes, s_Q, s_x);
-        grid_plant::quadratic_state_cost_hessian<T, false>(s_hess, s_Q, s_x);
+    if constexpr (grim::NUM_POS != grim::NUM_VEL) {
+        grim_plant::quadratic_state_cost_gradient<T, false>(s_grad, s_x, s_xdes, s_Q, s_x);
+        grim_plant::quadratic_state_cost_hessian<T, false>(s_hess, s_Q, s_x);
     } else {
-        grid_plant::quadratic_state_cost_gradient<T, false>(s_grad, s_x, s_xdes, s_Q);
-        grid_plant::quadratic_state_cost_hessian<T, false>(s_hess, s_Q);
+        grim_plant::quadratic_state_cost_gradient<T, false>(s_grad, s_x, s_xdes, s_Q);
+        grim_plant::quadratic_state_cost_hessian<T, false>(s_hess, s_Q);
     }
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_state_grad[i] = s_grad[i];
@@ -171,39 +171,39 @@ __global__ void plant_kernel(const T *g_q, const T *g_qd, const T *g_u, T dt,
     __syncthreads();
 
     // ---- quadratic input cost ----
-    grid_plant::quadratic_input_cost<T>(s_out, s_u, s_udes, s_R, s_scratch);
+    grim_plant::quadratic_input_cost<T>(s_out, s_u, s_udes, s_R, s_scratch);
     __syncthreads(); if (tid == 0) o_input_val[0] = s_out[0]; __syncthreads();
-    grid_plant::quadratic_input_cost_gradient<T, false>(s_grad, s_u, s_udes, s_R);
-    grid_plant::quadratic_input_cost_hessian<T, false>(s_hess, s_R);
+    grim_plant::quadratic_input_cost_gradient<T, false>(s_grad, s_u, s_udes, s_R);
+    grim_plant::quadratic_input_cost_hessian<T, false>(s_hess, s_R);
     __syncthreads();
     for (int i = tid; i < NU; i += nth) o_input_grad[i] = s_grad[i];
     for (int i = tid; i < NU * NU; i += nth) o_input_hess[i] = s_hess[i];
     __syncthreads();
 
     // ---- ee position cost ---- (s_x[:NQ] is q)
-    grid_plant::ee_pos_cost<T, PLANT_EE>(s_out, s_x, s_pdes, s_W, s_eePos, s_ee_arena, d_robotModel);
+    grim_plant::ee_pos_cost<T, PLANT_EE>(s_out, s_x, s_pdes, s_W, s_eePos, s_ee_arena, d_robotModel);
     __syncthreads(); if (tid == 0) { o_ee_val[0] = s_out[0]; for (int r = 0; r < 3; ++r) o_eepos[r] = s_eePos[6 * PLANT_EE + r]; } __syncthreads();
-    grid_plant::ee_pos_cost_gradient<T, PLANT_EE, false>(s_grad, s_x, s_pdes, s_W, s_eePos, s_deePos, s_ee_arena, d_robotModel);
+    grim_plant::ee_pos_cost_gradient<T, PLANT_EE, false>(s_grad, s_x, s_pdes, s_W, s_eePos, s_deePos, s_ee_arena, d_robotModel);
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_ee_grad[i] = s_grad[i];
     __syncthreads();
     // GAUSS_NEWTON=true pinned (template <T, EE, ACCUMULATE, GAUSS_NEWTON>): this leg
     // checks the ratified GN surface the solver composites use; the full-Newton default
     // is validated separately (newton-vs-FD of the analytic gradient).
-    grid_plant::ee_pos_cost_hessian<T, PLANT_EE, false, true>(s_hess, s_x, nullptr, s_W, nullptr, s_deePos, nullptr, s_ee_arena, d_robotModel);
+    grim_plant::ee_pos_cost_hessian<T, PLANT_EE, false, true>(s_hess, s_x, nullptr, s_W, nullptr, s_deePos, nullptr, s_ee_arena, d_robotModel);
     __syncthreads();
     for (int i = tid; i < NX * NX; i += nth) o_ee_hess[i] = s_hess[i];
     __syncthreads();
 
     // ---- joint position barrier (q block of x) ----
     if (tid == 0) s_out[0] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_position_barrier<T>(s_out, s_x, s_lo_q, s_hi_q, static_cast<T>(0.1), s_scratch);
+    grim_plant::joint_position_barrier<T>(s_out, s_x, s_lo_q, s_hi_q, static_cast<T>(0.1), s_scratch);
     __syncthreads(); if (tid == 0) o_posb_val[0] = s_out[0]; __syncthreads();
     for (int i = tid; i < NX; i += nth) s_grad[i] = static_cast<T>(0);
     for (int i = tid; i < NX * NX; i += nth) s_hess[i] = static_cast<T>(0);
     __syncthreads();
-    grid_plant::joint_position_barrier_gradient<T, 0, 0>(s_grad, s_x, s_lo_q, s_hi_q, static_cast<T>(0.1));
-    grid_plant::joint_position_barrier_hessian<T, NX, 0, 0>(s_hess, s_x, s_lo_q, s_hi_q, static_cast<T>(0.1));
+    grim_plant::joint_position_barrier_gradient<T, 0, 0>(s_grad, s_x, s_lo_q, s_hi_q, static_cast<T>(0.1));
+    grim_plant::joint_position_barrier_hessian<T, NX, 0, 0>(s_hess, s_x, s_lo_q, s_hi_q, static_cast<T>(0.1));
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_posb_grad[i] = s_grad[i];
     for (int i = tid; i < NQ; i += nth) o_posb_hess_diag[i] = s_hess[i * NX + i];
@@ -211,32 +211,32 @@ __global__ void plant_kernel(const T *g_q, const T *g_qd, const T *g_u, T dt,
 
     // ---- joint velocity barrier (qd block of x; VAR_OFFSET=NQ, GRAD_OFFSET=NQ) ----
     if (tid == 0) s_out[0] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_velocity_barrier<T>(s_out, s_x, s_lo_v, s_hi_v, static_cast<T>(0.1), s_scratch);
+    grim_plant::joint_velocity_barrier<T>(s_out, s_x, s_lo_v, s_hi_v, static_cast<T>(0.1), s_scratch);
     __syncthreads(); if (tid == 0) o_velb_val[0] = s_out[0]; __syncthreads();
     for (int i = tid; i < NX; i += nth) s_grad[i] = static_cast<T>(0);
     __syncthreads();
-    grid_plant::joint_velocity_barrier_gradient<T, NQ, NQ>(s_grad, s_x, s_lo_v, s_hi_v, static_cast<T>(0.1));
+    grim_plant::joint_velocity_barrier_gradient<T, NQ, NQ>(s_grad, s_x, s_lo_v, s_hi_v, static_cast<T>(0.1));
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_velb_grad[i] = s_grad[i];
     __syncthreads();
 
     // ---- joint torque barrier (standalone u; VAR_OFFSET=0, GRAD_OFFSET=0) ----
     if (tid == 0) s_out[0] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_torque_barrier<T>(s_out, s_u, s_lo_u, s_hi_u, static_cast<T>(0.1), s_scratch);
+    grim_plant::joint_torque_barrier<T>(s_out, s_u, s_lo_u, s_hi_u, static_cast<T>(0.1), s_scratch);
     __syncthreads(); if (tid == 0) o_ctrlb_val[0] = s_out[0]; __syncthreads();
     for (int i = tid; i < NU; i += nth) s_grad[i] = static_cast<T>(0);
     __syncthreads();
-    grid_plant::joint_torque_barrier_gradient<T, 0, 0>(s_grad, s_u, s_lo_u, s_hi_u, static_cast<T>(0.1));
+    grim_plant::joint_torque_barrier_gradient<T, 0, 0>(s_grad, s_u, s_lo_u, s_hi_u, static_cast<T>(0.1));
     __syncthreads();
     for (int i = tid; i < NU; i += nth) o_ctrlb_grad[i] = s_grad[i];
     __syncthreads();
 }
 
-// ---- pass-through check: plant_step / plant_step_gradient vs grid:: integrator ----
+// ---- pass-through check: plant_step / plant_step_gradient vs grim:: integrator ----
 // Done in a separate kernel that needs the integrator-gradient scratch buffers.
 template <typename T>
 __global__ void plant_step_kernel(const T *g_q, const T *g_qd, const T *g_u, T dt,
-                                  const grid::robotModel<T> *d_robotModel, T gravity,
+                                  const grim::robotModel<T> *d_robotModel, T gravity,
                                   T *o_plant_xkp1, T *o_plant_dAB) {
     __shared__ T s_x[NX], s_u[NU], s_xkp1[NX], s_dAB[2 * NV * 3 * NV];
     // integrator-gradient scratch (caller-placed; mirrors the integrator-gradient kernel)
@@ -246,7 +246,7 @@ __global__ void plant_step_kernel(const T *g_q, const T *g_qd, const T *g_u, T d
     // The shared XImats table + the FD-grad inner pool. s_XImats is loaded INTO
     // by the integrator-gradient device's internal load_update_XImats; s_temp is
     // generously sized (>= the 66*NUM_JOINTS+... inner full temp; 1722 on iiwa14).
-    __shared__ T s_XImats[grid::DYNAMICS_XI_T_COUNT];
+    __shared__ T s_XImats[grim::DYNAMICS_XI_T_COUNT];
     __shared__ T s_temp[4096];
 
     const int tid = threadIdx.x + threadIdx.y * blockDim.x;
@@ -255,12 +255,12 @@ __global__ void plant_step_kernel(const T *g_q, const T *g_qd, const T *g_u, T d
     for (int i = tid; i < NU; i += nth) s_u[i] = g_u[i];
     __syncthreads();
 
-    grid_plant::plant_step<T, grid::IntegratorType::EULER>(s_xkp1, s_x, s_u, d_robotModel, gravity, dt);
+    grim_plant::plant_step<T, grim::IntegratorType::EULER>(s_xkp1, s_x, s_u, d_robotModel, gravity, dt);
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_plant_xkp1[i] = s_xkp1[i];
     __syncthreads();
 
-    grid_plant::plant_step_gradient<T, grid::IntegratorType::EULER, true, false>(
+    grim_plant::plant_step_gradient<T, grim::IntegratorType::EULER, true, false>(
         s_dAB, s_x, s_u, s_df_du, s_dc_du, s_vaf, s_Minv, s_qdd,
         s_q_orig, s_qd_orig, s_stage_grad_qdd, s_D_qdd_stage,
         s_dInt_q_6x6, s_dInt_v_6x6, s_XImats, /*s_topology_helpers*/ nullptr,
@@ -272,8 +272,8 @@ __global__ void plant_step_kernel(const T *g_q, const T *g_qd, const T *g_u, T d
 }
 
 // ---- plant_step_hessian (s_d2AB) ----
-// Drives the GENERATED grid_plant::plant_step_hessian_kernel (the true 2nd-order
-// integrator sensitivity, composing grid::integrator_hessian_device ->
+// Drives the GENERATED grim_plant::plant_step_hessian_kernel (the true 2nd-order
+// integrator sensitivity, composing grim::integrator_hessian_device ->
 // fdsva_so_device) with a DYNAMIC-smem arena + the tier-spill d_workspace, so big
 // fixed-base robots (g1/h1_2) whose SHARED-tier arena overflows the smem cap fall
 // back to the spilled tier (d2AB output + fdsva tensors + pool -> d_workspace).
@@ -282,19 +282,19 @@ __global__ void plant_step_kernel(const T *g_q, const T *g_qd, const T *g_u, T d
 // Fixed-base, EULER / SI-EULER. Output is row-major (2*NV x 3*NV x 3*NV).
 
 // ---- centroidal plant cost: com_cost ----
-// These compose grid::com_device / grid::ccrba_device, which use an `extern
+// These compose grim::com_device / grim::ccrba_device, which use an `extern
 // __shared__` dynamic arena (COM_DYNAMIC_SHARED_MEM_BYTES). The launch
 // must size dynamic smem to it and raise the opt-in attribute.
-// Emitted ONLY when grid::com_device + grid::ccrba_device are present (the
-// GRID_PLANT_HAS_COM_COST / GRID_PLANT_HAS_MOMENTUM_COST macros, emitted by
+// Emitted ONLY when grim::com_device + grim::ccrba_device are present (the
+// GRIM_PLANT_HAS_COM_COST / GRIM_PLANT_HAS_MOMENTUM_COST macros, emitted by
 // _plant.py). For a robot/config that lacks them (e.g. a mimic robot whose ccrba
 // is gated off), the whole centroidal block (kernel + alloc + launch + print) is
 // #if-compiled out and a parseable `*_skipped` sentinel is emitted instead.
 // Validated on iiwa14:fixed / go2:floating (both non-mimic, macros present).
-#if defined(GRID_PLANT_HAS_COM_COST)
+#if defined(GRIM_PLANT_HAS_COM_COST)
 template <typename T>
 __global__ void plant_centroidal_kernel(const T *g_q, const T *g_qd,
-                                        const grid::robotModel<T> *d_robotModel,
+                                        const grim::robotModel<T> *d_robotModel,
                                         T *o_com_val, T *o_com_grad, T *o_com_hess) {
     __shared__ T s_q[NQ], s_qd[NV];
     // Caller-scratch centroidal arena for the com cost inners (the launch reserves
@@ -312,35 +312,35 @@ __global__ void plant_centroidal_kernel(const T *g_q, const T *g_qd,
     __syncthreads();
 
     // ---- CoM-tracking cost (value + grad over x=[q;qd] + GN hess) ----
-    grid_plant::com_cost<T>(s_out, s_q, s_pdes, s_cW, s_cent_arena, d_robotModel);
+    grim_plant::com_cost<T>(s_out, s_q, s_pdes, s_cW, s_cent_arena, d_robotModel);
     __syncthreads(); if (tid == 0) o_com_val[0] = s_out[0]; __syncthreads();
-    grid_plant::com_cost_gradient<T, false>(s_grad, s_q, s_pdes, s_cW, s_cent_arena, d_robotModel);
+    grim_plant::com_cost_gradient<T, false>(s_grad, s_q, s_pdes, s_cW, s_cent_arena, d_robotModel);
     __syncthreads();
-    grid_plant::com_cost_hessian<T, false>(s_hess, s_q, s_cW, s_cent_arena, d_robotModel);
+    grim_plant::com_cost_hessian<T, false>(s_hess, s_q, s_cW, s_cent_arena, d_robotModel);
     __syncthreads();
     for (int i = tid; i < NX; i += nth) o_com_grad[i] = s_grad[i];
     for (int i = tid; i < NX * NX; i += nth) o_com_hess[i] = s_hess[i];
     __syncthreads();
 
 }
-#endif  // GRID_PLANT_HAS_COM_COST
+#endif  // GRIM_PLANT_HAS_COM_COST
 
-// ---- tracking_cost PRESET check (fixed-base only; GRID_PLANT_HAS_TRACKING_COST) ----
-// Drives grid_plant::tracking_cost[_gradient/_hessian] (the GATO BSQP recipe, a chained
+// ---- tracking_cost PRESET check (fixed-base only; GRIM_PLANT_HAS_TRACKING_COST) ----
+// Drives grim_plant::tracking_cost[_gradient/_hessian] (the GATO BSQP recipe, a chained
 // ACCUMULATE composition) AND an INDEPENDENT reference that recomputes each term standalone
 // (ACCUMULATE=false into a temp) and sums them explicitly — a different code path, so it
 // catches ACCUMULATE-chain / block-offset bugs in the preset. The Python test asserts
 // preset == reference for all five blocks (value, s_qk, s_rk, s_Qk, s_Rk). The per-term
 // inners themselves are oracle-validated by the main plant equivalence test.
-#if defined(GRID_PLANT_HAS_TRACKING_COST)
+#if defined(GRIM_PLANT_HAS_TRACKING_COST)
 template <typename T>
 __global__ void tracking_preset_kernel(const T *g_q, const T *g_qd, const T *g_u,
-                                       const grid::robotModel<T> *d_robotModel,
+                                       const grim::robotModel<T> *d_robotModel,
                                        T *o_pv, T *o_pqk, T *o_prk, T *o_pQk, T *o_pRk,
                                        T *o_rv, T *o_rqk, T *o_rrk, T *o_rQk, T *o_rRk) {
     __shared__ T s_x[NX], s_u[NU], s_xdes[NX], s_udes[NU], s_eedes[3], s_Q[NX], s_R[NU], s_W[3];
     __shared__ T s_lo_q[NQ], s_hi_q[NQ], s_lo_v[NV], s_hi_v[NV], s_lo_u[NU], s_hi_u[NU];
-    __shared__ T s_eePos[6 * grid::NUM_EES], s_deePos[6 * NV * grid::NUM_EES];
+    __shared__ T s_eePos[6 * grim::NUM_EES], s_deePos[6 * NV * grim::NUM_EES];
     extern __shared__ __align__(16) T s_arena[];
     __shared__ T s_pv[1], s_pqk[NX], s_prk[NU], s_pQk[NX * NX], s_pRk[NU * NU];
     __shared__ T s_rv[1], s_rqk[NX], s_rrk[NU], s_rQk[NX * NX], s_rRk[NU * NU];
@@ -360,13 +360,13 @@ __global__ void tracking_preset_kernel(const T *g_q, const T *g_qd, const T *g_u
     __syncthreads();
 
     // ===== PRESET (chained ACCUMULATE) =====
-    grid_plant::tracking_cost<T, PLANT_EE>(s_pv, s_x, s_u, s_xdes, s_udes, s_eedes, s_Q, s_R, s_W,
+    grim_plant::tracking_cost<T, PLANT_EE>(s_pv, s_x, s_u, s_xdes, s_udes, s_eedes, s_Q, s_R, s_W,
         s_lo_q, s_hi_q, mu, s_lo_v, s_hi_v, mu, s_lo_u, s_hi_u, mu, s_eePos, s_arena, d_robotModel);
     __syncthreads();
-    grid_plant::tracking_cost_gradient<T, PLANT_EE>(s_pqk, s_prk, s_x, s_u, s_xdes, s_udes, s_eedes, s_Q, s_R, s_W,
+    grim_plant::tracking_cost_gradient<T, PLANT_EE>(s_pqk, s_prk, s_x, s_u, s_xdes, s_udes, s_eedes, s_Q, s_R, s_W,
         s_lo_q, s_hi_q, mu, s_lo_v, s_hi_v, mu, s_lo_u, s_hi_u, mu, s_eePos, s_deePos, s_arena, d_robotModel);
     __syncthreads();
-    grid_plant::tracking_cost_hessian<T, PLANT_EE>(s_pQk, s_pRk, s_x, s_u, s_Q, s_R, s_W,
+    grim_plant::tracking_cost_hessian<T, PLANT_EE>(s_pQk, s_pRk, s_x, s_u, s_Q, s_R, s_W,
         s_lo_q, s_hi_q, mu, s_lo_v, s_hi_v, mu, s_lo_u, s_hi_u, mu, s_deePos, s_arena, d_robotModel);
     __syncthreads();
 
@@ -379,58 +379,58 @@ __global__ void tracking_preset_kernel(const T *g_q, const T *g_qd, const T *g_u
     __syncthreads();
 
     // value = sum of the 6 standalone term values (barriers always +=, so pre-zero s_tv)
-    grid_plant::ee_pos_cost<T, PLANT_EE>(s_tv, s_x, s_eedes, s_W, s_eePos, s_arena, d_robotModel);
+    grim_plant::ee_pos_cost<T, PLANT_EE>(s_tv, s_x, s_eedes, s_W, s_eePos, s_arena, d_robotModel);
     __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
-    grid_plant::quadratic_state_cost<T>(s_tv, s_x, s_xdes, s_Q, s_th);
+    grim_plant::quadratic_state_cost<T>(s_tv, s_x, s_xdes, s_Q, s_th);
     __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
-    grid_plant::quadratic_input_cost<T>(s_tv, s_u, s_udes, s_R, s_th);
-    __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
-    if (tid == 0) s_tv[0] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_position_barrier<T>(s_tv, s_x, s_lo_q, s_hi_q, mu, s_th);
+    grim_plant::quadratic_input_cost<T>(s_tv, s_u, s_udes, s_R, s_th);
     __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
     if (tid == 0) s_tv[0] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_velocity_barrier<T>(s_tv, s_x, s_lo_v, s_hi_v, mu, s_th);
+    grim_plant::joint_position_barrier<T>(s_tv, s_x, s_lo_q, s_hi_q, mu, s_th);
     __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
     if (tid == 0) s_tv[0] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_torque_barrier<T>(s_tv, s_u, s_lo_u, s_hi_u, mu, s_th);
+    grim_plant::joint_velocity_barrier<T>(s_tv, s_x, s_lo_v, s_hi_v, mu, s_th);
+    __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
+    if (tid == 0) s_tv[0] = static_cast<T>(0); __syncthreads();
+    grim_plant::joint_torque_barrier<T>(s_tv, s_u, s_lo_u, s_hi_u, mu, s_th);
     __syncthreads(); if (tid == 0) s_rv[0] += s_tv[0]; __syncthreads();
 
     // s_qk = ee_grad + state_grad + posb_grad + velb_grad
-    grid_plant::ee_pos_cost_gradient<T, PLANT_EE, false>(s_tg, s_x, s_eedes, s_W, s_eePos, s_deePos, s_arena, d_robotModel);
+    grim_plant::ee_pos_cost_gradient<T, PLANT_EE, false>(s_tg, s_x, s_eedes, s_W, s_eePos, s_deePos, s_arena, d_robotModel);
     __syncthreads(); for (int i = tid; i < NX; i += nth) s_rqk[i] += s_tg[i]; __syncthreads();
-    grid_plant::quadratic_state_cost_gradient<T, false>(s_tg, s_x, s_xdes, s_Q);
-    __syncthreads(); for (int i = tid; i < NX; i += nth) s_rqk[i] += s_tg[i]; __syncthreads();
-    for (int i = tid; i < NX; i += nth) s_tg[i] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_position_barrier_gradient<T, 0, 0>(s_tg, s_x, s_lo_q, s_hi_q, mu);
+    grim_plant::quadratic_state_cost_gradient<T, false>(s_tg, s_x, s_xdes, s_Q);
     __syncthreads(); for (int i = tid; i < NX; i += nth) s_rqk[i] += s_tg[i]; __syncthreads();
     for (int i = tid; i < NX; i += nth) s_tg[i] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_velocity_barrier_gradient<T, NQ, NQ>(s_tg, s_x, s_lo_v, s_hi_v, mu);
+    grim_plant::joint_position_barrier_gradient<T, 0, 0>(s_tg, s_x, s_lo_q, s_hi_q, mu);
+    __syncthreads(); for (int i = tid; i < NX; i += nth) s_rqk[i] += s_tg[i]; __syncthreads();
+    for (int i = tid; i < NX; i += nth) s_tg[i] = static_cast<T>(0); __syncthreads();
+    grim_plant::joint_velocity_barrier_gradient<T, NQ, NQ>(s_tg, s_x, s_lo_v, s_hi_v, mu);
     __syncthreads(); for (int i = tid; i < NX; i += nth) s_rqk[i] += s_tg[i]; __syncthreads();
 
     // s_rk = input_grad + ctrlb_grad
-    grid_plant::quadratic_input_cost_gradient<T, false>(s_tg, s_u, s_udes, s_R);
+    grim_plant::quadratic_input_cost_gradient<T, false>(s_tg, s_u, s_udes, s_R);
     __syncthreads(); for (int i = tid; i < NU; i += nth) s_rrk[i] += s_tg[i]; __syncthreads();
     for (int i = tid; i < NU; i += nth) s_tg[i] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_torque_barrier_gradient<T, 0, 0>(s_tg, s_u, s_lo_u, s_hi_u, mu);
+    grim_plant::joint_torque_barrier_gradient<T, 0, 0>(s_tg, s_u, s_lo_u, s_hi_u, mu);
     __syncthreads(); for (int i = tid; i < NU; i += nth) s_rrk[i] += s_tg[i]; __syncthreads();
 
     // s_Qk = ee_hess + state_hess + posb_hess + velb_hess
-    grid_plant::ee_pos_cost_hessian<T, PLANT_EE, false, true>(s_th, s_x, nullptr, s_W, nullptr, s_deePos, nullptr, s_arena, d_robotModel);
+    grim_plant::ee_pos_cost_hessian<T, PLANT_EE, false, true>(s_th, s_x, nullptr, s_W, nullptr, s_deePos, nullptr, s_arena, d_robotModel);
     __syncthreads(); for (int i = tid; i < NX * NX; i += nth) s_rQk[i] += s_th[i]; __syncthreads();
-    grid_plant::quadratic_state_cost_hessian<T, false>(s_th, s_Q);
-    __syncthreads(); for (int i = tid; i < NX * NX; i += nth) s_rQk[i] += s_th[i]; __syncthreads();
-    for (int i = tid; i < NX * NX; i += nth) s_th[i] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_position_barrier_hessian<T, NX, 0, 0>(s_th, s_x, s_lo_q, s_hi_q, mu);
+    grim_plant::quadratic_state_cost_hessian<T, false>(s_th, s_Q);
     __syncthreads(); for (int i = tid; i < NX * NX; i += nth) s_rQk[i] += s_th[i]; __syncthreads();
     for (int i = tid; i < NX * NX; i += nth) s_th[i] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_velocity_barrier_hessian<T, NX, NQ, NQ>(s_th, s_x, s_lo_v, s_hi_v, mu);
+    grim_plant::joint_position_barrier_hessian<T, NX, 0, 0>(s_th, s_x, s_lo_q, s_hi_q, mu);
+    __syncthreads(); for (int i = tid; i < NX * NX; i += nth) s_rQk[i] += s_th[i]; __syncthreads();
+    for (int i = tid; i < NX * NX; i += nth) s_th[i] = static_cast<T>(0); __syncthreads();
+    grim_plant::joint_velocity_barrier_hessian<T, NX, NQ, NQ>(s_th, s_x, s_lo_v, s_hi_v, mu);
     __syncthreads(); for (int i = tid; i < NX * NX; i += nth) s_rQk[i] += s_th[i]; __syncthreads();
 
     // s_Rk = input_hess + ctrlb_hess (reuse s_th; NX*NX >= NU*NU)
-    grid_plant::quadratic_input_cost_hessian<T, false>(s_th, s_R);
+    grim_plant::quadratic_input_cost_hessian<T, false>(s_th, s_R);
     __syncthreads(); for (int i = tid; i < NU * NU; i += nth) s_rRk[i] += s_th[i]; __syncthreads();
     for (int i = tid; i < NU * NU; i += nth) s_th[i] = static_cast<T>(0); __syncthreads();
-    grid_plant::joint_torque_barrier_hessian<T, NU, 0, 0>(s_th, s_u, s_lo_u, s_hi_u, mu);
+    grim_plant::joint_torque_barrier_hessian<T, NU, 0, 0>(s_th, s_u, s_lo_u, s_hi_u, mu);
     __syncthreads(); for (int i = tid; i < NU * NU; i += nth) s_rRk[i] += s_th[i]; __syncthreads();
 
     // write out preset + reference
@@ -440,7 +440,7 @@ __global__ void tracking_preset_kernel(const T *g_q, const T *g_qd, const T *g_u
     for (int i = tid; i < NX * NX; i += nth) { o_pQk[i] = s_pQk[i]; o_rQk[i] = s_rQk[i]; }
     for (int i = tid; i < NU * NU; i += nth) { o_pRk[i] = s_pRk[i]; o_rRk[i] = s_rRk[i]; }
 }
-#endif  // GRID_PLANT_HAS_TRACKING_COST
+#endif  // GRIM_PLANT_HAS_TRACKING_COST
 
 // ---- tangent (log-map) state cost check (floating-base preset; GATO ASK3) ----
 // x_des is built ON DEVICE from the input state: q_des = integrate(q, delta) with a
@@ -448,7 +448,7 @@ __global__ void tracking_preset_kernel(const T *g_q, const T *g_qd, const T *g_u
 // qd_des = qd + pattern. x_des is ALSO dumped so the Python side evaluates the oracle
 // at the exact same (float-rounded) reference state — the integrate chart itself is
 // already covered by the integrator equivalence suite.
-#ifdef GRID_PLANT_HAS_TANGENT_STATE_COST
+#ifdef GRIM_PLANT_HAS_TANGENT_STATE_COST
 template <typename T>
 __global__ void tangent_cost_kernel(const T *g_q, const T *g_qd,
                                     T *o_val, T *o_grad, T *o_hess_gn, T *o_hess_newton,
@@ -468,24 +468,24 @@ __global__ void tangent_cost_kernel(const T *g_q, const T *g_qd,
         s_Q2[i] = static_cast<T>(1) + static_cast<T>(0.5) * static_cast<T>(i);
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0) {
-        grid::grid_integrate_floating_q<T, NQ>(s_x, s_delta, s_xdes);
+        grim::grim_integrate_floating_q<T, NQ>(s_x, s_delta, s_xdes);
         for (int i = 0; i < NV; ++i) s_xdes[NQ + i] = s_x[NQ + i] + static_cast<T>(0.03) * static_cast<T>(i + 1);
     }
     __syncthreads();
-    grid_plant::quadratic_state_cost_tangent<T>(s_out, s_x, s_xdes, s_Q2, s_scratch);
+    grim_plant::quadratic_state_cost_tangent<T>(s_out, s_x, s_xdes, s_Q2, s_scratch);
     __syncthreads();
-    grid_plant::quadratic_state_cost_tangent_gradient<T>(s_grad, s_x, s_xdes, s_Q2, s_scratch);
+    grim_plant::quadratic_state_cost_tangent_gradient<T>(s_grad, s_x, s_xdes, s_Q2, s_scratch);
     __syncthreads();
-    grid_plant::quadratic_state_cost_tangent_hessian<T, false, true>(s_hgn, s_x, s_xdes, s_Q2, s_scratch);
+    grim_plant::quadratic_state_cost_tangent_hessian<T, false, true>(s_hgn, s_x, s_xdes, s_Q2, s_scratch);
     __syncthreads();
-    grid_plant::quadratic_state_cost_tangent_hessian<T, false, false>(s_hnw, s_x, s_xdes, s_Q2, s_scratch);
+    grim_plant::quadratic_state_cost_tangent_hessian<T, false, false>(s_hnw, s_x, s_xdes, s_Q2, s_scratch);
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0) o_val[0] = s_out[0];
     for (int i = threadIdx.x; i < TN; i += blockDim.x) o_grad[i] = s_grad[i];
     for (int i = threadIdx.x; i < TN * TN; i += blockDim.x) { o_hess_gn[i] = s_hgn[i]; o_hess_newton[i] = s_hnw[i]; }
     for (int i = threadIdx.x; i < NX; i += blockDim.x) o_xdes[i] = s_xdes[i];
 }
-#endif  // GRID_PLANT_HAS_TANGENT_STATE_COST
+#endif  // GRIM_PLANT_HAS_TANGENT_STATE_COST
 
 template <typename T>
 T *dmalloc(int count) { T *p; cudaMalloc(&p, count * sizeof(T)); return p; }
@@ -499,9 +499,9 @@ void dcopy_out(const std::string &name, T *dptr, int rows, int cols) {
 template <typename T>
 void run() {
     const T gravity = static_cast<T>(-9.81);
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     std::vector<T> h_q(NQ), h_qd(NV), h_u(NU);
     read_vector(h_q.data(), NQ);
@@ -527,34 +527,34 @@ void run() {
     T *o_cbv = dmalloc<T>(1), *o_cbg = dmalloc<T>(NU);
     T *o_pdab = dmalloc<T>(2 * NV * 3 * NV), *o_idab = dmalloc<T>(2 * NV * 3 * NV);
     T *o_pxk = dmalloc<T>(NX), *o_ixk = dmalloc<T>(NX), *o_eepos = dmalloc<T>(3);
-#if defined(GRID_PLANT_HAS_COM_COST)
+#if defined(GRIM_PLANT_HAS_COM_COST)
     T *o_comv = dmalloc<T>(1), *o_comg = dmalloc<T>(NX), *o_comh = dmalloc<T>(NX * NX);
 #endif
-#ifdef GRID_PLANT_HAS_STEP_HESSIAN
+#ifdef GRIM_PLANT_HAS_STEP_HESSIAN
     const int D2AB_CNT = 2 * NV * (3 * NV) * (3 * NV);
     T *o_h2_eu = dmalloc<T>(D2AB_CNT), *o_h2_si = dmalloc<T>(D2AB_CNT);
 #endif
 
-    // Thread count is env-overridable (GRID_CUDA_PLANT_THREADS) so robots whose
+    // Thread count is env-overridable (GRIM_CUDA_PLANT_THREADS) so robots whose
     // plant_kernel exceeds this GPU's per-block register budget at the default
     // MAX_PERF_LEVEL_THREADS (e.g. fr3) can still be validated at a lower count.
-    const char *_nt_s = std::getenv("GRID_CUDA_PLANT_THREADS");
+    const char *_nt_s = std::getenv("GRIM_CUDA_PLANT_THREADS");
     const int _nt_env = _nt_s ? std::atoi(_nt_s) : 0;
-    const int nthreads = (_nt_env > 0) ? _nt_env : grid::MAX_PERF_LEVEL_THREADS;
-    // The grid_plant primitives that compose an auto-allocating grid:: _device
+    const int nthreads = (_nt_env > 0) ? _nt_env : grim::MAX_PERF_LEVEL_THREADS;
+    // The grim_plant primitives that compose an auto-allocating grim:: _device
     // wrapper (ee_pos_cost -> end_effector_pose[_gradient]_device;
     // plant_step -> integrator_device) need that device's dynamic-shared arena
     // allocated at launch (the wrappers use `extern __shared__`). Size each
     // kernel's dynamic smem to the max device requirement it composes and raise
     // the opt-in attribute so big arenas are allowed.
-    size_t plant_dyn = grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
-    if (grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() > plant_dyn) plant_dyn = grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t step_dyn = grid::INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t plant_dyn = grim::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    if (grim::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>() > plant_dyn) plant_dyn = grim::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t step_dyn = grim::INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(plant_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)plant_dyn);
     cudaFuncSetAttribute(plant_step_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)step_dyn);
-#if defined(GRID_PLANT_HAS_COM_COST)
-    // com_cost composes grid::com_device, which uses an extern __shared__ dynamic arena.
-    size_t cent_dyn = grid::COM_DYNAMIC_SHARED_MEM_BYTES<T>();
+#if defined(GRIM_PLANT_HAS_COM_COST)
+    // com_cost composes grim::com_device, which uses an extern __shared__ dynamic arena.
+    size_t cent_dyn = grim::COM_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(plant_centroidal_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cent_dyn);
 #endif
 
@@ -564,7 +564,7 @@ void run() {
         o_pdab, o_idab, o_pxk, o_ixk, o_eepos);
     // Fail loudly on a bad launch: an unchecked launch failure leaves the (zeroed)
     // outputs untouched and masquerades as a real (wrong) result. gpuErrchkKernel()
-    // (from grid.cuh) does cudaPeekAtLastError() + cudaDeviceSynchronize() + abort.
+    // (from grim.cuh) does cudaPeekAtLastError() + cudaDeviceSynchronize() + abort.
     gpuErrchkKernel();
 
     // The centroidal cost kernel (com_cost) is independent of the
@@ -574,13 +574,13 @@ void run() {
     // the 48 KB default) still produces valid centroidal output. Compiled in only
     // when the centroidal macros are present; otherwise a `*_skipped` sentinel is
     // emitted below so the Python parser detects the absence cleanly.
-#if defined(GRID_PLANT_HAS_COM_COST)
+#if defined(GRIM_PLANT_HAS_COM_COST)
     plant_centroidal_kernel<T><<<1, nthreads, cent_dyn>>>(g_q, g_qd, d_robotModel,
         o_comv, o_comg, o_comh);
     gpuErrchkKernel();
 #endif
 
-#if defined(GRID_PLANT_HAS_TRACKING_COST)
+#if defined(GRIM_PLANT_HAS_TRACKING_COST)
     // tracking_cost preset == independent per-term composition (fixed-base recipe).
     // Reuses the EE-pose-gradient dynamic arena (same as plant_kernel).
     T *o_tpv = dmalloc<T>(1), *o_tpqk = dmalloc<T>(NX), *o_tprk = dmalloc<T>(NU);
@@ -593,7 +593,7 @@ void run() {
     gpuErrchkKernel();
 #endif
 
-#ifdef GRID_PLANT_HAS_TANGENT_STATE_COST
+#ifdef GRIM_PLANT_HAS_TANGENT_STATE_COST
     // Tangent (log-map) state cost — static __shared__ only, no dynamic arena.
     T *o_tcv = dmalloc<T>(1), *o_tcg = dmalloc<T>(2 * NV);
     T *o_tch_gn = dmalloc<T>(4 * NV * NV), *o_tch_nw = dmalloc<T>(4 * NV * NV);
@@ -602,7 +602,7 @@ void run() {
     gpuErrchkKernel();
 #endif
 
-#ifdef GRID_PLANT_HAS_STEP_HESSIAN
+#ifdef GRIM_PLANT_HAS_STEP_HESSIAN
     // plant_step_hessian (s_d2AB), EULER + SI-EULER, via the generated tier-aware
     // kernel. Pack x=[q;qd] contiguous (the kernel reads d_x[k*stride_x+ind]); u is
     // already contiguous. Size dynamic smem to the (tier-selected) macro + raise the
@@ -614,19 +614,19 @@ void run() {
         for (int i = 0; i < NV; ++i) h_x[NQ + i] = h_qd[i];
         cudaMemcpy(g_x, h_x.data(), NX * sizeof(T), cudaMemcpyHostToDevice);
 
-        const size_t h2_smem = grid_plant::INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
+        const size_t h2_smem = grim_plant::INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
         unsigned char *g_h2_ws = nullptr;
-        if (grid_plant::GRID_PLANT_HESSIAN_USES_WORKSPACE_ANY_TIER) {
-            cudaMalloc(&g_h2_ws, grid_plant::PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP<T>());
+        if (grim_plant::GRIM_PLANT_HESSIAN_USES_WORKSPACE_ANY_TIER) {
+            cudaMalloc(&g_h2_ws, grim_plant::PLANT_HESSIAN_WORKSPACE_BYTES_PER_TIMESTEP<T>());
         }
-        cudaFuncSetAttribute(grid_plant::plant_step_hessian_kernel<T, grid::IntegratorType::EULER>,
+        cudaFuncSetAttribute(grim_plant::plant_step_hessian_kernel<T, grim::IntegratorType::EULER>,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, (int)h2_smem);
-        cudaFuncSetAttribute(grid_plant::plant_step_hessian_kernel<T, grid::IntegratorType::SEMI_IMPLICIT_EULER>,
+        cudaFuncSetAttribute(grim_plant::plant_step_hessian_kernel<T, grim::IntegratorType::SEMI_IMPLICIT_EULER>,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, (int)h2_smem);
-        grid_plant::plant_step_hessian_kernel<T, grid::IntegratorType::EULER><<<1, nthreads, h2_smem>>>(
+        grim_plant::plant_step_hessian_kernel<T, grim::IntegratorType::EULER><<<1, nthreads, h2_smem>>>(
             o_h2_eu, g_h2_ws, g_x, g_u, NX, NU, d_robotModel, gravity, dt, 1);
         gpuErrchkKernel();
-        grid_plant::plant_step_hessian_kernel<T, grid::IntegratorType::SEMI_IMPLICIT_EULER><<<1, nthreads, h2_smem>>>(
+        grim_plant::plant_step_hessian_kernel<T, grim::IntegratorType::SEMI_IMPLICIT_EULER><<<1, nthreads, h2_smem>>>(
             o_h2_si, g_h2_ws, g_x, g_u, NX, NU, d_robotModel, gravity, dt, 1);
         gpuErrchkKernel();
         if (g_h2_ws) cudaFree(g_h2_ws);
@@ -642,23 +642,23 @@ void run() {
     // SKIP it (printing a parseable sentinel) rather than corrupting memory. The
     // centroidal validation above is independent and unaffected.
     constexpr int PLANT_STEP_TEMP_FLOATS = 4096;  // == s_temp[4096] in plant_step_kernel
-    const bool plant_step_fits = (grid::FD_DU_MAX_SHARED_MEM_COUNT <= PLANT_STEP_TEMP_FLOATS);
+    const bool plant_step_fits = (grim::FD_DU_MAX_SHARED_MEM_COUNT <= PLANT_STEP_TEMP_FLOATS);
 
     if (plant_step_fits) {
         plant_step_kernel<T><<<1, nthreads, step_dyn>>>(g_q, g_qd, g_u, dt, d_robotModel, gravity, o_pxk, o_pdab);
         gpuErrchkKernel();
 
-        // grid:: integrator pass-through oracle, via the host wrappers.
+        // grim:: integrator pass-through oracle, via the host wrappers.
         const int input_count = NQ + 2 * NV;
         std::vector<T> packed(input_count);
         for (int i = 0; i < NQ; ++i) packed[i] = h_q[i];
         for (int i = 0; i < NV; ++i) { packed[NQ + i] = h_qd[i]; packed[NQ + NV + i] = h_u[i]; }
         const dim3 bd(1, 1, 1), td(nthreads, 1, 1);
         std::memcpy(hd_data->h_q_qd_u, packed.data(), input_count * sizeof(T));
-        grid::integrator<T, grid::IntegratorType::EULER>(hd_data, d_robotModel, gravity, dt, 1, bd, td, streams);
+        grim::integrator<T, grim::IntegratorType::EULER>(hd_data, d_robotModel, gravity, dt, 1, bd, td, streams);
         print_vector("integrator_x_kp1", hd_data->h_x_kp1, NX);
         std::memcpy(hd_data->h_q_qd_u, packed.data(), input_count * sizeof(T));
-        grid::integrator_gradient<T, grid::IntegratorType::EULER>(hd_data, d_robotModel, gravity, dt, 1, bd, td, streams);
+        grim::integrator_gradient<T, grim::IntegratorType::EULER>(hd_data, d_robotModel, gravity, dt, 1, bd, td, streams);
         print_matrix_col_major("integrator_dAB", hd_data->h_dAB, 2 * NV, 3 * NV);
     } else {
         std::cout << "BEGIN plant_step_skipped 1 1\n1\nEND plant_step_skipped\n";
@@ -686,7 +686,7 @@ void run() {
         dcopy_out("plant_x_kp1", o_pxk, 1, NX);
     }
     dcopy_out("ee_pos", o_eepos, 1, 3);
-#if defined(GRID_PLANT_HAS_COM_COST)
+#if defined(GRIM_PLANT_HAS_COM_COST)
     dcopy_out("com_cost_value", o_comv, 1, 1);
     dcopy_out("com_cost_grad", o_comg, 1, NX);
     dcopy_out("com_cost_hess", o_comh, NX, NX);
@@ -696,7 +696,7 @@ void run() {
     // pytest.skips this cell (mirrors the plant_step_skipped sentinel above).
     std::cout << "BEGIN com_cost_skipped 1 1\n1\nEND com_cost_skipped\n";
 #endif
-#if defined(GRID_PLANT_HAS_TRACKING_COST)
+#if defined(GRIM_PLANT_HAS_TRACKING_COST)
     dcopy_out("tracking_preset_value", o_tpv, 1, 1);
     dcopy_out("tracking_preset_qk", o_tpqk, 1, NX);
     dcopy_out("tracking_preset_rk", o_tprk, 1, NU);
@@ -710,12 +710,12 @@ void run() {
 #else
     std::cout << "BEGIN tracking_preset_skipped 1 1\n1\nEND tracking_preset_skipped\n";
 #endif
-#ifdef GRID_PLANT_HAS_STEP_HESSIAN
+#ifdef GRIM_PLANT_HAS_STEP_HESSIAN
     // Row-major flat (1 x D2AB_CNT); reshaped to (2*NV, 3*NV, 3*NV) C-order in Python.
     dcopy_out("plant_d2AB_euler", o_h2_eu, 1, D2AB_CNT);
     dcopy_out("plant_d2AB_si_euler", o_h2_si, 1, D2AB_CNT);
 #endif
-#ifdef GRID_PLANT_HAS_TANGENT_STATE_COST
+#ifdef GRIM_PLANT_HAS_TANGENT_STATE_COST
     dcopy_out("tangent_cost_value", o_tcv, 1, 1);
     dcopy_out("tangent_cost_grad", o_tcg, 1, 2 * NV);
     dcopy_out("tangent_cost_hess_gn", o_tch_gn, 2 * NV, 2 * NV);
@@ -727,7 +727,7 @@ void run() {
     std::cout << "BEGIN tangent_cost_skipped 1 1\n1\nEND tangent_cost_skipped\n";
 #endif
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main() {

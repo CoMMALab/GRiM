@@ -1,4 +1,4 @@
-"""grid-rbd × PyTorch on a FLOATING-BASE robot (Unitree Go2): CUDA-resident tensors,
+"""grim × PyTorch on a FLOATING-BASE robot (Unitree Go2): CUDA-resident tensors,
 autograd, and CUDA-Graphs replay.
 
 The go2 twin of ``torch_cuda_graphs.py`` (iiwa14, fixed base). What changes with a
@@ -53,18 +53,18 @@ def main() -> None:
     urdf = _resolve_urdf(args.urdf)
 
     import torch
-    import grid_rbd
-    import grid_rbd.torch as grid_torch
+    import grim
+    import grim.torch as grim_torch
 
     if not torch.cuda.is_available():
         sys.exit("CUDA not available to torch — this demo is about GPU residency.")
     dev = torch.device("cuda")
-    print(f"grid_rbd v{grid_rbd.__version__} · torch {torch.__version__} · {torch.cuda.get_device_name()}")
+    print(f"grim v{grim.__version__} · torch {torch.__version__} · {torch.cuda.get_device_name()}")
 
-    grid_rbd.precompile("go2_torch", str(urdf), floating_base=True,
+    grim.precompile("go2_torch", str(urdf), floating_base=True,
                         max_batch_size=max(args.batch, 256), backends=("torch",),
                         tiers=[{"enable_mujoco_kernels": False}])
-    h = grid_torch.get_robot("go2_torch")
+    h = grim_torch.get_robot("go2_torch")
     nq, nv, B = h.num_joints, h.num_vel, args.batch
     print(f"  go2 (floating): nq={nq} nv={nv} (nv != nq: quaternion base)  batch B={B}")
 
@@ -87,7 +87,7 @@ def main() -> None:
     ug = u.clone().requires_grad_(True)
     loss = h.forward_dynamics(qg, qd, ug).pow(2).mean() + 1e-3 * ug.pow(2).mean()
     loss.backward()
-    print(f"[2] loss={float(loss.detach()):.4f}  →  grads via GRiD analytic Jacobian: "
+    print(f"[2] loss={float(loss.detach()):.4f}  →  grads via GRiM analytic Jacobian: "
           f"|∂/∂q|={qg.grad.norm():.4f}  |∂/∂u|={ug.grad.norm():.4f}")
 
     # ── 3. CUDA-Graphs capture + replay vs eager ─────────────────────────────

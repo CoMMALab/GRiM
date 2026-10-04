@@ -1,10 +1,10 @@
-"""CUDA equivalence test for the generated `grid_plant` primitives (T6).
+"""CUDA equivalence test for the generated `grim_plant` primitives (T6).
 
-Validates the sibling `grid_plant::` namespace emitted after `grid::` closes:
+Validates the sibling `grim_plant::` namespace emitted after `grim::` closes:
   - quadratic_state_cost / quadratic_input_cost (value + gradient + GN-diag hessian)
   - ee_pos_cost (value + gradient over x=[q;qd] + GN hessian J_p^T W J_p)
   - joint_{position,velocity,torque}_barrier (log-barrier value/grad/hess)
-  - plant_step / plant_step_gradient (thin wrappers over grid::integrator[_gradient])
+  - plant_step / plant_step_gradient (thin wrappers over grim::integrator[_gradient])
 
 Strategy (correctness only; mirrors the integrator smoke-test pattern):
   * codegen iiwa14-fixed with the full profile, compile cuda_plant_smoke_runner.cu;
@@ -17,11 +17,11 @@ Strategy (correctness only; mirrors the integrator smoke-test pattern):
         ee cost gradient against the Python double EE pose;
       - barrier value/grad/hess vs a NumPy log-barrier recompute, AND that the
         deliberately-unbounded DOF 0 contributes EXACTLY zero (isfinite-skip);
-      - plant_step_gradient == grid::integrator_gradient (pass-through), and
-        plant_step == grid::integrator.
+      - plant_step_gradient == grim::integrator_gradient (pass-through), and
+        plant_step == grim::integrator.
 
 Default robot is iiwa14-fixed (cheap, gate here first). Override the robot set
-with GRID_CUDA_PLANT_ROBOTS.
+with GRIM_CUDA_PLANT_ROBOTS.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -49,7 +49,7 @@ from RBDReference.equivalents.reference_backend import build_project_adapter
 
 
 RUNNER_SOURCE = Path(__file__).with_name("cuda_plant_smoke_runner.cu")
-_DT = float(os.environ.get("GRID_CUDA_PLANT_DT", "0.01"))
+_DT = float(os.environ.get("GRIM_CUDA_PLANT_DT", "0.01"))
 _MU = 0.1  # barrier weight (must match the runner)
 _PLANT_EE = 0  # which end-effector the runner exercises (PLANT_EE)
 
@@ -73,14 +73,14 @@ def _comma_env(name, default):
 
 
 def _robot_ids():
-    return _comma_env("GRID_CUDA_PLANT_ROBOTS", "iiwa14")
+    return _comma_env("GRIM_CUDA_PLANT_ROBOTS", "iiwa14")
 
 
 # (robot_id, base_mode) cells for the MAIN plant-primitive equivalence
 # (quadratic costs / ee_pos cost / barriers / plant pass-through).
 # Default is iiwa14:fixed + go2:floating + fr3:fixed. The runner now `#if`-gates
-# its centroidal block (com/momentum costs) behind GRID_PLANT_HAS_COM_COST /
-# GRID_PLANT_HAS_MOMENTUM_COST (mirroring the GRID_PLANT_HAS_STEP_HESSIAN gate),
+# its centroidal block (com/momentum costs) behind GRIM_PLANT_HAS_COM_COST /
+# GRIM_PLANT_HAS_MOMENTUM_COST (mirroring the GRIM_PLANT_HAS_STEP_HESSIAN gate),
 # so a robot/config that lacks those costs (e.g. fr3 mimic, whose ccrba is gated
 # off → centroidal macros absent) compiles cleanly and emits a `*_skipped`
 # sentinel for the centroidal blocks. The MAIN test below never reads the
@@ -102,9 +102,9 @@ def _robot_ids():
 #     lower thread counts). It is left in the default so the skip is visible/tracked.
 # Bigger robots (g1/h1_2, nv~29) additionally overflow the 48 KB static cap in
 # plant_kernel/plant_step_kernel (guide §7); the honest big-robot plant path is the
-# BINDINGS (dynamic-smem + cudaFuncSetAttribute TU). Override with GRID_CUDA_PLANT_CELLS.
+# BINDINGS (dynamic-smem + cudaFuncSetAttribute TU). Override with GRIM_CUDA_PLANT_CELLS.
 def _plant_cells():
-    raw = os.environ.get("GRID_CUDA_PLANT_CELLS", None)
+    raw = os.environ.get("GRIM_CUDA_PLANT_CELLS", None)
     if raw is None:
         return [("iiwa14", "fixed"), ("go2", "floating"), ("fr3", "fixed")]
     cells = []
@@ -118,12 +118,12 @@ def _plant_cells():
 
 
 # (robot_id, base_mode) cells for the centroidal (com/momentum) plant-cost check.
-# com_cost/momentum_cost emit whenever grid::com_device + grid::ccrba_device are
+# com_cost/momentum_cost emit whenever grim::com_device + grim::ccrba_device are
 # present (de-gate #3: the cost emit rides the already-mimic-correct NV-sized
 # com/ccrba output, so MIMIC robots are now covered too). Defaults exercise:
 # iiwa14:fixed (cheap fixed-base), go2:floating (floating-base), fr3:fixed (mimic).
 def _centroidal_cells():
-    raw = os.environ.get("GRID_CUDA_PLANT_CENTROIDAL_CELLS", "iiwa14:fixed,go2:floating,fr3:fixed")
+    raw = os.environ.get("GRIM_CUDA_PLANT_CENTROIDAL_CELLS", "iiwa14:fixed,go2:floating,fr3:fixed")
     cells = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -142,8 +142,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # Full profile is JUSTIFIED here (unlike the other aux suites, which use
         # split codegen): plant_step_hessian consumes fdsva_so + integrator, the
@@ -157,7 +157,7 @@ def _compile_runner(build_dir):
     arch = _detect_cuda_arch()
     glass_inc = Path(__file__).resolve().parents[2] / "external" / "GLASS" / "include"
     return cached_nvcc_executable(
-        [RUNNER_SOURCE, build_dir / "grid.cuh"],
+        [RUNNER_SOURCE, build_dir / "grim.cuh"],
         ["-std=c++17", "-O0", "-gencode", f"arch=compute_{arch},code=sm_{arch}"],
         exe_name="cuda_plant_smoke_runner.exe", fallback_dir=build_dir,
         include_dirs=[glass_inc], what="CUDA plant smoke runner",
@@ -335,7 +335,7 @@ def test_cuda_plant_matches_reference(tmp_path, robot_id, base_mode):
             close(out["tracking_preset_Rk"].reshape(nu, nu, order="F"),
                   out["tracking_ref_Rk"].reshape(nu, nu, order="F"), f"{tag} tracking preset s_Rk == composition")
 
-        # ---------- plant pass-through: plant == grid::integrator ----------
+        # ---------- plant pass-through: plant == grim::integrator ----------
         # The runner self-gates the plant_step/integrator pass-through behind
         # `plant_step_fits` (the fixed-size s_temp[4096] caller pool overflows for
         # big floating-base robots, e.g. go2:floating where FD_DU_MAX_SHARED_MEM_COUNT
@@ -347,17 +347,17 @@ def test_cuda_plant_matches_reference(tmp_path, robot_id, base_mode):
         if "plant_step_skipped" in out:
             continue
         close(out["plant_x_kp1"].reshape(-1), out["integrator_x_kp1"].reshape(-1),
-              f"{tag} plant_step == grid::integrator (value pass-through)")
+              f"{tag} plant_step == grim::integrator (value pass-through)")
         close(out["plant_dAB"].reshape(2 * nv, 3 * nv, order="F"),
               out["integrator_dAB"].reshape(2 * nv, 3 * nv, order="F"),
-              f"{tag} plant_step_gradient == grid::integrator_gradient (dAB pass-through)")
+              f"{tag} plant_step_gradient == grim::integrator_gradient (dAB pass-through)")
 
 
 # (robot_id, base_mode) cells for the plant_step_hessian (s_d2AB) check. Fixed-base
 # is the cheap default gate; go2:floating exercises the SE(3) retract Hessian path
-# (the F1 floating emit). Override with GRID_CUDA_PLANT_HESSIAN_CELLS.
+# (the F1 floating emit). Override with GRIM_CUDA_PLANT_HESSIAN_CELLS.
 def _hessian_cells():
-    raw = os.environ.get("GRID_CUDA_PLANT_HESSIAN_CELLS", None)
+    raw = os.environ.get("GRIM_CUDA_PLANT_HESSIAN_CELLS", None)
     if raw is None:
         # default: each robot in _robot_ids() fixed, plus go2 floating.
         return [(r, "fixed") for r in _robot_ids()] + [("go2", "floating")]
@@ -379,10 +379,10 @@ def _hessian_cells():
     ids=lambda v: f"{v}",
 )
 def test_cuda_plant_step_hessian_matches_reference(tmp_path, robot_id, base_mode):
-    """CUDA `grid_plant::plant_step_hessian` (s_d2AB) vs the RBDReference oracle.
+    """CUDA `grim_plant::plant_step_hessian` (s_d2AB) vs the RBDReference oracle.
 
     The Hessian H[o,a,b] = d^2 x_{k+1}[o] / dz[a] dz[b] composes
-    grid::integrator_hessian_device -> fdsva_so_device per integrator (EULER /
+    grim::integrator_hessian_device -> fdsva_so_device per integrator (EULER /
     SI-EULER). Fixed-base is the dt-scaled fdsva_so assembly; floating-base adds
     the SE(3) retract second derivative (position rows) and transposes the
     velocity-row D2qdd axes. The numpy oracle is `RBDReference.plant_step_hessian`
@@ -457,9 +457,9 @@ def test_cuda_plant_step_hessian_matches_reference(tmp_path, robot_id, base_mode
     ids=lambda v: str(v),
 )
 def test_cuda_plant_centroidal_costs_match_reference(tmp_path, robot_id, base_mode):
-    """CUDA `grid_plant::com_cost` vs the RBDReference oracle.
+    """CUDA `grim_plant::com_cost` vs the RBDReference oracle.
 
-    The CoM cost composes grid::com_device; validated on iiwa14:fixed and
+    The CoM cost composes grim::com_device; validated on iiwa14:fixed and
     go2:floating. The runner drives the device cost kernel (value + gradient +
     GN hessian) with a DETERMINISTIC p_des/W setup (mirrored here); the oracle
     is the numpy `RBDReference` plant reference (`reference.com_cost`), the same

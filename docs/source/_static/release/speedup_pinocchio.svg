@@ -1457,7 +1457,7 @@ z
     </g>
    </g>
    <g id="text_71">
-    <!-- GRiD CUDA compute-only call (launch + sync) -->
+    <!-- GRiM CUDA compute-only call (launch + sync) -->
     <g transform="translate(79.114453 18.649687) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-47" d="M 3809 666 
@@ -2525,7 +2525,7 @@ iVBORw0KGgoAAAANSUhEUgAAASMAAADzCAYAAADNaXC2AAAEoklEQVR4nO3dT2ucVRyG4Zl0UtK0NbEV
     </g>
    </g>
    <g id="text_133">
-    <!-- GRiD CUDA compute-only call (launch + sync) -->
+    <!-- GRiM CUDA compute-only call (launch + sync) -->
     <g transform="translate(298.854453 18.649687) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -3410,7 +3410,7 @@ iVBORw0KGgoAAAANSUhEUgAAASMAAADzCAYAAADNaXC2AAAEi0lEQVR4nO3dsW4cZRiG0ZndxUgmjoOj
     </g>
    </g>
    <g id="text_204">
-    <!-- GRiD CUDA host call (with memory) -->
+    <!-- GRiM CUDA host call (with memory) -->
     <g transform="translate(102.704297 251.742487) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -4105,7 +4105,7 @@ iVBORw0KGgoAAAANSUhEUgAAASMAAADzCAYAAADNaXC2AAAEi0lEQVR4nO3dT4pcVRyG4VvVVf3HjlZ3
     </g>
    </g>
    <g id="text_266">
-    <!-- GRiD CUDA host call (with memory) -->
+    <!-- GRiM CUDA host call (with memory) -->
     <g transform="translate(322.444297 251.742487) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -4178,7 +4178,7 @@ iVBORw0KGgoAAAANSUhEUgAAASMAAADzCAYAAADNaXC2AAAEi0lEQVR4nO3dT4pcVRyG4VvVVf3HjlZ3
    </g>
   </g>
   <g id="text_267">
-   <!-- Baseline / GRiD. Blue: GRiD faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
+   <!-- Baseline / GRiM. Blue: GRiM faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
    <g transform="translate(89.447461 497.941116) scale(0.075 -0.075)">
     <defs>
      <path id="DejaVuSans-42" d="M 1259 2228 

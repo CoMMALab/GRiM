@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -30,8 +30,8 @@ from RBDReference.equivalents import build_adapter, resolve_backend
 def _build_so_oracle(spec, resolved, base_mode):
     """Independent second-order oracle (default: EXACT pinocchio pin_so_ext).
     Lets the slow pure-Python SO reference be replaced by C++ ms-scale calls on
-    big robots; GRID_REFERENCE_BACKEND=reference forces the pure-Python path."""
-    backend = resolve_backend(os.environ.get("GRID_REFERENCE_BACKEND", "pinocchio"))
+    big robots; GRIM_REFERENCE_BACKEND=reference forces the pure-Python path."""
+    backend = resolve_backend(os.environ.get("GRIM_REFERENCE_BACKEND", "pinocchio"))
     return build_adapter(spec, resolved, base_mode=base_mode, backend=backend)
 
 
@@ -47,10 +47,10 @@ def _comma_separated_env(name: str, default: str) -> tuple[str, ...]:
 
 
 def _second_order_smoke_robot_ids() -> tuple[str, ...]:
-    if "GRID_CUDA_SECOND_ORDER_SMOKE_ROBOTS" in os.environ:
-        return _comma_separated_env("GRID_CUDA_SECOND_ORDER_SMOKE_ROBOTS", "")
+    if "GRIM_CUDA_SECOND_ORDER_SMOKE_ROBOTS" in os.environ:
+        return _comma_separated_env("GRIM_CUDA_SECOND_ORDER_SMOKE_ROBOTS", "")
     return _comma_separated_env(
-        "GRID_CUDA_SECOND_ORDER_SMOKE_ROBOT",
+        "GRIM_CUDA_SECOND_ORDER_SMOKE_ROBOT",
         # iiwa14 (gate) + go2 (quadruped) + fr3 (the fixed-base mimic sentinel:
         # exercises the branched reference-order repair + the mimic internal-NB-slab
         # alpha-fold, incl. the B4 repair-zero NB-vs-NV fix) + the big humanoids
@@ -58,7 +58,7 @@ def _second_order_smoke_robot_ids() -> tuple[str, ...]:
         # nvcc compiles, so the heavy big-robot fixed cells are run only in the
         # time-budgeted pre-sweep gate (V5: g1-fixed validated; h1_2-fixed deferred to
         # the sweep). Override the set with the env var to subset, e.g.
-        # GRID_CUDA_SECOND_ORDER_SMOKE_ROBOTS=iiwa14,go2.
+        # GRIM_CUDA_SECOND_ORDER_SMOKE_ROBOTS=iiwa14,go2.
         "iiwa14,go2,fr3,g1,h1_2",
     )
 
@@ -97,7 +97,7 @@ def _robot_spec(robot_id: str, base_mode: str):
 
 def _floating_second_order_robot_ids() -> tuple[str, ...]:
     return _comma_separated_env(
-        "GRID_CUDA_FLOATING_SECOND_ORDER_ROBOTS",
+        "GRIM_CUDA_FLOATING_SECOND_ORDER_ROBOTS",
         # iiwa14 (gate) + go2 (quadruped) + fr3 (the mimic sentinel) + the big
         # humanoids g1/h1_2 (floating spill-tier body-frame SO exercise). g1/h1_2
         # floating all-profile headers are the HEAVIEST compiles in the repo
@@ -119,10 +119,10 @@ def _generate_second_order_header(
     algorithm_list=None,
     enable_idsva_so_body_frame=None,
 ):
-    header_path = build_dir / "grid.cuh"
-    env_updates = {"GRID_CUDA_TARGET_SHARED_MEM_BYTES": target_shared_bytes}
+    header_path = build_dir / "grim.cuh"
+    env_updates = {"GRIM_CUDA_TARGET_SHARED_MEM_BYTES": target_shared_bytes}
     with _temporary_env(env_updates):
-        codegen = GRiDCodeGenerator(
+        codegen = GRiMCodeGenerator(
             project_model.robot,
             DEBUG_MODE=False,
             NEED_PRINT_MAT=False,
@@ -146,20 +146,20 @@ def _second_order_thread_count() -> int:
     Session-random multi-warp count (non-multiple of 32) so the SO kernels are
     probed across warp counts over time, catching thread-count races that a fixed
     block size hides. The count is printed per test and reproducible with
-    GRID_CUDA_SECOND_ORDER_TEST_THREADS=<n>. It is deliberately NOT a compile flag:
+    GRIM_CUDA_SECOND_ORDER_TEST_THREADS=<n>. It is deliberately NOT a compile flag:
     as a -D it re-keyed the content-keyed executable cache every session, so the
     biggest SO builds (h1_2 ~47 min, g1 ~22 min) missed on every receipt."""
-    threads = os.environ.get("GRID_CUDA_SECOND_ORDER_TEST_THREADS")
+    threads = os.environ.get("GRIM_CUDA_SECOND_ORDER_TEST_THREADS")
     if threads:
         try:
             thread_count = int(threads)
         except ValueError:
             pytest.fail(
-                "GRID_CUDA_SECOND_ORDER_TEST_THREADS must be an integer when set."
+                "GRIM_CUDA_SECOND_ORDER_TEST_THREADS must be an integer when set."
             )
         if thread_count <= 0:
             pytest.fail(
-                "GRID_CUDA_SECOND_ORDER_TEST_THREADS must be positive when set."
+                "GRIM_CUDA_SECOND_ORDER_TEST_THREADS must be positive when set."
             )
         return thread_count
     return _random_thread_count()
@@ -171,10 +171,10 @@ def _compile_second_order_runner(build_dir: Path, *, enable_fdsva=True):
         "-std=c++11", "-O0",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
-        f"-DGRID_CUDA_SECOND_ORDER_ENABLE_FDSVA={int(enable_fdsva)}",
+        f"-DGRIM_CUDA_SECOND_ORDER_ENABLE_FDSVA={int(enable_fdsva)}",
     ]
     return cached_nvcc_executable(
-        [RUNNER_SOURCE, build_dir / "grid.cuh"], flags,
+        [RUNNER_SOURCE, build_dir / "grim.cuh"], flags,
         exe_name="cuda_second_order_smoke_runner.exe", fallback_dir=build_dir,
         what="CUDA second-order smoke runner",
     )
@@ -219,41 +219,41 @@ def _run_second_order_sample(executable, compile_cmd, sample, thread_count):
 
 
 def _second_order_target_shared_bytes() -> int:
-    raw = os.environ.get("GRID_CUDA_SECOND_ORDER_TARGET_SHARED_BYTES", "10000")
+    raw = os.environ.get("GRIM_CUDA_SECOND_ORDER_TARGET_SHARED_BYTES", "10000")
     try:
         target_shared_bytes = int(raw)
     except ValueError:
-        pytest.fail("GRID_CUDA_SECOND_ORDER_TARGET_SHARED_BYTES must be an integer.")
+        pytest.fail("GRIM_CUDA_SECOND_ORDER_TARGET_SHARED_BYTES must be an integer.")
     if target_shared_bytes <= 0:
-        pytest.fail("GRID_CUDA_SECOND_ORDER_TARGET_SHARED_BYTES must be positive.")
+        pytest.fail("GRIM_CUDA_SECOND_ORDER_TARGET_SHARED_BYTES must be positive.")
     return target_shared_bytes
 
 
 def _second_order_expected_flags():
-    raw = os.environ.get("GRID_CUDA_SECOND_ORDER_EXPECT_FLAGS")
+    raw = os.environ.get("GRIM_CUDA_SECOND_ORDER_EXPECT_FLAGS")
     if raw is None:
         return np.asarray([1.0, 1.0, 1.0], dtype=np.float64)
     values = [item.strip() for item in raw.split(",") if item.strip()]
     if len(values) != 3:
         pytest.fail(
-            "GRID_CUDA_SECOND_ORDER_EXPECT_FLAGS must contain exactly three "
+            "GRIM_CUDA_SECOND_ORDER_EXPECT_FLAGS must contain exactly three "
             "comma-separated values for IDSVA global output, FDSVA global "
             "tensors, and FDSVA workspace temp."
         )
     try:
         return np.asarray([float(value) for value in values], dtype=np.float64)
     except ValueError:
-        pytest.fail("GRID_CUDA_SECOND_ORDER_EXPECT_FLAGS values must be numeric.")
+        pytest.fail("GRIM_CUDA_SECOND_ORDER_EXPECT_FLAGS values must be numeric.")
 
 
 def _second_order_samples(project_model):
-    sample_names = _comma_separated_env("GRID_CUDA_SECOND_ORDER_SAMPLE_NAMES", "zero")
+    sample_names = _comma_separated_env("GRIM_CUDA_SECOND_ORDER_SAMPLE_NAMES", "zero")
     try:
-        random_count = int(os.environ.get("GRID_CUDA_SECOND_ORDER_RANDOM_SAMPLES", "0"))
+        random_count = int(os.environ.get("GRIM_CUDA_SECOND_ORDER_RANDOM_SAMPLES", "0"))
     except ValueError:
-        pytest.fail("GRID_CUDA_SECOND_ORDER_RANDOM_SAMPLES must be an integer.")
+        pytest.fail("GRIM_CUDA_SECOND_ORDER_RANDOM_SAMPLES must be an integer.")
     if random_count < 0:
-        pytest.fail("GRID_CUDA_SECOND_ORDER_RANDOM_SAMPLES must be non-negative.")
+        pytest.fail("GRIM_CUDA_SECOND_ORDER_RANDOM_SAMPLES must be non-negative.")
 
     include_corner_samples = sample_names == ("all",) or any(
         name not in {"zero", "conservative"} for name in sample_names
@@ -271,7 +271,7 @@ def _second_order_samples(project_model):
     if missing:
         available = ", ".join(sorted(samples_by_name))
         pytest.fail(
-            "Unknown GRID_CUDA_SECOND_ORDER_SAMPLE_NAMES value(s): "
+            "Unknown GRIM_CUDA_SECOND_ORDER_SAMPLE_NAMES value(s): "
             f"{', '.join(missing)}. Available samples: {available}"
         )
     return [samples_by_name[name] for name in sample_names]
@@ -279,15 +279,15 @@ def _second_order_samples(project_model):
 
 def _floating_second_order_samples(project_model):
     sample_names = _comma_separated_env(
-        "GRID_CUDA_FLOATING_SECOND_ORDER_SAMPLE_NAMES",
+        "GRIM_CUDA_FLOATING_SECOND_ORDER_SAMPLE_NAMES",
         "zero,conservative",
     )
     try:
-        random_count = int(os.environ.get("GRID_CUDA_FLOATING_SECOND_ORDER_RANDOM_SAMPLES", "0"))
+        random_count = int(os.environ.get("GRIM_CUDA_FLOATING_SECOND_ORDER_RANDOM_SAMPLES", "0"))
     except ValueError:
-        pytest.fail("GRID_CUDA_FLOATING_SECOND_ORDER_RANDOM_SAMPLES must be an integer.")
+        pytest.fail("GRIM_CUDA_FLOATING_SECOND_ORDER_RANDOM_SAMPLES must be an integer.")
     if random_count < 0:
-        pytest.fail("GRID_CUDA_FLOATING_SECOND_ORDER_RANDOM_SAMPLES must be non-negative.")
+        pytest.fail("GRIM_CUDA_FLOATING_SECOND_ORDER_RANDOM_SAMPLES must be non-negative.")
 
     include_corner_samples = sample_names == ("all",) or any(
         name not in {"zero", "conservative"} for name in sample_names
@@ -305,7 +305,7 @@ def _floating_second_order_samples(project_model):
     if missing:
         available = ", ".join(sorted(samples_by_name))
         pytest.fail(
-            "Unknown GRID_CUDA_FLOATING_SECOND_ORDER_SAMPLE_NAMES value(s): "
+            "Unknown GRIM_CUDA_FLOATING_SECOND_ORDER_SAMPLE_NAMES value(s): "
             f"{', '.join(missing)}. Available samples: {available}"
         )
     return [samples_by_name[name] for name in sample_names]
@@ -319,10 +319,10 @@ IDSVA_BLOCK_NAMES = ("d2tau_dq", "d2tau_dqd", "d2tau_dvdq", "dM_dq")
 
 
 def _idsva_block_indices_from_env():
-    raw = os.environ.get("GRID_CUDA_FLOATING_SECOND_ORDER_COMPARE_BLOCKS", "all")
+    raw = os.environ.get("GRIM_CUDA_FLOATING_SECOND_ORDER_COMPARE_BLOCKS", "all")
     names = tuple(item.strip() for item in raw.split(",") if item.strip())
     if not names:
-        pytest.fail("GRID_CUDA_FLOATING_SECOND_ORDER_COMPARE_BLOCKS must not be empty.")
+        pytest.fail("GRIM_CUDA_FLOATING_SECOND_ORDER_COMPARE_BLOCKS must not be empty.")
     if names == ("all",):
         return tuple(range(len(IDSVA_BLOCK_NAMES)))
     aliases = {
@@ -335,7 +335,7 @@ def _idsva_block_indices_from_env():
     unknown = [name for name in expanded if name not in IDSVA_BLOCK_NAMES]
     if unknown:
         pytest.fail(
-            "Unknown GRID_CUDA_FLOATING_SECOND_ORDER_COMPARE_BLOCKS value(s): "
+            "Unknown GRIM_CUDA_FLOATING_SECOND_ORDER_COMPARE_BLOCKS value(s): "
             f"{', '.join(unknown)}. Available: all, non_q_side, "
             f"{', '.join(IDSVA_BLOCK_NAMES)}"
         )
@@ -465,7 +465,7 @@ def test_fixed_second_order_forced_fallback_matches_python_reference(tmp_path, r
 
     thread_count = _second_order_thread_count()
     print(f"[second-order] {robot_id}-fixed thread_count={thread_count} "
-          "(reproduce: GRID_CUDA_SECOND_ORDER_TEST_THREADS)")
+          "(reproduce: GRIM_CUDA_SECOND_ORDER_TEST_THREADS)")
 
     for sample in samples:
         forced_fallback = _run_second_order_sample(executable, compile_cmd, sample, thread_count)
@@ -527,7 +527,7 @@ def test_floating_second_order_diagnostic_matches_python_reference(tmp_path, rob
     reference_model = _build_so_oracle(spec, resolved, "floating")
     samples = _floating_second_order_samples(project_model)
     target_shared_bytes = _second_order_target_shared_bytes()
-    enable_fdsva = os.environ.get("GRID_CUDA_FLOATING_SECOND_ORDER_ENABLE_FDSVA", "0") == "1"
+    enable_fdsva = os.environ.get("GRIM_CUDA_FLOATING_SECOND_ORDER_ENABLE_FDSVA", "0") == "1"
     algorithm_list = "idsva_so_body_frame,fdsva_so" if enable_fdsva else "idsva_so_body_frame"
 
     executable, compile_cmd = _build_second_order_case(
@@ -546,7 +546,7 @@ def test_floating_second_order_diagnostic_matches_python_reference(tmp_path, rob
 
     thread_count = _second_order_thread_count()
     print(f"[second-order] {robot_id}-floating thread_count={thread_count} "
-          "(reproduce: GRID_CUDA_SECOND_ORDER_TEST_THREADS)")
+          "(reproduce: GRIM_CUDA_SECOND_ORDER_TEST_THREADS)")
 
     for sample in samples:
         actual = _run_second_order_sample(executable, compile_cmd, sample, thread_count)

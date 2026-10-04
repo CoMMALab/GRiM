@@ -22,7 +22,7 @@ import pytest
 
 from config import ROBOT_ASSETS_DIR, robot_urdf
 from external.URDFParser.URDFParser import URDFParser
-from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
+from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
 
 _ROBOTS = sorted(p.stem for p in ROBOT_ASSETS_DIR.glob("*.urdf"))
 
@@ -30,7 +30,7 @@ _ROBOTS = sorted(p.stem for p in ROBOT_ASSETS_DIR.glob("*.urdf"))
 def _generator(robot_id, floating):
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         robot = URDFParser().parse(str(robot_urdf(robot_id)), floating_base=floating)
-        return GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+        return GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
 
 
 @pytest.mark.parametrize("floating", [False, True], ids=["fixed", "floating"])
@@ -56,7 +56,7 @@ def test_s_inds_stride_points_at_each_bodys_axis(robot_id, floating):
 def test_floating_mimic_velocity_product_reads_the_mimic_slot(robot_id, tmp_path):
     generator = _generator(robot_id, True)
     assert generator.robot_has_mimic_joints()
-    header = tmp_path / "grid.cuh"
+    header = tmp_path / "grim.cuh"
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         generator.gen_all_code(output_path=str(header),
                                algorithm_list=["inverse_dynamics", "minv", "forward_dynamics"])
@@ -83,12 +83,12 @@ def test_mimic_aba_uses_the_decomposition_with_its_whole_arena(floating, tmp_pat
     recursion), and the decomposition has no cold band, so every spill rung that
     keeps the arena in smem must size it in full (TIER_LITE used the recursion's
     hot size: h1_2 fixed 4998 of 14001 floats)."""
-    from grid_codegen.algorithms._aba import _aba_surgical_inner_smem_size
+    from grim_codegen.algorithms._aba import _aba_surgical_inner_smem_size
 
     generator = _generator("fr3", floating)
     assert generator.robot_has_mimic_joints()
     assert _aba_surgical_inner_smem_size(generator) == generator.gen_aba_inner_temp_mem_size()
-    header = tmp_path / "grid.cuh"
+    header = tmp_path / "grim.cuh"
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         generator.gen_all_code(output_path=str(header),
                                algorithm_list=["inverse_dynamics", "minv", "forward_dynamics", "aba"])
@@ -106,11 +106,11 @@ def test_aba_launch_arena_matches_the_kernel_layout(robot_id, floating, tmp_path
     layout (_aba_surgical_inner_smem_size) are computed separately; they must
     agree or the kernel runs past its dynamic smem (h1_2 fixed TIER_LITE:
     illegal memory access, 2026-09-29)."""
-    from grid_codegen.algo_registry import arena_ctx_from_codegen
-    from grid_codegen.algorithms._aba import _aba_surgical_inner_smem_size
+    from grim_codegen.algo_registry import arena_ctx_from_codegen
+    from grim_codegen.algorithms._aba import _aba_surgical_inner_smem_size
 
     generator = _generator(robot_id, floating)
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-        generator.gen_all_code(output_path=str(tmp_path / "grid.cuh"),
+        generator.gen_all_code(output_path=str(tmp_path / "grim.cuh"),
                                algorithm_list=["inverse_dynamics", "minv", "forward_dynamics", "aba"])
     assert arena_ctx_from_codegen(generator).aba_surgical_inner == _aba_surgical_inner_smem_size(generator)

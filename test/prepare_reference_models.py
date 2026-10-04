@@ -91,7 +91,7 @@ def run_pytest(target: Path, pytest_args: list[str]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run and inspect GRiD's test suites.",
+        description="Run and inspect GRiM's test suites.",
     )
     parser.add_argument(
         "--list-tests",

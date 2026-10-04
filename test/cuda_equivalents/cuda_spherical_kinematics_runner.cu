@@ -1,7 +1,7 @@
 // CUDA equivalence runner for SPHERICAL (ball) joint end_effector_pose +
 // frame_jacobian (Tier-C kinematics). Spherical robots have NQ != NV (a 4-wide
 // unit-quaternion q-block per ball joint, 3 v-slots), so the per-timestep INPUT
-// slot is NQ-wide (= grid::NUM_JOINTS here, == get_num_pos()=nq). The FK chain-up
+// slot is NQ-wide (= grim::NUM_JOINTS here, == get_num_pos()=nq). The FK chain-up
 // consumes the joint's HOMOGENEOUS quaternion transform (keeps R, not R^T), built
 // via the shared quaternion XmatsHom substitution on the joint's own 4-wide q-block.
 //
@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 int g_num_threads = 32;
 
@@ -56,19 +56,19 @@ void print_vector(const std::string &name, const T *data, int count) {
 // shared memory here (it must NOT alias the device function's dynamic arena).
 template <typename T>
 __global__ void spherical_eepose_device_runner(
-    T *d_eepose, const T *d_q, const grid::robotModel<T> *d_robot_model
+    T *d_eepose, const T *d_q, const grim::robotModel<T> *d_robot_model
 ) {
-    __shared__ T s_eepose[6 * grid::NUM_EES];
-    __shared__ T s_q[grid::NUM_JOINTS];      // NUM_JOINTS == nq for this codegen
+    __shared__ T s_eepose[6 * grim::NUM_EES];
+    __shared__ T s_q[grim::NUM_JOINTS];      // NUM_JOINTS == nq for this codegen
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
         s_q[ind] = d_q[ind];
     }
     __syncthreads();
-    grid::end_effector_pose_device<T>(s_eepose, s_q, d_robot_model);
+    grim::end_effector_pose_device<T>(s_eepose, s_q, d_robot_model);
     __syncthreads();
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < 6 * grid::NUM_EES; ind += blockDim.x * blockDim.y) {
+         ind < 6 * grim::NUM_EES; ind += blockDim.x * blockDim.y) {
         d_eepose[ind] = s_eepose[ind];
     }
 }
@@ -80,32 +80,32 @@ __global__ void spherical_eepose_device_runner(
 template <typename T>
 __global__ void spherical_frame_jacobian_device_runner(
     T *d_J, const T *d_q, const int target_jid,
-    const grid::robotModel<T> *d_robot_model
+    const grim::robotModel<T> *d_robot_model
 ) {
-    __shared__ T s_J[6 * grid::NUM_VEL];
-    __shared__ T s_q[grid::NUM_JOINTS];      // NUM_JOINTS == nq for this codegen
+    __shared__ T s_J[6 * grim::NUM_VEL];
+    __shared__ T s_q[grim::NUM_JOINTS];      // NUM_JOINTS == nq for this codegen
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
         s_q[ind] = d_q[ind];
     }
     __syncthreads();
-    grid::frame_jacobian_device<T>(s_J, target_jid, /*reference_frame=*/2,
+    grim::frame_jacobian_device<T>(s_J, target_jid, /*reference_frame=*/2,
                                    s_q, d_robot_model);
     __syncthreads();
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < 6 * grid::NUM_VEL; ind += blockDim.x * blockDim.y) {
+         ind < 6 * grim::NUM_VEL; ind += blockDim.x * blockDim.y) {
         d_J[ind] = s_J[ind];
     }
 }
 
 template <typename T>
 void run() {
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
 
-    const int nq = grid::NUM_JOINTS;
-    const int nv = grid::NUM_VEL;
-    const int nee = grid::NUM_EES;
+    const int nq = grim::NUM_JOINTS;
+    const int nv = grim::NUM_VEL;
+    const int nee = grim::NUM_EES;
 
     // ----- read inputs (q is nq-wide; the leaf target jid follows on stdin) -----
     std::vector<T> h_q(nq);
@@ -122,7 +122,7 @@ void run() {
     T *d_eepose;
     gpuErrchk(cudaMalloc((void **)&d_eepose, 6 * nee * sizeof(T)));
     std::vector<T> h_eepose(6 * nee);
-    const size_t ee_smem = grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const size_t ee_smem = grim::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>();
     gpuErrchk(cudaFuncSetAttribute(spherical_eepose_device_runner<T>,
                                    cudaFuncAttributeMaxDynamicSharedMemorySize,
                                    static_cast<int>(ee_smem)));
@@ -136,7 +136,7 @@ void run() {
     T *d_J;
     gpuErrchk(cudaMalloc((void **)&d_J, 6 * nv * sizeof(T)));
     std::vector<T> h_J(6 * nv);
-    const size_t fj_smem = grid::FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const size_t fj_smem = grim::FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
     gpuErrchk(cudaFuncSetAttribute(spherical_frame_jacobian_device_runner<T>,
                                    cudaFuncAttributeMaxDynamicSharedMemorySize,
                                    static_cast<int>(fj_smem)));
@@ -151,7 +151,7 @@ void run() {
     // We fill B identical timesteps; every output row must match the device
     // single-call result above (catches the §1e nq-stride bug).
     const int B = 4;
-    grid::gridData<T> *hd_data = grid::init_gridData<T, B>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, B>();
     for (int k = 0; k < B; ++k) {
         for (int i = 0; i < nq; ++i) {
             hd_data->h_q_qd_u[k * 3 * nq + i] = h_q[i];   // q slot [0, nq)
@@ -164,7 +164,7 @@ void run() {
     const dim3 thread_dimms(g_num_threads, 1, 1);
 
     // (2a) end_effector_pose host batch wrapper.
-    grid::end_effector_pose<T, false>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
+    grim::end_effector_pose<T, false>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
         std::vector<T> row(6 * nee);
@@ -173,7 +173,7 @@ void run() {
     }
 
     // (2b) frame_jacobian host batch wrapper (bakes the leaf-EE joint + LWA).
-    grid::frame_jacobian<T>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
+    grim::frame_jacobian<T>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
         std::vector<T> blk(6 * nv);
@@ -184,7 +184,7 @@ void run() {
     gpuErrchk(cudaFree(d_J));
     gpuErrchk(cudaFree(d_eepose));
     gpuErrchk(cudaFree(d_q));
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -192,10 +192,10 @@ int main(int argc, char **argv) {
         int requested = std::atoi(argv[1]);
         g_num_threads = requested > 0 ? requested : 0;
     }
-    if (g_num_threads <= 0 || g_num_threads > grid::MAX_PERF_LEVEL_THREADS) {
-        g_num_threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (g_num_threads <= 0 || g_num_threads > grim::MAX_PERF_LEVEL_THREADS) {
+        g_num_threads = grim::MAX_PERF_LEVEL_THREADS;
     }
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

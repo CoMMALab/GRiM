@@ -1,4 +1,4 @@
-Contributing to GRiD
+Contributing to GRiM
 ====================
 
 Open an issue to discuss substantial changes, then submit a focused pull
@@ -16,7 +16,7 @@ Code and tests
 * For a new algorithm, follow :doc:`user_guide/tutorials/adding_an_algorithm`.
   Generated wrapper regions must be regenerated from their specifications,
   not edited by hand.
-* Change peer libraries in their own repositories, then update GRiD's
+* Change peer libraries in their own repositories, then update GRiM's
   submodule pins to commits available from those remotes.
 
 Documentation
@@ -34,6 +34,6 @@ See :doc:`sphinx_edit_guide` for the strict build and local preview commands.
 License
 -------
 
-GRiD software contributions are licensed under the repository's MIT license.
+GRiM software contributions are licensed under the repository's MIT license.
 The landing-page design attribution and its CC BY-SA 4.0 terms are recorded
 in the website footer.

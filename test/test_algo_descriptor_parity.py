@@ -1,7 +1,7 @@
 """Step-0 parity net for the per-algo DESCRIPTOR table (item M).
 
 The descriptor table (`ALGO_DESCRIPTORS` in `algo_registry.py`) is being grown to
-collapse the ~10 scattered per-algo edit sites in `GRiDCodeGenerator.py` into ONE
+collapse the ~10 scattered per-algo edit sites in `GRiMCodeGenerator.py` into ONE
 row per algorithm (design: docs/open-tasks/design_descriptor_table_spec.md). Step 0
 GENERATES NOTHING — it just lands the rows and asserts they REPRODUCE the live
 literal sites exactly, so later steps can drive those sites from the table behind a
@@ -23,8 +23,8 @@ parity gate.
 
 from __future__ import annotations
 
-from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
-from grid_codegen.algo_registry import (
+from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
+from grim_codegen.algo_registry import (
     ALGO_DESCRIPTORS,
     ALGO_REGISTRY,
     build_launch_config_algo_to_symbol,
@@ -32,7 +32,7 @@ from grid_codegen.algo_registry import (
 )
 
 # ─── FROZEN GOLDEN (Step 1) ──────────────────────────────────────────────────
-# Was the live `LAUNCH_CONFIG_ALGO_TO_SYMBOL` dict in GRiDCodeGenerator.py; Step 1
+# Was the live `LAUNCH_CONFIG_ALGO_TO_SYMBOL` dict in GRiMCodeGenerator.py; Step 1
 # deleted it and now DERIVES it from the descriptor table. This frozen copy keeps
 # the table regression-guarded against silent drift (a wrong autotune_key or a lost
 # row would change the rebuilt map / enum order but this literal never moves).
@@ -77,13 +77,13 @@ _GOLDEN_ALGO_TO_SYMBOL = {
     "inverse_dynamics_regressor_gradient": "inverse_dynamics_regressor_gradient",
 }
 
-# The emitted `enum GridAlgo` order (byte-identity anchor). Equals the launch-cfg
+# The emitted `enum GrimAlgo` order (byte-identity anchor). Equals the launch-cfg
 # symbols in descriptor order — integrators LAST (after Second-Order), which is why
 # the Integrators AlgoDescriptor block is placed after fdsva_so in algo_registry.py.
 _GOLDEN_LAUNCH_ORDER = (
     # batch 1 — the original 17: a stable ABI prefix (an old cached .so plus a
     # newer python derives E6 overlay indices from this order; indices >= the
-    # old .so's GRID_ALGO_COUNT are bounds-rejected, so append-only is safe,
+    # old .so's GRIM_ALGO_COUNT are bounds-rejected, so append-only is safe,
     # any reorder of this prefix is NOT).
     "inverse_dynamics", "minv", "forward_dynamics", "aba", "crba",
     "inverse_dynamics_gradient", "forward_dynamics_gradient",
@@ -134,12 +134,12 @@ def test_descriptors_reproduce_launch_config_algo_to_symbol():
 
 def test_descriptor_launch_order_is_byte_identity_enum_order():
     """Step-1 byte-identity anchor: the launch-cfg descriptors, IN ORDER, reproduce
-    the emitted `enum GridAlgo` order exactly. Guards the Integrators-block placement
-    (must stay after Second-Order) so grid.cuh never silently reorders the enum."""
-    from grid_codegen.algo_registry import launch_config_descriptors
+    the emitted `enum GrimAlgo` order exactly. Guards the Integrators-block placement
+    (must stay after Second-Order) so grim.cuh never silently reorders the enum."""
+    from grim_codegen.algo_registry import launch_config_descriptors
     launch_order = tuple(d.key for d in launch_config_descriptors())
     assert launch_order == _GOLDEN_LAUNCH_ORDER, (
-        "descriptor launch order drifted from the emitted GridAlgo enum order.\n"
+        "descriptor launch order drifted from the emitted GrimAlgo enum order.\n"
         f"  got:    {launch_order}\n"
         f"  golden: {_GOLDEN_LAUNCH_ORDER}"
     )
@@ -165,7 +165,7 @@ def test_descriptors_reproduce_kernel_attr_manifest_metadata():
     bytes_macro) is reproduced by the descriptor keyed on algo_short. Also asserts
     the label==short invariant the registry relies on, and that exactly the
     has_kernel_attr descriptors appear in the manifest (no missing / no orphan)."""
-    manifest_meta = _manifest_metadata(GRiDCodeGenerator.KERNEL_ATTR_MANIFEST)
+    manifest_meta = _manifest_metadata(GRiMCodeGenerator.KERNEL_ATTR_MANIFEST)
 
     manifest_shorts = [short for (_label, short, _gate, _bytes) in manifest_meta]
     assert len(manifest_shorts) == len(set(manifest_shorts)), (
@@ -194,7 +194,7 @@ def test_descriptors_reproduce_kernel_attr_manifest_metadata():
 
 # Frozen golden for the floating mjx twins (Step 2). The mujoco_manifest is now
 # DERIVED (gen_init_close_grid: head = short+"(mjx)" + descriptor gate/bytes; payload =
-# GRiDCodeGenerator.MJX_KERNEL_OVERLOADS). This golden pins which algos have an mjx twin
+# GRiMCodeGenerator.MJX_KERNEL_OVERLOADS). This golden pins which algos have an mjx twin
 # and the (gate_attr, bytes_macro) each must resolve to — so a descriptor edit that would
 # silently change an mjx twin's macro is caught here, same single-source-of-truth invariant.
 _GOLDEN_MJX_HEADS = {
@@ -223,7 +223,7 @@ def test_descriptors_cover_mujoco_manifest_metadata():
     mjx set matches the golden and every twin's descriptor gate_attr/bytes_macro is
     what the golden expects — so an mjx twin can never reference a macro spelled
     differently from its pin twin, and no twin is silently added/dropped."""
-    mjx_shorts = list(GRiDCodeGenerator.MJX_KERNEL_OVERLOADS.keys())
+    mjx_shorts = list(GRiMCodeGenerator.MJX_KERNEL_OVERLOADS.keys())
     assert set(mjx_shorts) == set(_GOLDEN_MJX_HEADS), (
         "MJX_KERNEL_OVERLOADS set drifted from the golden mjx-twin set.\n"
         f"  added:   {sorted(set(mjx_shorts) - set(_GOLDEN_MJX_HEADS))}\n"

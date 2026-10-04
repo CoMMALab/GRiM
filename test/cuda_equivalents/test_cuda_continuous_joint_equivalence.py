@@ -2,7 +2,7 @@
 
 The CUDA counterpart to ``RBDReference/tests/test_continuous_joint_equivalence.py``.
 That Python test pins the numpy-vs-pinocchio contract for the gen3 robot (4
-continuous + 3 revolute joints): GRiD models a URDF ``continuous`` joint as a
+continuous + 3 revolute joints): GRiM models a URDF ``continuous`` joint as a
 RAW SCALAR ANGLE (NQ=NV=1) whereas pinocchio uses an SO(2) ``(cos, sin)`` pair,
 yet all dynamics/kinematics OUTPUTS agree because they depend on the angle only
 through ``cos``/``sin`` -- even at LARGE wrapped angles (theta = 5pi + delta),
@@ -19,7 +19,7 @@ If the CUDA codegen ever mishandled a continuous joint (e.g. wrapped its scalar
 angle through an SO(2) layout, or got the transform's cos/sin wrong), this test
 fails at the large-wrapped-angle samples while a small-angle smoke would pass.
 
-Gravity convention: unified at -9.81. The runner passes gravity = -9.81 to GRiD,
+Gravity convention: unified at -9.81. The runner passes gravity = -9.81 to GRiM,
 matching the RBDReference adapter's inverse_dynamics default -9.81 -- both sides use one
 convention, the pairing every CUDA dynamics equivalence test relies on.
 """
@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -108,14 +108,14 @@ def _wrapped_angle_states(project_model, n_trials=4):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # Emit only the first-order kernels the shared runner references
         # unconditionally (id / minv / fd / aba / crba / ee_pose); we compile the
-        # runner with GRID_RUNNER_SKIP_GRADIENTS=1 so it does not reference the
+        # runner with GRIM_RUNNER_SKIP_GRADIENTS=1 so it does not reference the
         # heavy gradient / second-order kernels, keeping the gen3 nvcc compile
         # cheap. continuous-joint handling lives in the per-joint transform
         # codegen shared by all of these, so this subset fully exercises the path.
@@ -133,22 +133,22 @@ def _compile_runner(build_dir, floating=False):
         pytest.skip("nvcc not found; install CUDA Toolkit to run CUDA equivalence tests.")
     runner_copy = build_dir / RUNNER_SOURCE.name
     shutil.copyfile(RUNNER_SOURCE, runner_copy)
-    # The runner #includes "grid_runner_select.cuh" (split scaffold, monolith-inert);
+    # The runner #includes "grim_runner_select.cuh" (split scaffold, monolith-inert);
     # copy it next to the runner copy so the isolated-dir compile resolves it.
-    shutil.copyfile(RUNNER_SOURCE.with_name("grid_runner_select.cuh"),
-                    build_dir / "grid_runner_select.cuh")
+    shutil.copyfile(RUNNER_SOURCE.with_name("grim_runner_select.cuh"),
+                    build_dir / "grim_runner_select.cuh")
     arch = _detect_cuda_arch()
     exe = build_dir / "cuda_continuous_joint_runner.exe"
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating else 0}",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating else 0}",
         # gen3 exercises id / crba / ee_pose only; skip the gradient and
         # ee-pose-gradient runner sections so we don't need the heavy gradient /
         # second-order kernels in the (lean) header. (SKIP_GRADIENTS also defaults
         # SKIP_EEPOSE_GRADIENTS, so the floating runner block drops its
         # id_du/fd_du/ee-derivative launches too.)
-        "-DGRID_RUNNER_SKIP_GRADIENTS=1",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        "-DGRIM_RUNNER_SKIP_GRADIENTS=1",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(exe), str(runner_copy),

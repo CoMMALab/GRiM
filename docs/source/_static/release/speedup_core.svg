@@ -1618,7 +1618,7 @@ z
      <use xlink:href="#DejaVuSans-65" transform="translate(952.193359 0)"/>
      <use xlink:href="#DejaVuSans-6e" transform="translate(1013.716797 0)"/>
     </g>
-    <!-- GRiD Host Call Including I/O -->
+    <!-- GRiM Host Call Including I/O -->
     <g transform="translate(103.565706 28.727719) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-47" d="M 3809 666 
@@ -2472,7 +2472,7 @@ z
      <use xlink:href="#DejaVuSans-50" transform="translate(1191.3125 0)"/>
      <use xlink:href="#DejaVuSans-49" transform="translate(1251.615234 0)"/>
     </g>
-    <!-- GRiD Host Call Including I/O -->
+    <!-- GRiM Host Call Including I/O -->
     <g transform="translate(291.112919 28.727719) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -3085,7 +3085,7 @@ z
      <use xlink:href="#DejaVuSans-50" transform="translate(616.015625 0)"/>
      <use xlink:href="#DejaVuSans-55" transform="translate(676.318359 0)"/>
     </g>
-    <!-- GRiD Host Call Including I/O -->
+    <!-- GRiM Host Call Including I/O -->
     <g transform="translate(478.660131 28.727719) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -3696,7 +3696,7 @@ z
      <use xlink:href="#DejaVuSans-6e" transform="translate(664.400391 0)"/>
      <use xlink:href="#DejaVuSans-74" transform="translate(727.779297 0)"/>
     </g>
-    <!-- GRiD compute-only call -->
+    <!-- GRiM compute-only call -->
     <g transform="translate(675.859141 28.727719) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-6d" d="M 3328 2828 
@@ -4340,7 +4340,7 @@ z
      <use xlink:href="#DejaVuSans-6e" transform="translate(1141.619141 0)"/>
      <use xlink:href="#DejaVuSans-74" transform="translate(1204.998047 0)"/>
     </g>
-    <!-- GRiD compute-only call -->
+    <!-- GRiM compute-only call -->
     <g transform="translate(863.406353 28.727719) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -4905,7 +4905,7 @@ z
      <use xlink:href="#DejaVuSans-6e" transform="translate(763.619141 0)"/>
      <use xlink:href="#DejaVuSans-74" transform="translate(826.998047 0)"/>
     </g>
-    <!-- GRiD compute-only call -->
+    <!-- GRiM compute-only call -->
     <g transform="translate(1050.953566 28.727719) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -5442,7 +5442,7 @@ z
      <use xlink:href="#DejaVuSans-6e" transform="translate(691.964844 0)"/>
      <use xlink:href="#DejaVuSans-74" transform="translate(755.34375 0)"/>
     </g>
-    <!-- GRiD compute-only call -->
+    <!-- GRiM compute-only call -->
     <g transform="translate(1238.500778 28.727719) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -5597,7 +5597,7 @@ L 0 3.5
      </g>
     </g>
     <g id="text_451">
-     <!-- Baseline faster  ←  Speedup (baseline / GRiD)  →  GRiD faster -->
+     <!-- Baseline faster  ←  Speedup (baseline / GRiM)  →  GRiM faster -->
      <g transform="translate(557.098594 361.698694) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-66" d="M 2375 4863 

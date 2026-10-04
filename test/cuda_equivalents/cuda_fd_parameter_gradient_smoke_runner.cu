@@ -2,7 +2,7 @@
 //
 // Mirrors `cuda_regressor_smoke_runner.cu` and invokes
 // `forward_dynamics_parameter_gradient` (host launcher). R2: the output
-// d_dqdd_dpi is now a gridData field (hd_data->d_dqdd_dpi, nv x 10*NUM_BODIES);
+// d_dqdd_dpi is now a grimData field (hd_data->d_dqdd_dpi, nv x 10*NUM_BODIES);
 // the host copies it back into hd_data->h_dqdd_dpi, which this runner reads
 // directly. Used by `test_cuda_fd_parameter_gradient` to validate the CUDA
 // emission against `RBDReference.forward_dynamics_parameter_gradient` (numpy reference).
@@ -16,10 +16,10 @@
 #include <iostream>
 #include <string>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_CUDA_FPG_TEST_THREADS
-#define GRID_CUDA_FPG_TEST_THREADS 64
+#ifndef GRIM_CUDA_FPG_TEST_THREADS
+#define GRIM_CUDA_FPG_TEST_THREADS 64
 #endif
 
 template <typename T>
@@ -52,32 +52,32 @@ template <typename T>
 int run() {
     const T gravity = static_cast<T>(-9.81);
     const dim3 block_dimms(1, 1, 1);
-    const int _req_threads = GRID_CUDA_FPG_TEST_THREADS;
-    const int _nthreads = _req_threads < grid::MAX_PERF_LEVEL_THREADS ? _req_threads : grid::MAX_PERF_LEVEL_THREADS;
+    const int _req_threads = GRIM_CUDA_FPG_TEST_THREADS;
+    const int _nthreads = _req_threads < grim::MAX_PERF_LEVEL_THREADS ? _req_threads : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(_nthreads, 1, 1);
 
-    const int nv = grid::NUM_VEL;
-    const int nb = grid::NUM_BODIES;
+    const int nv = grim::NUM_VEL;
+    const int nb = grim::NUM_BODIES;
     const int out_rows = nv;
     const int out_cols = 10 * nb;
     const int out_size = out_rows * out_cols;
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     // q|qd|u into the q_qd_u host buffer. Canonical layout (Q_QD_U_STRIDE == 3*NUM_POS):
     // each field gets a NUM_POS(=nq)-wide slot -> q@0, qd@nq, u@2*nq (the kernel reads
     // s_u at 2*NUM_POS). Fixed-base nq==nv makes this byte-identical to the old nv-based
     // u@nq+nv; FLOATING nq>nv needs the nq-based 2*NUM_POS offset (else u is read shifted
     // by nq-nv -> wrong torque input -> globally wrong dqdd/dpi).
-    read_vector(hd_data->h_q_qd_u, grid::NUM_POS);
-    read_vector(&hd_data->h_q_qd_u[grid::NUM_POS], grid::NUM_VEL);
-    read_vector(&hd_data->h_q_qd_u[2 * grid::NUM_POS], grid::NUM_VEL);
+    read_vector(hd_data->h_q_qd_u, grim::NUM_POS);
+    read_vector(&hd_data->h_q_qd_u[grim::NUM_POS], grim::NUM_VEL);
+    read_vector(&hd_data->h_q_qd_u[2 * grim::NUM_POS], grim::NUM_VEL);
 
-    // R2: output lives in gridData (hd_data->d_dqdd_dpi / hd_data->h_dqdd_dpi);
+    // R2: output lives in grimData (hd_data->d_dqdd_dpi / hd_data->h_dqdd_dpi);
     // the host launcher copies device->host into hd_data->h_dqdd_dpi.
-    grid::forward_dynamics_parameter_gradient<T>(
+    grim::forward_dynamics_parameter_gradient<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
@@ -92,16 +92,16 @@ int run() {
     }
 
     T config[5];
-    config[0] = static_cast<T>(grid::NUM_POS);
-    config[1] = static_cast<T>(grid::NUM_VEL);
-    config[2] = static_cast<T>(grid::NUM_BODIES);
-    config[3] = static_cast<T>(grid::NUM_JOINTS);
-    config[4] = static_cast<T>(grid::FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+    config[0] = static_cast<T>(grim::NUM_POS);
+    config[1] = static_cast<T>(grim::NUM_VEL);
+    config[2] = static_cast<T>(grim::NUM_BODIES);
+    config[3] = static_cast<T>(grim::NUM_JOINTS);
+    config[4] = static_cast<T>(grim::FORWARD_DYNAMICS_PARAMETER_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
 
     print_flat("fpg_config", config, 1, 5);
     print_flat("forward_dynamics_parameter_gradient", h_out, out_rows, out_cols);
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
     return 0;
 }
 

@@ -1,6 +1,6 @@
 """Golden pin for the bench ALGOS arity derivation (H6).
 
-timeGRiD_bindings.ALGOS arities now derive from AbiSpec.inputs. This golden is
+timeGRiM_bindings.ALGOS arities now derive from AbiSpec.inputs. This golden is
 the pre-derivation hand table verbatim: a spec-row edit that would change what
 the bench feeds an algo fails HERE (loudly, diffably) instead of silently
 shifting timing inputs. Update the golden only with a reviewed arity change.
@@ -24,5 +24,5 @@ GOLDEN = [
 
 
 def test_bench_algos_match_golden():
-    from test.benchmarks.baselines.grid.timeGRiD_bindings import ALGOS
+    from test.benchmarks.baselines.grid.timeGRiM_bindings import ALGOS
     assert ALGOS == GOLDEN

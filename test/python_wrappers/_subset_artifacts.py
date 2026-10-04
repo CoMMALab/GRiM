@@ -15,18 +15,18 @@ ASSETS = REPO / "config/robot_assets"
 
 def register_subset(name, urdf, *, floating, algos, max_batch=16, runtime_inertia=False, mujoco=False):
     """A subset artifact keyed by (name, options); identical calls across modules hit the cache."""
-    import grid_rbd
+    import grim
     if shutil.which("nvcc") is None:
         pytest.skip("nvcc not on PATH")
-    return grid_rbd.register_robot(name, str(ASSETS / urdf), floating_base=floating, max_batch_size=max_batch,
+    return grim.register_robot(name, str(ASSETS / urdf), floating_base=floating, max_batch_size=max_batch,
                                    algorithm_list=list(algos), enable_mujoco_kernels=mujoco,
                                    runtime_inertia=runtime_inertia)
 
 
 def cache_key(handle):
     """The manifest's content key (what the jax/torch views key their registrations on)."""
-    import grid_rbd
-    return grid_rbd.manifest_lookup(grid_rbd.default_cache_dir(), handle._name)["cache_key"]
+    import grim
+    return grim.manifest_lookup(grim.default_cache_dir(), handle._name)["cache_key"]
 
 
 def random_state(h, B=4, seed=0):

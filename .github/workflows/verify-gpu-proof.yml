@@ -8,7 +8,7 @@ name: Verify GPU Proof
 #      when no receipt is committed yet, so code changes can ship before the
 #      (long) GPU receipt run happens — downstream adopts immediately; the receipt
 #      lands later and activates enforcement.
-#   2. cpu-lane — the GRiD tests that need no GPU (descriptor parity, kernel-attr
+#   2. cpu-lane — the GRiM tests that need no GPU (descriptor parity, kernel-attr
 #      manifest, plant launch hygiene), always run.
 
 on:
@@ -75,7 +75,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install GRiD (CPU deps only)
+      - name: Install GRiM (CPU deps only)
         run: pip install -e . && pip install pytest matplotlib "pytest-gpu-proof==0.4.0" pyyaml
 
       # The BROAD CPU set (audit W00, 2026-09-19): every test/test_*.py + the

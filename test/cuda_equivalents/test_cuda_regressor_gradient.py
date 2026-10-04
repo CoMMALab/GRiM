@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -47,8 +47,8 @@ _CASES = [("iiwa14", "fixed"), ("fr3", "fixed"), ("go2", "floating")]
 
 
 def _generate_header(project_model, build_dir: Path) -> Path:
-    header_path = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header_path = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -73,9 +73,9 @@ def _compile_runner(build_dir: Path, floating_base: bool):
     thread_count = _random_thread_count()
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
-        f"-DGRID_CUDA_REGRESSOR_GRADIENT_TEST_THREADS={thread_count}",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
+        f"-DGRIM_CUDA_REGRESSOR_GRADIENT_TEST_THREADS={thread_count}",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(executable), str(runner_copy),

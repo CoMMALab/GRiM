@@ -2,7 +2,7 @@
 
 The committed fingerprint is a PUBLISHED artifact: downstream consumers (GATO,
 MPCGPU, PDDP, external sims, hardware pipelines) pin it to verify their model is
-the same robot as GRiD's reference dynamics. This gate regenerates the table
+the same robot as GRiM's reference dynamics. This gate regenerates the table
 in-process (CPU-only, RBDReference oracle) and fails loudly if the committed
 file drifted — a changed robot_assets URDF, changed reference-dynamics
 semantics, or a hand-edited table all trip it. Fix = rerun

@@ -1,7 +1,7 @@
 Editing The Documentation
 =========================
 
-GRiD uses Sphinx with the ``pydata_sphinx_theme`` theme. Most content changes
+GRiM uses Sphinx with the ``pydata_sphinx_theme`` theme. Most content changes
 are plain reStructuredText edits under ``docs/source/``.
 
 Common Edits

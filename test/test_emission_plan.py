@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
 from URDFParser import URDFParser
 
 REPO = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 def _gen(name="iiwa14", floating=False):
     with contextlib.redirect_stdout(io.StringIO()):
         robot = URDFParser().parse(str(REPO / "config" / "robot_assets" / f"{name}.urdf"), floating_base=floating)
-    return GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    return GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
 
 
 def _plan(gen, **kw):

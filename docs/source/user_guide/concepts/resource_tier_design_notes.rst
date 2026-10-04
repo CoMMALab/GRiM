@@ -32,14 +32,14 @@ entirely in the bottom one:
   than managing the scratch arena themselves. It declares the shared-memory
   arena (sized for the default placement), loads/updates the per-configuration
   helper tables (``XImats`` etc.), and calls ``_inner``. Use it when you want
-  to call a GRiD primitive from your kernel but don't need to micro-manage
+  to call a GRiM primitive from your kernel but don't need to micro-manage
   where its scratch lives.
 
 ``<algo>_kernel`` — *convenience: "a ready-to-launch batch entry point."*
   A ``__global__`` entry point that loops over a trajectory/batch of inputs,
   loads each timestep's inputs into shared memory, dispatches on
   ``RESOURCE_TIER``, and calls the engine. This is what you launch if you want
-  GRiD to own the whole kernel. It is templated on ``<T, RESOURCE_TIER>`` and
+  GRiM to own the whole kernel. It is templated on ``<T, RESOURCE_TIER>`` and
   carries the ``__launch_bounds__`` for the tier.
 
 ``<algo>`` (host) — *convenience: "I never want to touch device code."*
@@ -72,10 +72,10 @@ doc said Python was "locked to TIER_SHARED" — no longer true.) The Python
 wrapper persona is still "sealed product, never touches nvcc": there is no
 runtime tier knob. Instead, the tier is a PER-ALGO BAKED choice — the
 autotuners write {tier, threads} into ``config/launch_configs/`` and the
-codegen bakes it as ``grid::launch_cfg<GRID_ALGO_*>::TIER``, which every
+codegen bakes it as ``grim::launch_cfg<GRIM_ALGO_*>::TIER``, which every
 binding launch site (numpy/pybind host-wrapper calls AND the jax/torch
 direct kernel launches) instantiates. Divergent-tier instantiations get
-their own dynamic-smem registration in ``init_grid_kernel_attrs``; a
+their own dynamic-smem registration in ``init_grim_kernel_attrs``; a
 distinct ``__global__`` per tier is the reason that registration exists. Untuned robots/algos fall back to ``TIER_SHARED``
 via the primary ``launch_cfg`` template, which preserves the old behavior.
 
@@ -90,7 +90,7 @@ codegen computes three picks per algo (``select_shared_tier_3way``
 against the ~48 KB ``cuda_target_lite_shared_mem_bytes`` target), emits
 per-tier ``if constexpr`` bodies where the picks diverge, and the
 ``gen_declare_shared_arena(tier_workspace_expr=...)`` mechanism in
-``grid_codegen/helpers/_code_generation_helpers.py`` supports the
+``grim_codegen/helpers/_code_generation_helpers.py`` supports the
 ternary picks. See "Humanoid-scale spill" and "LITE 48 KB smem target"
 below for the shipped details.
 

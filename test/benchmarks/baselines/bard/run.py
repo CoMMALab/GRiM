@@ -27,7 +27,7 @@ THIS_DIR  = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from test.benchmarks.timing_parser import (  # noqa: E402
-    parse_grid_output, fill_nulls, build_metadata,
+    parse_grim_output, fill_nulls, build_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ def main() -> None:
             # (e.g. no CUDA GPU available → only bard_cpu).
             continue
 
-        timings = parse_grid_output(output, single_statistic="median")
+        timings = parse_grim_output(output, single_statistic="median")
         for algo in list(timings.keys()):
             if algo not in BARD_ALGOS:
                 timings[algo] = None

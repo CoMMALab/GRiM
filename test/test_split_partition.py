@@ -27,17 +27,17 @@ def _dispatch_spec(name):
 
 
 def test_cuda_prewarm_and_test_environment_share_defaults(monkeypatch):
-    monkeypatch.delenv("GRID_CUDA_CACHE_DIR", raising=False)
-    monkeypatch.delenv("GRID_ENABLE_MUJOCO_KERNELS", raising=False)
+    monkeypatch.delenv("GRIM_CUDA_CACHE_DIR", raising=False)
+    monkeypatch.delenv("GRIM_ENABLE_MUJOCO_KERNELS", raising=False)
     assert rss.cuda_worker_env() == {
-        "GRID_CUDA_CACHE_DIR": rss.CUDA_CACHE_DIR_DEFAULT,
-        "GRID_ENABLE_MUJOCO_KERNELS": "0",
+        "GRIM_CUDA_CACHE_DIR": rss.CUDA_CACHE_DIR_DEFAULT,
+        "GRIM_ENABLE_MUJOCO_KERNELS": "0",
     }
-    monkeypatch.setenv("GRID_CUDA_CACHE_DIR", "/tmp/explicit-cache")
-    monkeypatch.setenv("GRID_ENABLE_MUJOCO_KERNELS", "1")
+    monkeypatch.setenv("GRIM_CUDA_CACHE_DIR", "/tmp/explicit-cache")
+    monkeypatch.setenv("GRIM_ENABLE_MUJOCO_KERNELS", "1")
     assert rss.cuda_worker_env() == {
-        "GRID_CUDA_CACHE_DIR": "/tmp/explicit-cache",
-        "GRID_ENABLE_MUJOCO_KERNELS": "1",
+        "GRIM_CUDA_CACHE_DIR": "/tmp/explicit-cache",
+        "GRIM_ENABLE_MUJOCO_KERNELS": "1",
     }
 
 
@@ -391,8 +391,8 @@ def test_plan_refresh_stale_detection_and_repack(monkeypatch):
                         lambda r: (True, "stubbed neutral"))
     # wrapper shards fingerprint the bindings source too (2026-09-09 schema);
     # the carried/stale wrapper fixtures record the NEW-style path lists.
-    _W1 = ["test/python_wrappers/test_w1.py", "bindings/grid_rbd", "bindings/src"]
-    _W2 = ["test/python_wrappers/test_w2.py", "bindings/grid_rbd", "bindings/src"]
+    _W1 = ["test/python_wrappers/test_w1.py", "bindings/grim", "bindings/src"]
+    _W2 = ["test/python_wrappers/test_w2.py", "bindings/grim", "bindings/src"]
     now = {("a.py",): "d1", ("b.py",): "d2", tuple(_W1): "w1", tuple(_W2): "NEW"}
     clean_ids = [_fid("iiwa14", "fixed", "crba", t) for t in (1, 32)]
     stale_ids = [_fid("go2", "floating", "aba", t) for t in (1, 32)]
@@ -516,7 +516,7 @@ def test_plan_refresh_cuda_carry_gate(monkeypatch):
     shadows every demoted name). Wrapper carries are never affected."""
     import codegen_neutrality
     ids = [_fid("iiwa14", "fixed", "crba", 1), _fid("go2", "fixed", "crba", 1)]
-    _W = ["test/python_wrappers/test_w.py", "bindings/grid_rbd", "bindings/src"]
+    _W = ["test/python_wrappers/test_w.py", "bindings/grim", "bindings/src"]
     old = {"repo": {"commit_sha": "deadbeef", "dirty": False}, "shards": [
         _mk_shard("cuda_00_x", [ids[0]], ["test/cuda_equivalents/a.py"], "SAME"),
         _mk_shard("cuda_01_y", [ids[1]], ["test/cuda_equivalents/b.py"], "SAME"),
@@ -569,7 +569,7 @@ def test_cuda_carry_soundness_paths(monkeypatch):
 
     assert not cn.cuda_carry_soundness({})[0]
 
-    monkeypatch.setenv("GRID_REFRESH_ASSUME_NEUTRAL", "1")
+    monkeypatch.setenv("GRIM_REFRESH_ASSUME_NEUTRAL", "1")
     ok, why = cn.cuda_carry_soundness(clean)
     assert ok and "WITHOUT proof" in why
 

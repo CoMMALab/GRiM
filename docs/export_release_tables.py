@@ -60,7 +60,7 @@ def main():
     lookup = {(r['robot'], r['operation'], r['backend'], r['batch']): r for r in rows if r['status']=='validated'}
     comparisons = []
     for (robot, op, backend, batch), g in lookup.items():
-        if backend not in ('grid_cuda', 'grid_jax'):
+        if backend not in ('grim_cuda', 'grim_jax'):
             continue
         for cb in ('pinocchio','pinocchio_plain','mjx','mujoco_warp','mujoco_cpu','bard','frax'):
             c = lookup.get((robot,op,cb,batch))
@@ -75,7 +75,7 @@ def main():
                 comparisons.append(dict(robot=robot,operation=op,batch=batch,grid=backend,baseline=cb,
                     boundary=side,ratio=c[field]/g[field],observed_lower=lo,observed_upper=hi,
                     result='range_win' if lo>1 else 'range_loss' if hi<1 else 'overlap'))
-    save(OUT/'comparisons.json',dict(definition='Baseline / GRiD; observed min/max process-mean envelopes, not confidence intervals',cells=comparisons))
+    save(OUT/'comparisons.json',dict(definition='Baseline / GRiM; observed min/max process-mean envelopes, not confidence intervals',cells=comparisons))
     variability = []
     for b in sorted({r['backend'] for r in rows}):
         rr = [r for r in rows if r['backend']==b and r['status']=='validated']
@@ -113,7 +113,7 @@ def main():
         head='<tr>'+''.join(f'<th>{c}</th>' for c in cols)+'</tr>'
         body=''.join('<tr>'+''.join('<td>'+html.escape(str(round(r[c],3) if isinstance(r.get(c),float) else r.get(c) if r.get(c) is not None else '—'))+'</td>' for c in cols)+'</tr>' for r in data)
         sections.append(f'<h2>{title}</h2><div class="scroll"><table>{head}{body}</table></div>')
-    (ASSETS/'tables.html').write_text('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GRiD benchmark tables</title><style>body{font:14px system-ui;margin:2rem}.scroll{overflow:auto;max-height:70vh}table{border-collapse:collapse}td,th{padding:.5rem;border:1px solid #ddd;white-space:nowrap}th{position:sticky;top:0;background:#eee}</style><h1>GRiD measurements</h1><p>Data from the 27 September 2026 collection. Times are microseconds per batch, median and observed range of three process means. Protocols remain separate; missing data is not zero.</p>'+''.join(sections)+'<footer>© 2026 A²R Lab</footer></html>\n')
+    (ASSETS/'tables.html').write_text('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GRiM benchmark tables</title><style>body{font:14px system-ui;margin:2rem}.scroll{overflow:auto;max-height:70vh}table{border-collapse:collapse}td,th{padding:.5rem;border:1px solid #ddd;white-space:nowrap}th{position:sticky;top:0;background:#eee}</style><h1>GRiM measurements</h1><p>Data from the 27 September 2026 collection. Times are microseconds per batch, median and observed range of three process means. Protocols remain separate; missing data is not zero.</p>'+''.join(sections)+'<footer>© 2026 A²R Lab</footer></html>\n')
     seal_assets()
     print(json.dumps(audit,indent=2))
     print('secondary',len(secondary),Counter(r['status'] for r in secondary))

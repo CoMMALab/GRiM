@@ -10,7 +10,7 @@ forward-dynamics algorithm: given joint positions, velocities, and
 applied torques, compute joint accelerations directly without forming
 or inverting the mass matrix.
 
-GRiD also provides a ``forward_dynamics`` variant that composes
+GRiM also provides a ``forward_dynamics`` variant that composes
 :doc:`minv` ∘ :doc:`inverse_dynamics` (i.e. ``qdd = M⁻¹·(τ − c)``). The two
 forward-dynamics paths are independent implementations; the
 library exposes both so users can choose by their downstream workload.
@@ -26,10 +26,10 @@ Implementation
 The Python reference is ``RBDReference.aba`` in
 `RBDReference/RBDReference.py
 <https://github.com/A2R-Lab/RBDReference>`__. CUDA codegen lives in
-`grid_codegen/algorithms/_aba.py
+`grim_codegen/algorithms/_aba.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__.
 
-In GRiD
+In GRiM
 -------
 On every handle, ``qdd = h.aba(q, qd, u)`` takes ``q`` at ``(B, h.nq)`` and
 ``qd``, ``u`` at ``(B, h.nv)``, and returns the accelerations at
@@ -41,13 +41,13 @@ per-body external forces as inverse dynamics (``f_ext``, shape
 frame) and the signed gravity (default ``-9.81``). ``h.forward_dynamics`` gives
 the same accelerations through the mass-matrix-inverse path,
 ``qdd = M⁻¹·(u − c)``; the two are independent implementations. The current
-release table collects ``forward_dynamics``, not a separate GRiD ``aba`` row.
+release table collects ``forward_dynamics``, not a separate GRiM ``aba`` row.
 The forward-dynamics gradient and the
 second-order :doc:`fdsva_so` are built on the ``forward_dynamics`` path, so a
 workload that needs derivatives usually calls that one for the value as
 well.
 
-The CUDA host entries are ``grid::aba`` and ``grid::forward_dynamics``, each
+The CUDA host entries are ``grim::aba`` and ``grim::forward_dynamics``, each
 with a ``_compute_only`` variant. In fp32 the forward-dynamics family can
 amplify rounding on high-velocity states; the release collection retains
 eligible cells under the explicit relative-L2 warning gate, not every

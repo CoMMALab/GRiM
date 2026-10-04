@@ -13925,7 +13925,7 @@ L 1134 552.904
    </g>
   </g>
   <g id="text_184">
-   <!-- GRiD JAX and baselines · measured full calls and boundary differences · medians of run means -->
+   <!-- GRiM JAX and baselines · measured full calls and boundary differences · medians of run means -->
    <g transform="translate(287.97 23.806125) scale(0.12 -0.12)">
     <defs>
      <path id="DejaVuSans-47" d="M 3809 666 
@@ -14728,7 +14728,7 @@ z
 " style="fill: #184f95; stroke: #184f95; stroke-linejoin: miter"/>
    </g>
    <g id="text_186">
-    <!-- GRiD CUDA compute-only call (includes launch + sync) -->
+    <!-- GRiM CUDA compute-only call (includes launch + sync) -->
     <g transform="translate(413.913125 671.22225) scale(0.08 -0.08)">
      <defs>
       <path id="DejaVuSans-55" d="M 556 4666 
@@ -14827,7 +14827,7 @@ z
 " style="fill: url(#h7b815be5da); stroke: #666666; stroke-linejoin: miter"/>
    </g>
    <g id="text_187">
-    <!-- Full-call − resident wall time (GRiD CUDA: transfer increment) -->
+    <!-- Full-call − resident wall time (GRiM CUDA: transfer increment) -->
     <g transform="translate(413.913125 682.96475) scale(0.08 -0.08)">
      <defs>
       <path id="DejaVuSans-46" d="M 628 4666 
@@ -14924,7 +14924,7 @@ z
 " style="fill: url(#h9c3c262aa2); stroke: #666666; stroke-linejoin: miter"/>
    </g>
    <g id="text_188">
-    <!-- GRiD JAX full call − CUDA full call -->
+    <!-- GRiM JAX full call − CUDA full call -->
     <g transform="translate(413.913125 694.70725) scale(0.08 -0.08)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>

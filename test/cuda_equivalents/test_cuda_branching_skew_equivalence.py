@@ -12,7 +12,7 @@ This test codegens the dedicated Y-shaped branching-skew fixture (joint_2 and
 joint_3 share parent link1 -> same BFS level, all four joints skew), drives a
 minimal aba/minv/crba runner, and asserts the CUDA outputs match the
 RBDReference numpy oracle -- which is itself validated against pinocchio's
-JointModelRevoluteUnaligned / JointModelPrismaticUnaligned in GRiD joint order
+JointModelRevoluteUnaligned / JointModelPrismaticUnaligned in GRiM joint order
 (test_branching_skew_axis.py / the helical+skew pin equivalence pattern).
 
 The serial skew fixture (skew_axis_arm.urdf) is also generated through the same
@@ -29,7 +29,7 @@ import pytest
 
 from URDFParser import URDFParser
 from RBDReference import RBDReference
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -53,8 +53,8 @@ def _parse(name):
 
 
 def _generate_header(robot, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -76,9 +76,9 @@ def _compile_runner(build_dir):
     exe = build_dir / "cuda_branching_skew_runner.exe"
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        "-DGRID_CUDA_FLOATING_BASE=0",
-        "-DGRID_RUNNER_SKIP_GRADIENTS=1",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        "-DGRIM_CUDA_FLOATING_BASE=0",
+        "-DGRIM_RUNNER_SKIP_GRADIENTS=1",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-I", str(GLASS_INCLUDE),
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",

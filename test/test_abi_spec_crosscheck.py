@@ -1,4 +1,4 @@
-"""Cross-check ABI_SPECS (grid_codegen/abi_specs.py) against wrapper_template.cu.
+"""Cross-check ABI_SPECS (grim_codegen/abi_specs.py) against wrapper_template.cu.
 
 P0 of the table-driven wrapper collapse transcribes each hand-written C-ABI
 body into declarative AbiSpec fields. Nothing consumes the rows at emission
@@ -17,13 +17,13 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen.abi_specs import ABI_SPECS, AbiSpec
+from grim_codegen.abi_specs import ABI_SPECS, AbiSpec
 
-_WRAPPER = Path(__file__).resolve().parents[1] / "bindings" / "grid_rbd" / "wrapper_template.cu"
+_WRAPPER = Path(__file__).resolve().parents[1] / "bindings" / "grim" / "wrapper_template.cu"
 _SRC = _WRAPPER.read_text()
 
 # Infrastructure C-ABI functions that are NOT per-algorithm bodies. Any other
-# grid_rbd_* extern "C" without an ABI_SPECS row fails the coverage test, so a
+# grim_* extern "C" without an ABI_SPECS row fails the coverage test, so a
 # new algorithm surface cannot land untranscribed.
 _INFRA = {
     "init", "close", "num_joints", "num_vel", "num_ees", "num_bodies",
@@ -35,17 +35,17 @@ _INFRA = {
     "set_joint_dynamics_params", "get_joint_dynamics_params",
     "has_runtime_joint_dynamics", "attach_tool", "detach_tool", "tool_info",
     # NOTE (Wave D 2026-09-12): the former plant_* entries here were dead
-    # weight — every plant body is grid_plant_-prefixed (or a *_mujoco twin),
-    # neither of which this grid_rbd_ coverage scan matches. The plant layer
+    # weight — every plant body is grim_plant_-prefixed (or a *_mujoco twin),
+    # neither of which this grim_ coverage scan matches. The plant layer
     # now has real spec rows; its referees are the plant-specific tests below.
     # device-pool (slab) framework-allocator integration
     "device_pool_bytes", "set_device_pool", "device_pool_used",
     "ctx_create", "ctx_close", "ctx_default_id", "ctx_profile", "ctx_count",  # W04-B B1 runtime contexts
     "ctx_version",  # W04-B B2 model version
     "graph_begin", "graph_end",  # codex R5 replay admission
-    # Multi-contact f_ext (2026-09-17): `grid_rbd_contact_fext` + `grid_rbd_num_contact_frames`
-    # are HAND-WRITTEN in wrapper_template.cu under GRID_HAS_CONTACT_FRAMES (they call the
-    # baked grid::f_ext_body_device and mirror tool_fext's d_f_ext handling); they are a
+    # Multi-contact f_ext (2026-09-17): `grim_contact_fext` + `grim_num_contact_frames`
+    # are HAND-WRITTEN in wrapper_template.cu under GRIM_HAS_CONTACT_FRAMES (they call the
+    # baked grim::f_ext_body_device and mirror tool_fext's d_f_ext handling); they are a
     # host helper surface, not a generated per-algo body, so they carry no ABI_SPECS row.
     # Converting them to a spec row (so wrapper_body_gen owns the body) is the tracked
     # follow-up in the canonical plan's register; until then this is the recorded exemption.
@@ -59,9 +59,9 @@ def _stem(spec: AbiSpec) -> str:
 
 
 def _fn_def(stem: str) -> tuple[int, str]:
-    """(start index, full signature text) of extern "C" grid_rbd_<stem>."""
-    m = re.search(r'extern "C" int grid_rbd_' + re.escape(stem) + r"\(", _SRC)
-    assert m, f"no extern C grid_rbd_{stem}( in wrapper_template.cu"
+    """(start index, full signature text) of extern "C" grim_<stem>."""
+    m = re.search(r'extern "C" int grim_' + re.escape(stem) + r"\(", _SRC)
+    assert m, f"no extern C grim_{stem}( in wrapper_template.cu"
     close = _SRC.index(")", m.end())
     # tolerate multi-line signatures: scan to the matching close paren
     depth, i = 1, m.end()
@@ -88,7 +88,7 @@ _SPEC_IDS = sorted(ABI_SPECS)
 
 def _fn_def_prefixed(stem: str, prefix: str) -> tuple[int, str]:
     """(start index, signature text) of extern "C" <prefix><stem> (the plant
-    section uses the grid_plant_ prefix; everything else grid_rbd_)."""
+    section uses the grim_plant_ prefix; everything else grim_)."""
     m = re.search(r'extern "C" int ' + re.escape(prefix + stem) + r"\(", _SRC)
     assert m, f"no extern C {prefix}{stem}( in wrapper_template.cu"
     depth, i = 1, m.end()
@@ -105,16 +105,16 @@ def test_function_and_twin_exist(key):
     spec = ABI_SPECS[key]
     stem = _stem(spec)
     if spec.surface_class == "plant":
-        # hand-written PlantBuffers body under the grid_plant_ prefix; the
-        # cost twins are grid_rbd_<name>_mujoco (mjx_twin_symbol override)
-        _fn_def_prefixed(stem[len("plant_"):], "grid_plant_")
-        twin_sym = spec.mjx_twin_symbol or f"grid_{stem}_mujoco"
+        # hand-written PlantBuffers body under the grim_plant_ prefix; the
+        # cost twins are grim_<name>_mujoco (mjx_twin_symbol override)
+        _fn_def_prefixed(stem[len("plant_"):], "grim_plant_")
+        twin_sym = spec.mjx_twin_symbol or f"grim_{stem}_mujoco"
         has_twin = f"{twin_sym}(" in _SRC
     elif spec.surface_class == "ffi_only":
         # no C-ABI body: the jax FFI handler is the ground truth
-        assert f"grid_rbd_jax_{stem}_impl(" in _SRC, (
+        assert f"grim_jax_{stem}_impl(" in _SRC, (
             f"{key}: ffi_only row but no jax FFI handler in wrapper")
-        has_twin = f"grid_rbd_jax_{stem}_mujoco" in _SRC
+        has_twin = f"grim_jax_{stem}_mujoco" in _SRC
     elif spec.surface_class == "kernel_only":
         # no binding surface at all — the kernel ceiling entry is the anchor
         assert f'strcmp(algo, "{stem}")' in _SRC, (
@@ -127,7 +127,7 @@ def test_function_and_twin_exist(key):
         has_twin = False
     else:
         _fn_def(stem)
-        has_twin = f"grid_rbd_{stem}_mujoco(" in _SRC
+        has_twin = f"grim_{stem}_mujoco(" in _SRC
     assert has_twin == spec.has_mjx_twin, (
         f"{key}: has_mjx_twin={spec.has_mjx_twin} but twin "
         f"{'exists' if has_twin else 'missing'} in wrapper")
@@ -140,10 +140,10 @@ def test_signature_params(key):
         # A1 2026-09-11: the row spells the inputs the C-ABI body WOULD take
         # so the surface emitters derive uniformly; validate the tensor args
         # against the actual jax handler buffers + torch op tensor params.
-        from grid_codegen.abi_specs import jax_buffer_inputs_for, torch_tensor_args
+        from grim_codegen.abi_specs import jax_buffer_inputs_for, torch_tensor_args
         assert spec.inputs, f"{key}: ffi_only row now carries emitter inputs"
         stem = _stem(spec)
-        m = re.search(r"static ffi::Error grid_rbd_jax_" + re.escape(stem)
+        m = re.search(r"static ffi::Error grim_jax_" + re.escape(stem)
                       + r"_impl\(", _SRC)
         assert m, f"{key}: no jax handler"
         depth, i = 1, m.end()
@@ -151,7 +151,7 @@ def test_signature_params(key):
             depth += _SRC[i] == "("
             depth -= _SRC[i] == ")"
             i += 1
-        bufs = tuple(re.findall(r"ffi::Buffer<GRID_FFI_T>\s+(\w+)", _SRC[m.end():i - 1]))
+        bufs = tuple(re.findall(r"ffi::Buffer<GRIM_FFI_T>\s+(\w+)", _SRC[m.end():i - 1]))
         assert bufs == jax_buffer_inputs_for(spec), (
             f"{key}: jax buffers {bufs} != derived {jax_buffer_inputs_for(spec)}")
         tm = re.search(r"torch::Tensor torch_" + re.escape(stem) + r"\(([^)]*)\)", _SRC)
@@ -164,7 +164,7 @@ def test_signature_params(key):
         assert spec.inputs == (), f"{key}: {spec.surface_class} rows carry no C params"
         return
     if spec.surface_class == "plant":
-        _, sig = _fn_def_prefixed(_stem(spec)[len("plant_"):], "grid_plant_")
+        _, sig = _fn_def_prefixed(_stem(spec)[len("plant_"):], "grim_plant_")
     else:
         _, sig = _fn_def(_stem(spec))
     names = [p.strip().split()[-1].lstrip("*") for p in sig.split(",") if p.strip()]
@@ -181,9 +181,9 @@ def test_gate(key):
     if spec.surface_class != "cabi":
         return  # plant/ffi/kernel rows: no generated gate topology to check
     start, _ = _fn_def(_stem(spec))
-    macro = spec.gate_macro or ("GRID_HAS_" + spec.key.upper())
+    macro = spec.gate_macro or ("GRIM_HAS_" + spec.key.upper())
     # Convention A (most bodies): the gate wraps the body INSIDE the function
-    # (`{ #if GRID_HAS_X ... #else stub ... #endif }`) — look there first.
+    # (`{ #if GRIM_HAS_X ... #else stub ... #endif }`) — look there first.
     body = _body(_stem(spec))
     found = None
     for line in body.splitlines():
@@ -229,14 +229,14 @@ def test_body_fields(key):
     if spec.out_buffer:
         # a cabi_direct body names the host MIRROR it retargets (h_X), which for a
         # device-direct row is not the spec's out_buffer (d_X) — that copy is gone.
-        from grid_codegen.wrapper_body_gen import _mirror_name, _mirror_swap
+        from grim_codegen.wrapper_body_gen import _mirror_name, _mirror_swap
         buffer = _mirror_name(spec) if _mirror_swap(spec) else spec.out_buffer
         assert buffer in body, f"{key}: out buffer {buffer} not in body"
     if spec.out_size_expr:
         assert _norm(spec.out_size_expr) in nb, (
             f"{key}: out_size_expr {spec.out_size_expr!r} not found (normalized)")
-    launch = spec.launch_algo or ("GRID_ALGO_" + spec.key.upper())
-    needle = _norm(f"grid_rbd_launch_threads_n<grid::{launch}>")
+    launch = spec.launch_algo or ("GRIM_ALGO_" + spec.key.upper())
+    needle = _norm(f"grim_launch_threads_n<grim::{launch}>")
     if spec.it_dispatch:
         # IT-dispatch bodies launch through their template <IntegratorType>
         # launcher above the C-ABI fn — the enum lives there, not in the body.
@@ -258,7 +258,7 @@ def test_body_fields(key):
 
 def test_coverage_no_untranscribed_algo_fns():
     """Every per-algo extern "C" body must have a spec row (or be infra)."""
-    fns = set(re.findall(r'extern "C" int grid_rbd_([a-z0-9_]+)\(', _SRC))
+    fns = set(re.findall(r'extern "C" int grim_([a-z0-9_]+)\(', _SRC))
     fns = {f for f in fns if not f.endswith("_mujoco")}
     covered = {_stem(s) for s in ABI_SPECS.values()} | _INFRA
     missing = sorted(fns - covered)
@@ -268,8 +268,8 @@ def test_coverage_no_untranscribed_algo_fns():
 def test_specs_join_registry():
     """Every "cabi" spec key must be a registry key (fk_batched is the known
     extra); non-cabi rows (plant_step family) may sit outside the registry —
-    the registry describes grid.cuh kernels, not the PlantBuffers layer."""
-    from grid_codegen.algo_registry import ALGO_DESCRIPTORS
+    the registry describes grim.cuh kernels, not the PlantBuffers layer."""
+    from grim_codegen.algo_registry import ALGO_DESCRIPTORS
     reg = {d.key for d in ALGO_DESCRIPTORS}
     cabi = {k for k, s in ABI_SPECS.items() if s.surface_class == "cabi"}
     extras = sorted(cabi - reg - {"fk_batched"})
@@ -277,11 +277,11 @@ def test_specs_join_registry():
 
 
 def test_sig_mjx_macros_bidirectional():
-    """REVERSE direction (H6): every GRID_RBD_SIG_MJX_* the template consumes
+    """REVERSE direction (H6): every GRIM_SIG_MJX_* the template consumes
     must be carried by exactly one spec row — a macro used in C but absent
     from the table is how the _compile.py fns dict and ABI_SPECS silently
     disagreed about the integrator until 2026-09-06."""
-    used = set(re.findall(r"GRID_RBD_SIG_MJX_[A-Z_0-9]+", _SRC))
+    used = set(re.findall(r"GRIM_SIG_MJX_[A-Z_0-9]+", _SRC))
     carried = {s.sig_mjx_macro for s in ABI_SPECS.values() if s.sig_mjx_macro}
     missing = sorted(used - carried)
     assert not missing, f"template uses sig macros with no spec row: {missing}"
@@ -334,7 +334,7 @@ def test_vjp_recipes_valid():
 # the C-ABI half above. After the regions land they keep running against the
 # generated text (double coverage with the byte-gate, both cheap).
 
-from grid_codegen.abi_specs import (  # noqa: E402
+from grim_codegen.abi_specs import (  # noqa: E402
     jax_buffer_inputs_for, jax_substitution_keys,
     kernel_launch_args, kernel_symbol_for, smem_bytes_call,
     torch_substitution_keys, torch_tensor_args,
@@ -369,7 +369,7 @@ def _torch_body(key):
 def _jax_body(key):
     # W04-B B2: the vjp-role handlers split into `_body` (the launch, context
     # passed in) + the plain / `_stamped` / `_checked` entry shims.
-    name = r"static ffi::Error grid_rbd_jax_" + re.escape(key)
+    name = r"static ffi::Error grim_jax_" + re.escape(key)
     if re.search(name + r"_body\(", _SRC):
         return _surface_body(name + r"_body\(", key)
     return _surface_body(name + r"_impl\(", key)
@@ -401,7 +401,7 @@ def test_kernel_args_torch(key):
     want = [re.sub(r"\s+", "", a) for a in kernel_launch_args(spec, "torch")]
     assert got == want, f"{key}: torch launch args {got} != spec {want}"
     ksym = kernel_symbol_for(spec)
-    assert f"grid::{ksym}<" in body, f"{key}: kernel symbol {ksym} not launched"
+    assert f"grim::{ksym}<" in body, f"{key}: kernel symbol {ksym} not launched"
     assert re.sub(r"\s+", "", smem_bytes_call(spec)) in re.sub(r"\s+", "", body), (
         f"{key}: smem call {smem_bytes_call(spec)} not in torch body")
 
@@ -414,7 +414,7 @@ def test_kernel_args_jax(key):
     want = [_jax_norm(a) for a in kernel_launch_args(spec, "jax")]
     assert got == want, f"{key}: jax launch args {got} != spec {want}"
     ksym = kernel_symbol_for(spec)
-    assert f"grid::{ksym}<" in body, f"{key}: kernel symbol {ksym} not launched"
+    assert f"grim::{ksym}<" in body, f"{key}: kernel symbol {ksym} not launched"
     assert _jax_norm(smem_bytes_call(spec)) in _jax_norm(body), (
         f"{key}: smem call {smem_bytes_call(spec)} not in jax handler")
 
@@ -424,7 +424,7 @@ def test_jax_buffer_inputs(key):
     spec = ABI_SPECS[key]
     body = _jax_body(key)
     sig = body[:body.index(")\n{") if ")\n{" in body else body.index("{")]
-    bufs = tuple(re.findall(r"ffi::Buffer<GRID_FFI_T>\s+(\w+)", sig))
+    bufs = tuple(re.findall(r"ffi::Buffer<GRIM_FFI_T>\s+(\w+)", sig))
     assert bufs == jax_buffer_inputs_for(spec), (
         f"{key}: handler buffers {bufs} != jax_buffer_inputs {jax_buffer_inputs_for(spec)}")
 
@@ -433,7 +433,7 @@ def test_mujoco_twins_declare_their_context():
     """codex R1 (2026-09-24): every generated `_mujoco` C-ABI twin takes the same
     leading `long long ctx_id` as its primary (the guard inside names it; 30 twins
     once compiled only because fixed-base smokes #ifdef them out)."""
-    twins = re.findall(r'extern "C" int grid_rbd_([a-z0-9_]+_mujoco)\(([^)]*)\)', _SRC)
+    twins = re.findall(r'extern "C" int grim_([a-z0-9_]+_mujoco)\(([^)]*)\)', _SRC)
     assert len(twins) >= 30, f"only {len(twins)} mujoco twins found"
     bad = [name for name, params in twins if not params.strip().startswith("long long ctx_id")]
     assert not bad, f"mujoco twins without a leading ctx_id: {bad}"
@@ -450,7 +450,7 @@ def test_substitution_partitions():
     torch_fns -= {k for k in torch_fns if k.startswith("plant_")}
     unaccounted = torch_fns - set(_TORCH_SUB) - _TORCH_BESPOKE
     assert not unaccounted, f"torch bodies neither specced nor bespoke: {unaccounted}"
-    jax_fns = set(re.findall(r"grid_rbd_jax_([a-z0-9_]+)_impl\(", _SRC))
+    jax_fns = set(re.findall(r"grim_jax_([a-z0-9_]+)_impl\(", _SRC))
     # B2: `<key>_stamped` / `<key>_checked` shims are twins of a specced key.
     jax_fns = {re.sub(r"_(stamped|checked)$", "", f) for f in jax_fns
                if not f.startswith("plant_") and not f.endswith("_mujoco")}
@@ -465,12 +465,12 @@ def test_err_prefixes_canonical():
     assert '"fd: ' not in _SRC and '"fd_grad: ' not in _SRC
     for key in _TORCH_SUB:
         body = _torch_body(key)
-        for msg in re.findall(r'grid_torch_check\(\w+, "([^"]+)"', body):
+        for msg in re.findall(r'grim_torch_check\(\w+, "([^"]+)"', body):
             assert msg.startswith(key + ": "), (
                 f"{key}: non-canonical check message {msg!r}")
     for key in _JAX_SUB:
         body = _jax_body(key)
-        for msg in re.findall(r'GRID_RBD_FFI_VALIDATE_2D\(\w+, "([^"]+)"', body):
+        for msg in re.findall(r'GRIM_FFI_VALIDATE_2D\(\w+, "([^"]+)"', body):
             assert msg.startswith(key + ": "), (
                 f"{key}: non-canonical validate message {msg!r}")
 
@@ -497,11 +497,11 @@ def test_no_default_tier_smem_on_tier_tuned_launches():
     use a bytes macro merely to SIZE scratch for an untuned default-tier
     kernel (tool_fext, the plant momentum_cost CCRBA proxy) launch WITHOUT
     launch_cfg tier template args and are correctly out of scope."""
-    from grid_codegen.algo_registry import ALGO_DESCRIPTORS
+    from grim_codegen.algo_registry import ALGO_DESCRIPTORS
     aware_stems = {d.bytes_macro_stem or (d.key.upper() + "_DYNAMIC_SHARED_MEM_BYTES")
                    for d in ALGO_DESCRIPTORS if not d.tier_blind_bytes}
     bad = []
-    for m in re.finditer(r"grid::(\w+)<([^;]*?)><<<(.*?)>>>", _SRC, re.S):
+    for m in re.finditer(r"grim::(\w+)<([^;]*?)><<<(.*?)>>>", _SRC, re.S):
         kern, targs, cfg = m.groups()
         if "launch_cfg<" not in targs or "::TIER" not in targs:
             continue
@@ -513,13 +513,13 @@ def test_no_default_tier_smem_on_tier_tuned_launches():
 
 
 def test_torch_ops_table_coverage():
-    """X-macro row coverage: the GRID_RBD_TORCH_OPS table rows must be exactly
+    """X-macro row coverage: the GRIM_TORCH_OPS table rows must be exactly
     the torch-surface ops with a <bool MUJOCO> impl/_mujoco twin. Wave D: the
     plant cost rows are real specs now; their TABLE names drop the plant_
     prefix (historical torch op naming — plant_returns rows de-prefix, the
     plant_step family keeps its prefix), so quadratic_input_cost/barriers
     (no twin) correctly stay hand-registered outside the table."""
-    rows = {m.lower() for m in re.findall(r"#define GRID_TORCH_ROW_([A-Z0-9_]+)\(X\)", _SRC)}
+    rows = {m.lower() for m in re.findall(r"#define GRIM_TORCH_ROW_([A-Z0-9_]+)\(X\)", _SRC)}
     want = {(k.removeprefix("plant_") if s.plant_returns else k)
             for k, s in ABI_SPECS.items()
             if s.has_mjx_twin and (s.py_surfaces is None or "torch" in s.py_surfaces)}
@@ -533,11 +533,11 @@ def test_gate_requires():
     for key, spec in ABI_SPECS.items():
         if not spec.gate_requires:
             continue
-        macro = f"#define GRID_TORCH_ROW_{key.upper()}(X)"
+        macro = f"#define GRIM_TORCH_ROW_{key.upper()}(X)"
         i = _SRC.index(macro)
         opener = _SRC[:i].rstrip().rsplit("\n", 1)[-1]
         assert opener.startswith("#if "), f"{key}: row gate is not an #if ({opener!r})"
-        for req in (*spec.gate_requires, spec.gate_macro or "GRID_HAS_" + key.upper()):
+        for req in (*spec.gate_requires, spec.gate_macro or "GRIM_HAS_" + key.upper()):
             assert f"defined({req})" in opener, (
                 f"{key}: gate_requires macro {req} not in row gate {opener!r}")
 
@@ -545,11 +545,11 @@ def test_gate_requires():
 # ── Wave D plant referees (2026-09-12) ──────────────────────────────────────
 
 def test_plant_gate_coverage():
-    """Every GRID_PLANT_HAS_* macro the template consumes must be carried by
+    """Every GRIM_PLANT_HAS_* macro the template consumes must be carried by
     exactly one plant spec row's gate_macro — these gates were UNCHECKED
     before Wave D (a renamed/added plant gate could silently orphan its op).
     """
-    used = set(re.findall(r"GRID_PLANT_HAS_[A-Z_0-9]+", _SRC))
+    used = set(re.findall(r"GRIM_PLANT_HAS_[A-Z_0-9]+", _SRC))
     carried = {s.gate_macro for s in ABI_SPECS.values()
                if s.surface_class == "plant" and s.gate_macro}
     missing = sorted(used - carried)
@@ -581,11 +581,11 @@ def test_plant_twin_symbols_resolve():
             continue
         stem = spec.abi_stem or spec.key
         if spec.has_mjx_twin:
-            sym = spec.mjx_twin_symbol or f"grid_{stem}_mujoco"
+            sym = spec.mjx_twin_symbol or f"grim_{stem}_mujoco"
             assert f'extern "C" int {sym}(' in _SRC, (
                 f"{key}: twin symbol {sym} not found")
         else:
-            for sym in (f"grid_{stem}_mujoco",
-                        f"grid_rbd_{stem.removeprefix('plant_')}_mujoco"):
+            for sym in (f"grim_{stem}_mujoco",
+                        f"grim_{stem.removeprefix('plant_')}_mujoco"):
                 assert f'extern "C" int {sym}(' not in _SRC, (
                     f"{key}: has_mjx_twin=False but {sym} exists")

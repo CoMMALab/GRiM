@@ -1,10 +1,10 @@
 Codegen Architecture
 ====================
 
-Every GRiD algorithm is emitted in three layers (``_host`` / ``_kernel`` /
+Every GRiM algorithm is emitted in three layers (``_host`` / ``_kernel`` /
 ``_device``). Knowing the layering helps when you want to compose generated
 functions, call kernels from your own CUDA host code, or read the emitter
-source in ``grid_codegen/algorithms/``.
+source in ``grim_codegen/algorithms/``.
 
 .. note::
 
@@ -90,7 +90,7 @@ that share every strided arena load, where ``R`` is the largest divisor of ``n``
 at most 8 and leaves at least two tiles (35 → 7, 18 → 6, 7 → 1). The per-cell dot is
 accumulated in exactly the untiled order, so the outputs are bit-identical to the
 one-output-per-thread loop; measured on g1-floating the kernel is 7–11% faster
-(2026-09-24). ``GRID_FDSVA_SO_MINV_TILE=1`` at generation time forces the untiled loop
+(2026-09-24). ``GRIM_FDSVA_SO_MINV_TILE=1`` at generation time forces the untiled loop
 (an A/B knob; it is part of every header cache key).
 
 The world-frame second-order inner (``idsva_so_world_frame_inner``, the floating-base
@@ -139,7 +139,7 @@ Concrete signatures (RNEA / inverse_dynamics)
        const robotModel<T> *d_robotModel, const T gravity);
 
    // global entry, batched over timesteps; per-tier RESOURCE_TIER dispatch
-   template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+   template <typename T, int RESOURCE_TIER = GRIM_DEFAULT_RESOURCE_TIER>
    __global__ void inverse_dynamics_kernel(
        T *d_c, const T *d_q_qd, const int stride_q_qd,
        const robotModel<T> *d_robotModel, const T gravity,
@@ -148,7 +148,7 @@ Concrete signatures (RNEA / inverse_dynamics)
    // CPU launcher with H↔D copies
    template <typename T, bool USE_QDD_FLAG=false, bool USE_COMPRESSED_MEM=false>
    __host__ void inverse_dynamics(
-       gridData<T> *hd_data, const robotModel<T> *d_robotModel,
+       grimData<T> *hd_data, const robotModel<T> *d_robotModel,
        const T gravity, const int num_timesteps,
        dim3 block_dimms, dim3 thread_dimms, cudaStream_t *streams);
 
@@ -183,7 +183,7 @@ users size their smem from ``*_DEVICE_INLINE_SMEM_BYTES<T, TIER>()`` and
 Thread-count assumptions
 ------------------------
 
-GRiD emits a ``MAX_PERF_LEVEL_THREADS`` constant per generated header, computed
+GRiM emits a ``MAX_PERF_LEVEL_THREADS`` constant per generated header, computed
 from the robot's DVA parallelism (rounded up to a warp, capped at 512) —
 for iiwa14 it is 352, for go2_fixed it is 288, and so on. The host
 wrappers default to launching with ``dim3(MAX_PERF_LEVEL_THREADS, 1, 1)``.
@@ -198,7 +198,7 @@ covers the work correctly. Batching across timesteps is handled by
 the outer ``X_kernel`` via a *grid-stride loop* over ``blockIdx`` —
 each block processes one or more timesteps.
 
-CUDA-inline users can launch GRiD kernels with any block size that
+CUDA-inline users can launch GRiM kernels with any block size that
 suits their outer kernel. See :doc:`cublasdx_removal_design` for the
 rationale.
 
@@ -216,21 +216,21 @@ For very small batches (N=1-8) the per-block fixed overhead dominates,
 and a design that packed multiple timesteps per block could be faster;
 for very large batches (N=10k+) a design that splits one timestep
 across multiple blocks could expose more parallelism. Neither is what
-GRiD optimizes for. If your workload sits at one of those extremes, a
+GRiM optimizes for. If your workload sits at one of those extremes, a
 codegen layered on a different parallelism map (or an entirely
-different library) will likely beat GRiD; for the tens-to-hundreds
-range, GRiD's layout is the right tool.
+different library) will likely beat GRiM; for the tens-to-hundreds
+range, GRiM's layout is the right tool.
 
 The ``MAX_PERF_LEVEL_THREADS`` constant is what the codegen picks as the
 best block-cooperative thread count for *this robot* (DOF-aware,
 warp-rounded). External callers are free to override (see
-:py:meth:`grid_rbd.RobotHandle.set_threads_per_block` or
-``grid_rbd_set_threads_per_block`` in the C ABI), but smaller block
+:py:meth:`grim.RobotHandle.set_threads_per_block` or
+``grim_set_threads_per_block`` in the C ABI), but smaller block
 sizes will be slower at the same batch size (work-per-block stays
 constant; fewer threads cover it).
 
 Each ``X_kernel`` is emitted with ``__launch_bounds__(tier_max_threads<RESOURCE_TIER>())`` —
-tier-templated and load-bearing (it is what ``grid_rbd_kernel_max_threads`` introspects and
+tier-templated and load-bearing (it is what ``grim_kernel_max_threads`` introspects and
 what the baked-THREADS clamp validates against). Only the integrator family still uses
 ``MAX_PERF_LEVEL_THREADS``. (An older revision here said the attribute was "about to drop
 in phase B1" — that plan was superseded; "B1/B2" now name the tier-matrix/kernel-attr
@@ -243,10 +243,10 @@ Each algorithm also carries a small amount of *irregular* per-algo metadata:
 which autotune launch-config key(s) it uses, the ``cudaFuncSetAttribute`` opt-in
 gate, the dynamic-shared-memory bytes-macro stem, whether it has an mjx
 (MUJOCO_OUTPUT) twin, and so on. This lives as one ``AlgoDescriptor`` row per
-algorithm in ``grid_codegen/algo_registry.py`` (the ``ALGO_DESCRIPTORS``
+algorithm in ``grim_codegen/algo_registry.py`` (the ``ALGO_DESCRIPTORS``
 tuple) — the **single source of truth** from which the generator derives:
 
-* the ``GridAlgo`` enum and the launch-config symbol map (``build_launch_config_algo_to_symbol``),
+* the ``GrimAlgo`` enum and the launch-config symbol map (``build_launch_config_algo_to_symbol``),
 * the ``KERNEL_ATTR_MANIFEST`` and the mjx (floating-twin) manifest heads.
 
 Previously these were several hand-maintained module-level dicts that had to be
@@ -257,7 +257,7 @@ per-algo arena/spill ``t_count`` math is now folded into the table too (the
 ``ArenaRegion`` / ``SpillRung`` / ``ArenaCtx`` machinery in ``algo_registry.py``,
 composed by ``compose_arena_full`` / ``compose_arena_rungs``): every
 ``select_shared_tier_3way`` site is driven from the composer, so arena sizes are no
-longer hand-written in ``GRiDCodeGenerator.py``. The arena's correctness is guarded
+longer hand-written in ``GRiMCodeGenerator.py``. The arena's correctness is guarded
 independently by ``test/test_shared_arena_covers_carve.py``, which checks each
 kernel's launch-sizing macro against the regions the kernel actually carves. To
 change an algorithm's arena, edit its closure in ``algo_registry.py`` — do NOT
@@ -266,28 +266,28 @@ hand-edit ``t_count`` expressions in the generator.
 The binding surface: generated from ``abi_specs.py``
 -----------------------------------------------------
 
-The descriptor table has a sibling: ``grid_codegen/abi_specs.py`` (the
+The descriptor table has a sibling: ``grim_codegen/abi_specs.py`` (the
 ``ABI_SPECS`` rows) transcribes every C-ABI body of the Python binding —
 signature, packing, qdd/f_ext routing, launch template shape, output
-buffer/size, mjx-twin variance — and ``grid_codegen/wrapper_body_gen.py``
+buffer/size, mjx-twin variance — and ``grim_codegen/wrapper_body_gen.py``
 EMITS six checked-in generated regions of
-``bindings/grid_rbd/wrapper_template.cu`` from those rows:
+``bindings/grim/wrapper_template.cu`` from those rows:
 
 1. the ``extern "C"`` algorithm bodies (30+ functions),
-2. the ``grid_rbd_kernel_max_threads`` introspection branch table,
-3. all 30 ``grid_rbd_<algo>_mujoco`` twin bodies,
+2. the ``grim_kernel_max_threads`` introspection branch table,
+3. all 30 ``grim_<algo>_mujoco`` twin bodies,
 4. the JAX FFI handlers,
 5. the torch op bodies,
 6. the torch op table.
 
-``grid_codegen/wrapper_plant_gen.py`` emits the remaining two generated
+``grim_codegen/wrapper_plant_gen.py`` emits the remaining two generated
 regions — the JAX plant tail and the torch plant tail — for eight
 ``BEGIN/END GENERATED`` regions in all. The regions live between those
 markers **in the checked-in file** — never hand-edit inside them. To change a generated body, edit the
 spec row (or the emitter) and regenerate::
 
-    .venv/bin/python -m grid_codegen.wrapper_body_gen          # rewrite
-    .venv/bin/python -m grid_codegen.wrapper_body_gen --check  # CI drift gate
+    .venv/bin/python -m grim_codegen.wrapper_body_gen          # rewrite
+    .venv/bin/python -m grim_codegen.wrapper_body_gen --check  # CI drift gate
 
 ``test/test_wrapper_generated_block.py`` runs ``--check`` in CI, and
 ``test/test_abi_spec_crosscheck.py`` validates every spec field against the
@@ -299,11 +299,11 @@ plant/FFI/torch/pybind scaffolding outside the marker regions remain
 hand-written (bespoke by design).
 
 The same table also drives the **numpy Runner's pybind surface**:
-``grid_codegen/core_body_gen.py`` emits the generated region of
+``grim_codegen/core_body_gen.py`` emits the generated region of
 ``bindings/src/_core.cpp`` — the 61 spec-backed value/gradient/second-order
 methods plus their ``has_*_mujoco`` accessors — from each row's
 ``inputs``/``py_out_dims``/``py_rc3_msg``/``py_twin_guard`` fields
-(``-m grid_codegen.core_body_gen`` to regenerate, ``--check`` gated by
+(``-m grim_codegen.core_body_gen`` to regenerate, ``--check`` gated by
 ``test/test_core_generated_block.py``). Adding an algorithm's spec row
 therefore produces its wrapper C-ABI body, its mjx twin, AND its pybind
 method in one regeneration. The pybind ``.def`` list (with its user-facing
@@ -314,5 +314,5 @@ See also
 --------
 
 * :doc:`algorithms/index` — algorithm-level docs.
-* ``grid_codegen/README.md`` (repo root) — codegen-helper
+* ``grim_codegen/README.md`` (repo root) — codegen-helper
   reference for emitter authors.

@@ -1,18 +1,18 @@
-"""grid-rbd × JAX: keep everything on the GPU, compose freely, differentiate.
+"""grim × JAX: keep everything on the GPU, compose freely, differentiate.
 
 THE POINT (the fast path): the `.jax` handle returns ``jax.Array`` from every method via
-``jax.ffi.ffi_call`` wrapped in ``jax.custom_vjp``. That means a GRiD call is just another
+``jax.ffi.ffi_call`` wrapped in ``jax.custom_vjp``. That means a GRiM call is just another
 JAX op — it stays on the device, composes under ``jax.jit`` / ``jax.vmap`` / ``jax.grad``,
-and chains into the NEXT GRiD call with NO host round-trip. Data placed on the GPU once
+and chains into the NEXT GRiM call with NO host round-trip. Data placed on the GPU once
 lives there across an entire control/learning pipeline. This is what an adopter should reach
 for; the numpy handle (host arrays in/out) is the convenience surface, not the speed surface.
 
 What this file demonstrates, in order:
   1. Inputs placed on device once (``jax.device_put``); outputs come back device-resident.
-  2. Single GRiD call — confirm the result never left the GPU (``.devices()``).
+  2. Single GRiM call — confirm the result never left the GPU (``.devices()``).
   3. Composition under one ``@jax.jit``: forward_dynamics → cost, fused, all on-device.
   4. ``jax.vmap`` — batch the same closure with no Python loop.
-  5. ``jax.grad`` — GRiD emits ANALYTIC gradients, so ``grad`` flows through the custom_vjp
+  5. ``jax.grad`` — GRiM emits ANALYTIC gradients, so ``grad`` flows through the custom_vjp
      (a Jacobian-matvec FFI call), not a finite-difference or autodiff tape.
   6. A RESIDENT ROLLOUT (``jax.lax.scan``): K dynamics steps where the state NEVER touches the
      host. Timed against the anti-pattern (a Python loop that round-trips to numpy each step)
@@ -50,19 +50,19 @@ def main() -> None:
     import jax
     import jax.numpy as jnp
     import numpy as np
-    import grid_rbd
-    import grid_rbd.jax as grid_jax
+    import grim
+    import grim.jax as grim_jax
 
-    print(f"grid_rbd v{grid_rbd.__version__} · jax {jax.__version__} · backend={jax.default_backend()}")
+    print(f"grim v{grim.__version__} · jax {jax.__version__} · backend={jax.default_backend()}")
     if jax.default_backend() != "gpu":
         print("  !! JAX is not on the GPU backend — install jax[cuda12]; this demo is about GPU residency.")
 
     # ── register (or hit the cache) and grab the JAX handle ──────────────────
     # precompile() bakes max_batch + builds the .so once; get_robot() returns a
     # JaxRobotHandle whose methods are jittable and return jax.Array.
-    grid_rbd.precompile("iiwa14_resident", str(urdf),
+    grim.precompile("iiwa14_resident", str(urdf),
                         max_batch_size=max(args.batch, 256), backends=("jax",))
-    h = grid_jax.get_robot("iiwa14_resident")
+    h = grim_jax.get_robot("iiwa14_resident")
     nq, nv, B = h.num_joints, h.num_vel, args.batch
     print(f"  iiwa14: nq={nq} nv={nv}  batch B={B}  max_batch={h.max_batch}")
 
@@ -84,14 +84,14 @@ def main() -> None:
     # ── 3. compose under ONE jit: dynamics → quadratic effort+accel cost ──────
     @jax.jit
     def step_cost(q, qd, u):
-        qdd = h.forward_dynamics(q, qd, u)          # GRiD FFI call, on device
+        qdd = h.forward_dynamics(q, qd, u)          # GRiM FFI call, on device
         return jnp.mean(qdd**2) + 1e-3 * jnp.mean(u**2)   # fused into the same XLA program
     c = step_cost(q, qd, u); jax.block_until_ready(c)
     print(f"[3] fused jit(forward_dynamics→cost) = {float(c):.4f}  (single GPU program)")
 
     # ── 4. vmap: batch a per-sample closure with no Python loop ───────────────
     # Per-sample args are 1-D — the FFI calls carry vmap_method="broadcast_all",
-    # so vmap re-adds the mapped batch axis and GRiD sees one (B, n) call. (Do
+    # so vmap re-adds the mapped batch axis and GRiM sees one (B, n) call. (Do
     # NOT wrap with [None]: that stacks to (B, 1, n), which the 2-D FFI rejects.)
     per_sample = lambda q1, v1, u1: h.forward_dynamics(q1, v1, u1)
     vmapped = jax.jit(jax.vmap(per_sample))
@@ -101,17 +101,17 @@ def main() -> None:
     # ── 5. analytic grad through the custom_vjp (NOT autodiff/finite-diff) ────
     grad_u = jax.jit(jax.grad(step_cost, argnums=2))(q, qd, u)
     jax.block_until_ready(grad_u)
-    print(f"[5] jax.grad(cost, u) via GRiD's analytic Jacobian-matvec FFI: "
+    print(f"[5] jax.grad(cost, u) via GRiM's analytic Jacobian-matvec FFI: "
           f"|∂cost/∂u|={float(jnp.linalg.norm(grad_u)):.4f}")
 
     # ── 6. RESIDENT ROLLOUT: K steps, state never leaves the GPU ─────────────
-    # Semi-implicit Euler around GRiD forward_dynamics, driven through lax.scan so
+    # Semi-implicit Euler around GRiM forward_dynamics, driven through lax.scan so
     # the whole K-step horizon is ONE GPU program; q/qd are carried device-to-device.
     dt = 0.01
     def rollout_resident(q0, qd0, us):
         def body(carry, uk):
             q, qd = carry
-            qdd = h.forward_dynamics(q, qd, uk)     # GRiD call inside the scan
+            qdd = h.forward_dynamics(q, qd, uk)     # GRiM call inside the scan
             qd = qd + dt * qdd
             q = q + dt * qd
             return (q, qd), None
@@ -160,7 +160,7 @@ def main() -> None:
     except Exception as e:
         print(f"[8] dlpack handoff skipped ({type(e).__name__}: {e})")
 
-    print("\nTakeaway: place data on the GPU once, call GRiD as a JAX op, and keep composing — "
+    print("\nTakeaway: place data on the GPU once, call GRiM as a JAX op, and keep composing — "
           "jit/vmap/grad/scan all stay resident. Reach for host arrays only at the I/O boundary.")
 
 

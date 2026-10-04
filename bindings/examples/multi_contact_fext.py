@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-import grid_rbd
+import grim
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_URDF = _REPO_ROOT / "config" / "robot_assets" / "go2.urdf"
@@ -32,7 +32,7 @@ GO2_FEET = ["FR_foot_joint", "FL_foot_joint", "RR_foot_joint", "RL_foot_joint"]
 
 
 def main(urdf: str):
-    h = grid_rbd.register_robot(
+    h = grim.register_robot(
         "go2_multi_contact", urdf, floating_base=True,
         contact_frames=GO2_FEET,
         # Subset build: this example only calls inverse/forward dynamics (+ the

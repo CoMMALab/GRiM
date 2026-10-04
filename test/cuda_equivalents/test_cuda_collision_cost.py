@@ -18,14 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._collision import collision_spec_from_urdf
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._collision import collision_spec_from_urdf
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf
-COLLISION_INCLUDE = REPO_ROOT / "grid_codegen" / "collision"
+COLLISION_INCLUDE = REPO_ROOT / "grim_codegen" / "collision"
 RUNNER_SOURCE = Path(__file__).with_name("cuda_collision_cost_runner.cu")
 
 
@@ -44,10 +44,10 @@ def test_collision_cost_fd(tmp_path):
         spec = collision_spec_from_urdf(robot, str(urdf), resolution=0.06)
         build_dir = tmp_path / "collision_cost"
         build_dir.mkdir()
-        header = build_dir / "grid.cuh"
+        header = build_dir / "grim.cuh"
         # SPLIT codegen: collision emission is collision_spec-driven; the list only
         # needs one ee key to satisfy the include_any_kinematics gate.
-        GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+        GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
             codegen_profile="kinematics", output_path=str(header), collision_spec=spec)
 
     nvcc = shutil.which("nvcc")

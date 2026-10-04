@@ -11,10 +11,10 @@
 #include <iostream>
 #include <string>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS
-#define GRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS 64
+#ifndef GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS
+#define GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS 64
 #endif
 
 template <typename T>
@@ -49,28 +49,28 @@ int run() {
     // Clamp to the robot's MAX_PERF_LEVEL_THREADS (the kernels' __launch_bounds__ cap,
     // resolved dynamically from the generated header) so a swept count above the
     // bound doesn't fail with cudaErrorInvalidValue.
-    const int _req_threads = GRID_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS;
-    const int _nthreads = _req_threads < grid::MAX_PERF_LEVEL_THREADS ? _req_threads : grid::MAX_PERF_LEVEL_THREADS;
+    const int _req_threads = GRIM_CUDA_IDSVA_SO_WORLD_FRAME_TEST_THREADS;
+    const int _nthreads = _req_threads < grim::MAX_PERF_LEVEL_THREADS ? _req_threads : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(_nthreads, 1, 1);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     // Canonical per-timestep input layout (matches the binding pack_q_qd_u and the
     // q_qd_u kernel slots): each field gets a NUM_POS(=nq)-wide slot -> q@0, qd@nq,
     // qdd@2*nq, stride 3*nq. (Fixed-base nq==nv makes this byte-identical to the old
     // nv-based qdd@nq+nv; floating nq>nv needs the nq-based 2*NUM_POS offset.)
-    read_vector(hd_data->h_q_qd_u, grid::NUM_POS);
-    read_vector(&hd_data->h_q_qd_u[grid::NUM_POS], grid::NUM_VEL);
-    read_vector(&hd_data->h_q_qd_u[2 * grid::NUM_POS], grid::NUM_VEL);
+    read_vector(hd_data->h_q_qd_u, grim::NUM_POS);
+    read_vector(&hd_data->h_q_qd_u[grim::NUM_POS], grim::NUM_VEL);
+    read_vector(&hd_data->h_q_qd_u[2 * grim::NUM_POS], grim::NUM_VEL);
 
-    grid::idsva_so_world_frame<T>(
+    grim::idsva_so_world_frame<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
 
-    const int tensor_count = grid::SECOND_ORDER_TENSOR_SIZE;
+    const int tensor_count = grim::SECOND_ORDER_TENSOR_SIZE;
     int first_bad = -1;
     for (int i = 0; i < tensor_count; ++i) {
         if (first_bad < 0 &&
@@ -84,19 +84,19 @@ int run() {
     }
 
     T config[8];
-    config[0] = static_cast<T>(grid::IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>());
-    config[1] = static_cast<T>(grid::GRID_IDSVA_SO_USES_GLOBAL_OUTPUT);
-    config[2] = static_cast<T>(grid::GRID_GENERATES_IDSVA_SO_BODY_FRAME);
-    config[3] = static_cast<T>(grid::NUM_POS);
-    config[4] = static_cast<T>(grid::NUM_VEL);
-    config[5] = static_cast<T>(grid::NUM_BODIES);
-    config[6] = static_cast<T>(grid::Q_QD_U_STRIDE);
+    config[0] = static_cast<T>(grim::IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>());
+    config[1] = static_cast<T>(grim::GRIM_IDSVA_SO_USES_GLOBAL_OUTPUT);
+    config[2] = static_cast<T>(grim::GRIM_GENERATES_IDSVA_SO_BODY_FRAME);
+    config[3] = static_cast<T>(grim::NUM_POS);
+    config[4] = static_cast<T>(grim::NUM_VEL);
+    config[5] = static_cast<T>(grim::NUM_BODIES);
+    config[6] = static_cast<T>(grim::Q_QD_U_STRIDE);
     config[7] = static_cast<T>(tensor_count);
 
     print_flat("world_frame_config", config, 8);
     print_flat("idsva_so_body_frame", hd_data->h_idsva_so, tensor_count);
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
     return 0;
 }
 

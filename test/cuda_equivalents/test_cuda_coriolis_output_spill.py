@@ -8,13 +8,13 @@ full arena is ~121KB > sm_120's ~99KB (UNLAUNCHABLE); the output-spill rung is ~
 (PERF-launchable) and the whole-band rung ~24KB (LITE/MINIMAL).
 
 The spill RELOCATES buffers; it must not change C(q,qd). This test forces each spill
-rung at codegen (a low GRID_CUDA_TARGET_SHARED_MEM_BYTES) and asserts the host-wrapper
+rung at codegen (a low GRIM_CUDA_TARGET_SHARED_MEM_BYTES) and asserts the host-wrapper
 output is BIT-IDENTICAL to the unspilled full-smem rung (the oracle-validated path,
 checked vs pinocchio in test_cuda_coriolis.py) AND thread-count invariant. A coriolis-
 only codegen subset keeps the SO kernels out of the header so the forced-low target does
 not trigger their pathological deep-spill compile wall.
 
-Override robots with GRID_CUDA_CORIOLIS_SPILL_ROBOTS="g1:floating,iiwa14:fixed".
+Override robots with GRIM_CUDA_CORIOLIS_SPILL_ROBOTS="g1:floating,iiwa14:fixed".
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
 from RBDReference.equivalents.reference_backend import build_project_adapter
@@ -39,7 +39,7 @@ _RUNNER = Path(__file__).with_name("cuda_coriolis_smoke_runner.cu")
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_CORIOLIS_SPILL_ROBOTS", "g1:floating,iiwa14:fixed")
+    raw = os.environ.get("GRIM_CUDA_CORIOLIS_SPILL_ROBOTS", "g1:floating,iiwa14:fixed")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -65,17 +65,17 @@ def _py_arena_bytes(t, topo, tbytes=4):
 
 
 def _gen(robot, build_dir, target):
-    prev = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES")
-    os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
+    prev = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES")
+    os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
     try:
-        cg = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+        cg = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-            cg.gen_all_code(algorithm_list=["coriolis_matrix"], output_path=str(build_dir / "grid.cuh"))
+            cg.gen_all_code(algorithm_list=["coriolis_matrix"], output_path=str(build_dir / "grim.cuh"))
     finally:
         if prev is None:
-            os.environ.pop("GRID_CUDA_TARGET_SHARED_MEM_BYTES", None)
+            os.environ.pop("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", None)
         else:
-            os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
+            os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
     return cg.coriolis_matrix_spill_tier_3way[0], cg
 
 
@@ -87,7 +87,7 @@ def _compile(build_dir, arch):
     glass = Path(__file__).resolve().parents[2] / "external" / "GLASS" / "include"
     exe = build_dir / "runner.exe"
     cmd = [nvcc, "-std=c++17", "-O0", "-gencode", f"arch=compute_{arch},code=sm_{arch}",
-           "-DGRID_CUDA_CORIOLIS_TEST_THREADS=64", f"-I{glass}", f"-I{build_dir}",
+           "-DGRIM_CUDA_CORIOLIS_TEST_THREADS=64", f"-I{glass}", f"-I{build_dir}",
            "-o", str(exe), str(build_dir / "runner.cu")]
     res = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)
     if res.returncode != 0:

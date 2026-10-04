@@ -24,7 +24,7 @@ echo "$*" >> "$FAKE_NVCC_LOG"
 out=""; prev=""
 for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
 src="${@: -1}"
-sha256sum "$src" grid.cuh > "$out"
+sha256sum "$src" grim.cuh > "$out"
 """
 
 
@@ -39,8 +39,8 @@ def toolkit(tmp_path, monkeypatch):
     log.write_text("")
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_NVCC_LOG", str(log))
-    monkeypatch.setenv("GRID_CUDA_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.delenv("GRID_CUDA_DISABLE_CACHE", raising=False)
+    monkeypatch.setenv("GRIM_CUDA_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.delenv("GRIM_CUDA_DISABLE_CACHE", raising=False)
     for knob in ("FAKE_NVCC_FAIL", "FAKE_NVCC_SLEEP", "FAKE_NVCC_VERSION"):
         monkeypatch.delenv(knob, raising=False)
 
@@ -48,14 +48,14 @@ def toolkit(tmp_path, monkeypatch):
     inc_dir = tmp_path / "inc"
     src_dir.mkdir()
     inc_dir.mkdir()
-    (src_dir / "runner.cu").write_text('#include "grid.cuh"\nint main() { return 0; }\n')
-    (src_dir / "grid.cuh").write_text('#include "extra.cuh"\n// header v1\n')
+    (src_dir / "runner.cu").write_text('#include "grim.cuh"\nint main() { return 0; }\n')
+    (src_dir / "grim.cuh").write_text('#include "extra.cuh"\n// header v1\n')
     (inc_dir / "extra.cuh").write_text("// extra v1\n")
 
     class Toolkit:
         root = tmp_path
         runner = src_dir / "runner.cu"
-        header = src_dir / "grid.cuh"
+        header = src_dir / "grim.cuh"
         extra = inc_dir / "extra.cuh"
 
         def builds(self):
@@ -96,7 +96,7 @@ def test_any_input_byte_invalidates(toolkit, change):
 
 def test_flags_variant_and_toolkit_are_in_the_key(toolkit, monkeypatch):
     toolkit.build(flags=["-O0"])
-    toolkit.build(flags=["-O0", "-DGRID_DEFAULT_RESOURCE_TIER=TIER_LITE"])
+    toolkit.build(flags=["-O0", "-DGRIM_DEFAULT_RESOURCE_TIER=TIER_LITE"])
     toolkit.build(flags=["-O0"], variant={"scalar": "double"})
     monkeypatch.setenv("FAKE_NVCC_VERSION", "fake nvcc 2.0")
     toolkit.build(flags=["-O0"])
@@ -110,7 +110,7 @@ def test_key_ignores_the_directory_the_sources_came_from(toolkit, tmp_path):
     other.mkdir()
     for path in (toolkit.runner, toolkit.header):
         (other / path.name).write_bytes(path.read_bytes())
-    toolkit.runner, toolkit.header = other / "runner.cu", other / "grid.cuh"
+    toolkit.runner, toolkit.header = other / "runner.cu", other / "grim.cuh"
     # extra.cuh is still reached through the include dir, with the same bytes.
     toolkit.build()
     assert toolkit.builds() == 1
@@ -162,7 +162,7 @@ def test_concurrent_builders_compile_once(toolkit, monkeypatch):
 
 
 def test_disabled_cache_builds_in_the_fallback_dir(toolkit, monkeypatch):
-    monkeypatch.setenv("GRID_CUDA_DISABLE_CACHE", "1")
+    monkeypatch.setenv("GRIM_CUDA_DISABLE_CACHE", "1")
     exe, _ = toolkit.build()
     assert exe == toolkit.root / "fallback" / "runner.exe"
     assert toolkit.entries() == []
@@ -175,5 +175,5 @@ def test_manifest_records_provenance(toolkit):
     assert manifest["key"] == exe.parent.name
     assert manifest["executable_sha256"] == cuda_harness._hash_file(exe)
     names = [name for name, _ in manifest["key_payload"]["sources"]]
-    assert names == sorted(["runner.cu", "grid.cuh", "extra.cuh"])
+    assert names == sorted(["runner.cu", "grim.cuh", "extra.cuh"])
     assert manifest["key_payload"]["toolkit"]["version"] == "fake nvcc 1.0"

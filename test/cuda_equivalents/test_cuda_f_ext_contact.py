@@ -1,6 +1,6 @@
 """CUDA FD-oracle gate for the contact-FRAME f_ext map (GATO ask 1, C.2). Robot: go2-FLOATING.
 
-GRiD already had the f_ext DERIVATIVE stack (dtau/dfext = -J^T, dqdd/dfext = M^-1 J^T, -dJ^T/dq), but all
+GRiM already had the f_ext DERIVATIVE stack (dtau/dfext = -J^T, dqdd/dfext = M^-1 J^T, -dJ^T/dq), but all
 of it speaks the f_ext SLOT convention: a per-body wrench in that body's JOINT-LOCAL Featherstone frame.
 A solver's decision variable is a contact force at a DESIGNATED FRAME with WORLD-ALIGNED axes. This module
 emits that map and BOTH its derivatives, so the chain rule closes:
@@ -30,8 +30,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -55,12 +55,12 @@ def test_f_ext_contact_frame_map_fd(tmp_path):
         frames = contact_frames_from_urdf(robot, GO2_FEET)
         build_dir = tmp_path / "f_ext_contact"
         build_dir.mkdir()
-        header = build_dir / "grid.cuh"
+        header = build_dir / "grim.cuh"
         # SPLIT codegen: contact emission is contact_frames-driven inside the
         # kinematics region (needs one ee key); the runner also calls
-        # f_ext_gradient_device and grid_integrate_floating_q ("integrator" pulls
+        # f_ext_gradient_device and grim_integrate_floating_q ("integrator" pulls
         # the SE(3) lie helpers on this floating base).
-        GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+        GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
             algorithm_list=["f_ext_gradient", "end_effector_pose", "integrator"],
             output_path=str(header), contact_frames=frames)
 

@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
     pytest.skip("nvcc not on PATH", allow_module_level=True)
 _IIWA = robot_urdf("iiwa14")
@@ -60,7 +60,7 @@ def _central_fd(f, x, eps=_EPS):
 def jax_iiwa():
     jax = pytest.importorskip("jax")
     jax.config.update("jax_enable_x64", True)
-    h = grid_rbd.register_robot("w02_iiwa14_jax_fp64", str(_IIWA), backend="jax",
+    h = grim.register_robot("w02_iiwa14_jax_fp64", str(_IIWA), backend="jax",
                                 algorithm_list=_ALGOS, dtype="float64")
     yield h
     h.close()
@@ -69,7 +69,7 @@ def jax_iiwa():
 @pytest.fixture(scope="module")
 def torch_iiwa():
     pytest.importorskip("torch")
-    h = grid_rbd.register_robot("w02_iiwa14_torch_fp64", str(_IIWA), backend="torch",
+    h = grim.register_robot("w02_iiwa14_torch_fp64", str(_IIWA), backend="torch",
                                 algorithm_list=_ALGOS, dtype="float64")
     yield h
     h.close()

@@ -26,7 +26,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 
 _URDF = (
     Path.home()
@@ -36,7 +36,7 @@ if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -48,7 +48,7 @@ _TOL = 5e-5
 
 @pytest.fixture(scope="module")
 def handle():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_batch_switch",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -145,7 +145,7 @@ def test_global_override_beats_switch(handle, samples):
 def test_apply_batch_overlay_from_config(handle, tmp_path, monkeypatch):
     """apply_batch_overlay arms from ffi_bases_by_n and skips tier mismatches."""
     import json
-    import grid_codegen.launch_config as lc
+    import grim_codegen.launch_config as lc
 
     robot_key = handle._meta.get("launch_config_robot")
     if not robot_key:
@@ -159,7 +159,7 @@ def test_apply_batch_overlay_from_config(handle, tmp_path, monkeypatch):
     baked = lc.load_launch_config(robot_key, handle.floating_base, profile="ffi")
     # synthesize a by-n block: first entry matches its baked tier (arms), the
     # rest are forced to a WRONG tier (must be skipped)
-    from grid_codegen.algo_registry import build_launch_config_algo_to_symbol
+    from grim_codegen.algo_registry import build_launch_config_algo_to_symbol
     a2s = build_launch_config_algo_to_symbol()
     inv_tier = {v: k for k, v in lc.LAUNCH_CONFIG_TIER_SYMBOL.items()}
     base = "floating" if handle.floating_base else "fixed"
@@ -181,11 +181,11 @@ def test_apply_batch_overlay_from_config(handle, tmp_path, monkeypatch):
     (fake_dir / (lc.LAUNCH_CONFIG_DEFAULT_GPU + ".json")).write_text(json.dumps(doc))
     monkeypatch.setattr(lc, "_launch_configs_dir",
                         lambda: str(tmp_path / "launch_configs"))
-    # _handle imports the names off GRiDCodeGenerator's re-export — patch there
-    # too. NOTE: `import grid_codegen.GRiDCodeGenerator as x` binds the CLASS
+    # _handle imports the names off GRiMCodeGenerator's re-export — patch there
+    # too. NOTE: `import grim_codegen.GRiMCodeGenerator as x` binds the CLASS
     # (the package __init__ rebinds that attribute), so go via sys.modules.
     import importlib
-    gcg_mod = importlib.import_module("grid_codegen.GRiDCodeGenerator")
+    gcg_mod = importlib.import_module("grim_codegen.GRiMCodeGenerator")
     monkeypatch.setattr(gcg_mod, "_launch_configs_dir",
                         lambda: str(tmp_path / "launch_configs"))
     try:

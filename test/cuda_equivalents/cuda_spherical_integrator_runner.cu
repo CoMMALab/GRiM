@@ -3,7 +3,7 @@
 // integrator value surface: x_{k+1} = integrator(x_k, u_k, dt). Spherical robots
 // have NQ != NV (a 4-wide unit-quaternion q-block per ball joint, 3 v-slots), so
 // the state x = [q(nq); qd(nv)] is (nq+nv)-wide and the per-timestep INPUT slot is
-// NQ-wide (= grid::NUM_JOINTS == get_num_pos() = nq, the canonical 3*NUM_JOINTS
+// NQ-wide (= grim::NUM_JOINTS == get_num_pos() = nq, the canonical 3*NUM_JOINTS
 // pack). The q-side of the step is the SO(3) quaternion retract per ball joint +
 // a plain vector add for the downstream-shifted revolute slots (the §1e case);
 // the qd-side is the unchanged Euler vector add qd + dt*qdd.
@@ -12,7 +12,7 @@
 //   (1) the device function integrator_device<T, IT> (explicit nq-wide s_q /
 //       nv-wide s_qd / s_u buffers), at a caller-chosen thread count (argv[1])
 //       so the harness can sweep thread counts for invariance; and
-//   (2) the HOST batch wrapper integrator<T, IT, GRID_DATA_ALL> over a
+//   (2) the HOST batch wrapper integrator<T, IT, GRIM_DATA_ALL> over a
 //       B-timestep trajectory (the §1e per-timestep nq-stride path the bindings
 //       use). Each batch row's (nq+nv) state must equal the single-call device
 //       state (catches the §1e nq-stride bug).
@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 int g_num_threads = 32;
 
@@ -55,41 +55,41 @@ void print_vector(const std::string &name, const T *data, int count) {
 
 // Device-function runner for integrator_device<T, IT>. s_q is NQ-wide; s_qd /
 // s_u are NV-wide; s_x_kp1 is (NQ+NV)-wide (q part NQ, qd part NV).
-template <typename T, grid::IntegratorType IT>
+template <typename T, grim::IntegratorType IT>
 __global__ void spherical_integrator_device_runner(
     T *d_x_kp1, const T *d_q, const T *d_qd, const T *d_u,
-    const grid::robotModel<T> *d_robot_model, const T gravity, const T dt
+    const grim::robotModel<T> *d_robot_model, const T gravity, const T dt
 ) {
-    __shared__ T s_q[grid::NUM_JOINTS];                  // NUM_JOINTS == nq
-    __shared__ T s_qd[grid::NUM_VEL];
-    __shared__ T s_u[grid::NUM_VEL];
-    __shared__ T s_x_kp1[grid::NUM_POS + grid::NUM_VEL];
+    __shared__ T s_q[grim::NUM_JOINTS];                  // NUM_JOINTS == nq
+    __shared__ T s_qd[grim::NUM_VEL];
+    __shared__ T s_u[grim::NUM_VEL];
+    __shared__ T s_x_kp1[grim::NUM_POS + grim::NUM_VEL];
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
         s_q[ind] = d_q[ind];
     }
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_VEL; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_VEL; ind += blockDim.x * blockDim.y) {
         s_qd[ind] = d_qd[ind];
         s_u[ind] = d_u[ind];
     }
     __syncthreads();
-    grid::integrator_device<T, IT>(s_x_kp1, s_q, s_qd, s_u, d_robot_model, /*d_f_ext=*/nullptr, gravity, dt);
+    grim::integrator_device<T, IT>(s_x_kp1, s_q, s_qd, s_u, d_robot_model, /*d_f_ext=*/nullptr, gravity, dt);
     __syncthreads();
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_POS + grid::NUM_VEL; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_POS + grim::NUM_VEL; ind += blockDim.x * blockDim.y) {
         d_x_kp1[ind] = s_x_kp1[ind];
     }
 }
 
 // Run a single IntegratorType: device single-call + host batch over B timesteps.
-template <typename T, grid::IntegratorType IT>
+template <typename T, grim::IntegratorType IT>
 void run_one(const std::string &tag, const std::vector<T> &h_q,
              const std::vector<T> &h_qd, const std::vector<T> &h_u, const T dt,
-             const grid::robotModel<T> *d_robot_model,
-             grid::gridData<T> *hd_data, int B, const T gravity) {
-    const int nq = grid::NUM_JOINTS;
-    const int nv = grid::NUM_VEL;
+             const grim::robotModel<T> *d_robot_model,
+             grim::grimData<T> *hd_data, int B, const T gravity) {
+    const int nq = grim::NUM_JOINTS;
+    const int nv = grim::NUM_VEL;
     const int nx = nq + nv;
 
     // ----- (1) device-function path -----
@@ -103,7 +103,7 @@ void run_one(const std::string &tag, const std::vector<T> &h_q,
     gpuErrchk(cudaMemcpy(d_u, h_u.data(), nv * sizeof(T), cudaMemcpyHostToDevice));
 
     std::vector<T> h_x(nx);
-    const size_t dev_smem = grid::INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const size_t dev_smem = grim::INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<T>();
     gpuErrchk(cudaFuncSetAttribute(spherical_integrator_device_runner<T, IT>,
                                    cudaFuncAttributeMaxDynamicSharedMemorySize,
                                    static_cast<int>(dev_smem)));
@@ -127,7 +127,7 @@ void run_one(const std::string &tag, const std::vector<T> &h_q,
     }
     const dim3 block_dimms(1, 1, 1);
     const dim3 thread_dimms(g_num_threads, 1, 1);
-    grid::integrator<T, IT, grid::GRID_DATA_ALL>(
+    grim::integrator<T, IT, grim::GRIM_DATA_ALL>(
         hd_data, d_robot_model, gravity, dt, B, block_dimms, thread_dimms, streams_global);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
@@ -147,30 +147,30 @@ void run() {
     const T gravity = static_cast<T>(-9.81);
     const T dt = static_cast<T>(0.01);
 
-    streams_global = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
+    streams_global = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
 
-    std::vector<T> h_q(grid::NUM_JOINTS);   // nq (unit-quaternion in ball block)
-    std::vector<T> h_qd(grid::NUM_VEL);     // nv
-    std::vector<T> h_u(grid::NUM_VEL);      // nv (control torque)
-    read_vector(h_q.data(), grid::NUM_JOINTS);
-    read_vector(h_qd.data(), grid::NUM_VEL);
-    read_vector(h_u.data(), grid::NUM_VEL);
-    print_vector("input_q", h_q.data(), grid::NUM_JOINTS);
-    print_vector("input_qd", h_qd.data(), grid::NUM_VEL);
-    print_vector("input_u", h_u.data(), grid::NUM_VEL);
+    std::vector<T> h_q(grim::NUM_JOINTS);   // nq (unit-quaternion in ball block)
+    std::vector<T> h_qd(grim::NUM_VEL);     // nv
+    std::vector<T> h_u(grim::NUM_VEL);      // nv (control torque)
+    read_vector(h_q.data(), grim::NUM_JOINTS);
+    read_vector(h_qd.data(), grim::NUM_VEL);
+    read_vector(h_u.data(), grim::NUM_VEL);
+    print_vector("input_q", h_q.data(), grim::NUM_JOINTS);
+    print_vector("input_qd", h_qd.data(), grim::NUM_VEL);
+    print_vector("input_u", h_u.data(), grim::NUM_VEL);
 
     const int B = 4;
-    grid::gridData<T> *hd_data = grid::init_gridData<T, B>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, B>();
 
-    run_one<T, grid::IntegratorType::EULER>("integrator_euler", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
-    run_one<T, grid::IntegratorType::SEMI_IMPLICIT_EULER>("integrator_si_euler", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
-    run_one<T, grid::IntegratorType::MIDPOINT>("integrator_midpoint", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
-    run_one<T, grid::IntegratorType::TRAPEZOIDAL>("integrator_trapezoidal", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
-    run_one<T, grid::IntegratorType::RK4>("integrator_rk4", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
-    run_one<T, grid::IntegratorType::CONSTANT_ACCELERATION>("integrator_constant_acceleration", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
+    run_one<T, grim::IntegratorType::EULER>("integrator_euler", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
+    run_one<T, grim::IntegratorType::SEMI_IMPLICIT_EULER>("integrator_si_euler", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
+    run_one<T, grim::IntegratorType::MIDPOINT>("integrator_midpoint", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
+    run_one<T, grim::IntegratorType::TRAPEZOIDAL>("integrator_trapezoidal", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
+    run_one<T, grim::IntegratorType::RK4>("integrator_rk4", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
+    run_one<T, grim::IntegratorType::CONSTANT_ACCELERATION>("integrator_constant_acceleration", h_q, h_qd, h_u, dt, d_robot_model, hd_data, B, gravity);
 
-    grid::close_grid<T>(streams_global, d_robot_model, hd_data);
+    grim::close_grim<T>(streams_global, d_robot_model, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -178,10 +178,10 @@ int main(int argc, char **argv) {
         int requested = std::atoi(argv[1]);
         g_num_threads = requested > 0 ? requested : 0;
     }
-    if (g_num_threads <= 0 || g_num_threads > grid::MAX_PERF_LEVEL_THREADS) {
-        g_num_threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (g_num_threads <= 0 || g_num_threads > grim::MAX_PERF_LEVEL_THREADS) {
+        g_num_threads = grim::MAX_PERF_LEVEL_THREADS;
     }
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

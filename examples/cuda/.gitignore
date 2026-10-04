@@ -1,5 +1,5 @@
-# Generated GRiD headers are build artifacts -- regenerate with the gen_*.py
+# Generated GRiM headers are build artifacts -- regenerate with the gen_*.py
 # helpers / build_and_validate.sh, never commit them.
-grid.cuh
-grid_so.cuh
+grim.cuh
+grim_so.cuh
 *.o

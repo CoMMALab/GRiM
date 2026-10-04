@@ -1,9 +1,9 @@
-"""grid-rbd quickstart: register an iiwa14 and exercise the core methods.
+"""grim quickstart: register an iiwa14 and exercise the core methods.
 
 Demonstrates the register-then-run UX:
 
-    1. register_robot() generates grid.cuh, compiles to .so, caches under
-       ~/.cache/grid-rbd/. First run takes ~30-60s for iiwa14; subsequent
+    1. register_robot() generates grim.cuh, compiles to .so, caches under
+       ~/.cache/grim/. First run takes ~30-60s for iiwa14; subsequent
        runs hit the cache and start in <1s.
 
     2. handle.<method>(q, qd, ...) runs on the GPU and returns numpy
@@ -47,14 +47,14 @@ def main() -> None:
     if not urdf.exists():
         sys.exit(f"URDF not found: {urdf}")
 
-    import grid_rbd  # noqa: F401 (deferred until URDF check)
+    import grim  # noqa: F401 (deferred until URDF check)
 
-    print(f"grid_rbd v{grid_rbd.__version__}")
-    print(f"Cache dir: {grid_rbd.default_cache_dir()}")
+    print(f"grim v{grim.__version__}")
+    print(f"Cache dir: {grim.default_cache_dir()}")
 
     # ─── 1. Register ────────────────────────────────────────────────────
     t0 = time.time()
-    handle = grid_rbd.register_robot(
+    handle = grim.register_robot(
         name="iiwa14_quickstart",
         urdf_path=str(urdf),
         floating_base=False,

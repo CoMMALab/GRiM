@@ -1,4 +1,4 @@
-"""CUDA equivalence gate for W2a `grid::multi_target_position_gradient` (batched d pos/dv).
+"""CUDA equivalence gate for W2a `grim::multi_target_position_gradient` (batched d pos/dv).
 
 The gradient is an anchor-deduped geometric Jacobian (built ONCE per distinct anchor via the
 shared `emit_geometric_jacobian_jvjw`, reused from the ee-pose gradient) plus a per-target
@@ -13,7 +13,7 @@ no FK re-walk. This gate certifies:
   3. THREAD-INVARIANCE: identical output at 1 / 32 / 256 threads (checked in-runner).
 
 baxter (leaves [0,7,14]) exercises the MULTI-ANCHOR dedup; iiwa14 is the single-anchor control.
-Fixed-base non-mimic (so vi == qi), correctness only. Override with GRID_CUDA_MULTITARGET_ROBOTS.
+Fixed-base non-mimic (so vi == qi), correctness only. Override with GRIM_CUDA_MULTITARGET_ROBOTS.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference import RBDReference
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 from RBDReference.tests.model_sources import resolve_robot_spec, iter_robot_cases
@@ -39,7 +39,7 @@ RUNNER_SOURCE = Path(__file__).with_name("cuda_multi_target_position_gradient_ru
 
 
 def _robot_cells():
-    override = os.environ.get("GRID_CUDA_MULTITARGET_ROBOTS")
+    override = os.environ.get("GRIM_CUDA_MULTITARGET_ROBOTS")
     if override:
         return [(r.strip(), "fixed") for r in override.split(",") if r.strip()]
     return [("iiwa14", "fixed"), ("baxter", "fixed")]
@@ -61,8 +61,8 @@ def _build_batch(robot):
 
 
 def _generate_header(robot, targets, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # SPLIT codegen: multi_target emission is driven by multi_target_batch; the
         # runner calls end_effector_pose_gradient_device + the mt gradient device,

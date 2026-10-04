@@ -23,20 +23,20 @@ Q_QD_OPS = {"nonlinear_effects", "ccrba", "coriolis_matrix"}
 VECTOR_OPS = {"inverse_dynamics", "forward_dynamics", "nonlinear_effects", "generalized_gravity"}
 OPERATIONS = CORE + EXTRA
 WRAPPER_OPS = CORE[:2]
-PRIMARY = {CORE[0]: ("grid_cuda", "grid_jax", "pinocchio", "pinocchio_plain", "mjx", "mujoco_warp"),
-           CORE[1]: ("grid_cuda", "grid_jax", "pinocchio", "pinocchio_plain", "mjx"),
-           CORE[2]: ("grid_cuda", "grid_jax", "pinocchio", "pinocchio_plain")}
+PRIMARY = {CORE[0]: ("grim_cuda", "grim_jax", "pinocchio", "pinocchio_plain", "mjx", "mujoco_warp"),
+           CORE[1]: ("grim_cuda", "grim_jax", "pinocchio", "pinocchio_plain", "mjx"),
+           CORE[2]: ("grim_cuda", "grim_jax", "pinocchio", "pinocchio_plain")}
 # Allocate-once companions of the Python surfaces (2026-10-02): the SAME artifact and
 # operation, called the way a control loop calls it — I/O buffers set up once in
 # `prepare`, outside the timed window, and reused by every call. NumPy: a page-locked
 # `out=` buffer; PyTorch: page-locked host tensors + non-blocking copies; JAX:
-# `grid_rbd.jax.to_host`. Separate backends so every cell keeps its own oracle
+# `grim.jax.to_host`. Separate backends so every cell keeps its own oracle
 # validation, repeats and contract.
-PREALLOC = {"grid_numpy_prealloc": "grid_numpy", "grid_torch_prealloc": "grid_torch",
-            "grid_jax_prealloc": "grid_jax"}
+PREALLOC = {"grim_numpy_prealloc": "grim_numpy", "grim_torch_prealloc": "grim_torch",
+            "grim_jax_prealloc": "grim_jax"}
 NUMPY_OUT_OPS = {"inverse_dynamics_gradient", "forward_dynamics_gradient", "idsva_so", "fdsva_so"}
-# grid_rbd.jax.to_host takes its pinned_host route only for arrays at least this large
-# (bindings/grid_rbd/jax/__init__.py::_PINNED_MIN_BYTES; kept equal by a CPU test). Below
+# grim.jax.to_host takes its pinned_host route only for arrays at least this large
+# (bindings/grim/jax/__init__.py::_PINNED_MIN_BYTES; kept equal by a CPU test). Below
 # it the "allocate-once" JAX call IS the default device_get call, so a separate bar would
 # only plot session-to-session JAX variation as if it were a method difference.
 JAX_PINNED_MIN_BYTES = 256 * 1024
@@ -44,13 +44,13 @@ SECOND_ORDER_OPS = {"idsva_so", "fdsva_so"}          # four equal output arrays 
 
 
 def jax_pinned_route(row):
-    """True when a grid_jax_prealloc cell actually used the pinned route: its largest
+    """True when a grim_jax_prealloc cell actually used the pinned route: its largest
     output array (float32 `entries`, split over four arrays for the second-order ops)
     reaches the floor."""
     leaves = 4 if row.get("operation") in SECOND_ORDER_OPS else 1
     return bool(row.get("entries")) and row["entries"] * 4 / leaves >= JAX_PINNED_MIN_BYTES
-WRAPPERS = ("grid_cuda", "grid_native", "grid_numpy", "grid_jax", "grid_torch") + tuple(PREALLOC)
-TABLE_BACKENDS = ("grid_cuda", "grid_jax", "pinocchio", "pinocchio_plain", "mjx", "mujoco_warp", "mujoco_cpu", "bard", "frax")
+WRAPPERS = ("grim_cuda", "grim_native", "grim_numpy", "grim_jax", "grim_torch") + tuple(PREALLOC)
+TABLE_BACKENDS = ("grim_cuda", "grim_jax", "pinocchio", "pinocchio_plain", "mjx", "mujoco_warp", "mujoco_cpu", "bard", "frax")
 BACKENDS = WRAPPERS + ("pinocchio", "pinocchio_plain", "mjx", "mujoco_warp", "mujoco_cpu", "bard", "frax")
 # Sustained warm-up before sampling: a handful of microsecond calls never
 # leaves the idle clock (this box idles far below its sustained boost and
@@ -113,16 +113,16 @@ def capability(backend, operation, robot):
     """Availability of OUR adapters, never inferred library-wide incapability."""
     floating = ROBOTS[robot] == "floating"
     hessian = operation in {"idsva_so", "fdsva_so", "end_effector_pose_hessian"}
-    if backend == "grid_native":
+    if backend == "grim_native":
         return None if operation in WRAPPER_OPS else "adapter_pending: native C-ABI timing bridge covers RNEA and its gradient"
-    if backend == "grid_cuda":
+    if backend == "grim_cuda":
         if operation in {"end_effector_pose_gradient", "end_effector_pose_hessian"}:
             return "adapter_pending: CUDA host-call timing bridge covers every operation but the end-effector derivatives"
         return None
-    if backend == "grid_numpy_prealloc" and operation not in NUMPY_OUT_OPS:
+    if backend == "grim_numpy_prealloc" and operation not in NUMPY_OUT_OPS:
         return ("not_applicable: NumPy out= exists for the gradient and second-order outputs; "
                 "this operation's default call is its only host path")
-    if backend.startswith("grid_"):
+    if backend.startswith("grim_"):
         return None
     if backend in {"pinocchio", "pinocchio_plain"}:
         if operation in {"end_effector_pose_gradient", "end_effector_pose_hessian"}:

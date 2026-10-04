@@ -2,13 +2,13 @@ RBDReference
 ============
 
 RBDReference is a CPU reference implementation for inspecting and validating
-rigid-body algorithms. It consumes the same parsed model as GRiD's generator;
+rigid-body algorithms. It consumes the same parsed model as GRiM's generator;
 it is not the batched GPU handle.
 
 Run a reference calculation
 ---------------------------
 
-After installing GRiD from its recursive source checkout, run this from the
+After installing GRiM from its recursive source checkout, run this from the
 repository root:
 
 .. code-block:: python

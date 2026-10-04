@@ -1,25 +1,25 @@
 // Robot-agnostic validation for the W3 Component E static geometry header
-// (grid_collision::grid_cc_sphere_{sphere,capsule,cuboid} + reduction/self-collision/driver).
+// (grim_collision::grim_cc_sphere_{sphere,capsule,cuboid} + reduction/self-collision/driver).
 //
-// Pure geometry: NO grid.cuh, no robot model. For each baked config it evaluates the SDF on the
+// Pure geometry: NO grim.cuh, no robot model. For each baked config it evaluates the SDF on the
 // DEVICE and on the HOST (the primitives are __host__ __device__) and prints the FULL config plus
 // the GPU squared-gap, so the Python oracle recomputes the expected value from the printed geometry
 // with zero config duplication. Also self-checks HOST==DEVICE (fp64 bit-exact) and that a T=float
 // instantiation agrees on the collision/free SIGN for every config (fp32 is the default precision).
 //
 // SDF convention: return squared_gap = d2 - r_sum^2 ; value < 0  <=>  in collision.
-#include "grid_collision_geometry.cuh"
+#include "grim_collision_geometry.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <algorithm>
 
 using T = double;
-using grid_collision::Capsule;
-using grid_collision::Cuboid;
-using grid_collision::Environment;
-using grid_collision::Plane;
-using grid_collision::Sphere;
+using grim_collision::Capsule;
+using grim_collision::Cuboid;
+using grim_collision::Environment;
+using grim_collision::Plane;
+using grim_collision::Sphere;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
 
@@ -28,21 +28,21 @@ template <typename S>
 __global__ void ss_kernel(const S *cfg, int n, S *gap) {          // 8 floats/config
     int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return;
     const S *c = cfg + 8 * i;
-    gap[i] = grid_collision::grid_cc_sphere_sphere<S>(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
+    gap[i] = grim_collision::grim_cc_sphere_sphere<S>(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
 }
 template <typename S>
 __global__ void sc_kernel(const S *cfg, int n, S *gap) {          // 11 floats/config: cap(7)+sph(4)
     int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return;
     const S *c = cfg + 11 * i;
     Capsule<S> cap{c[0], c[1], c[2], c[3], c[4], c[5], c[6]};
-    gap[i] = grid_collision::grid_cc_sphere_capsule<S>(cap, c[7], c[8], c[9], c[10]);
+    gap[i] = grim_collision::grim_cc_sphere_capsule<S>(cap, c[7], c[8], c[9], c[10]);
 }
 template <typename S>
 __global__ void cb_kernel(const S *cfg, int n, S *gap) {          // 19 floats/config: box(15)+sph(4)
     int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return;
     const S *c = cfg + 19 * i;
     Cuboid<S> box{c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14]};
-    gap[i] = grid_collision::grid_cc_sphere_cuboid<S>(box, c[15], c[16], c[17], c[18]);
+    gap[i] = grim_collision::grim_cc_sphere_cuboid<S>(box, c[15], c[16], c[17], c[18]);
 }
 
 template <typename S>
@@ -51,7 +51,7 @@ __global__ void cc_kernel(const S *cfg, int n, S *gap) {          // 14 floats/c
     const S *c = cfg + 14 * i;
     Capsule<S> A{c[0], c[1], c[2], c[3], c[4], c[5], c[6]};
     Capsule<S> B{c[7], c[8], c[9], c[10], c[11], c[12], c[13]};
-    gap[i] = grid_collision::grid_cc_capsule_capsule<S>(A, B);
+    gap[i] = grim_collision::grim_cc_capsule_capsule<S>(A, B);
 }
 template <typename S>
 __global__ void cp_kernel(const S *cfg, int n, S *gap) {          // 11 floats/config: plane(4)+cap(7)
@@ -59,7 +59,7 @@ __global__ void cp_kernel(const S *cfg, int n, S *gap) {          // 11 floats/c
     const S *c = cfg + 11 * i;
     Plane<S> p{c[0], c[1], c[2], c[3]};
     Capsule<S> cap{c[4], c[5], c[6], c[7], c[8], c[9], c[10]};
-    gap[i] = grid_collision::grid_cc_capsule_plane<S>(p, cap);
+    gap[i] = grim_collision::grim_cc_capsule_plane<S>(p, cap);
 }
 template <typename S>
 __global__ void cx_kernel(const S *cfg, int n, S *gap) {          // 22 floats/config: box(15)+cap(7)
@@ -67,16 +67,16 @@ __global__ void cx_kernel(const S *cfg, int n, S *gap) {          // 22 floats/c
     const S *c = cfg + 22 * i;
     Cuboid<S> box{c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14]};
     Capsule<S> cap{c[15], c[16], c[17], c[18], c[19], c[20], c[21]};
-    gap[i] = grid_collision::grid_cc_capsule_cuboid<S>(box, cap);
+    gap[i] = grim_collision::grim_cc_capsule_cuboid<S>(box, cap);
 }
 
 // ---- host mirrors (same header, host path) ----
-static T host_ss(const T *c){ return grid_collision::grid_cc_sphere_sphere<T>(c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7]); }
-static T host_sc(const T *c){ Capsule<T> cap{c[0],c[1],c[2],c[3],c[4],c[5],c[6]}; return grid_collision::grid_cc_sphere_capsule<T>(cap,c[7],c[8],c[9],c[10]); }
-static T host_cb(const T *c){ Cuboid<T> b{c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],c[12],c[13],c[14]}; return grid_collision::grid_cc_sphere_cuboid<T>(b,c[15],c[16],c[17],c[18]); }
-static T host_cc(const T *c){ Capsule<T> A{c[0],c[1],c[2],c[3],c[4],c[5],c[6]}, B{c[7],c[8],c[9],c[10],c[11],c[12],c[13]}; return grid_collision::grid_cc_capsule_capsule<T>(A,B); }
-static T host_cp(const T *c){ Plane<T> p{c[0],c[1],c[2],c[3]}; Capsule<T> cap{c[4],c[5],c[6],c[7],c[8],c[9],c[10]}; return grid_collision::grid_cc_capsule_plane<T>(p,cap); }
-static T host_cx(const T *c){ Cuboid<T> b{c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],c[12],c[13],c[14]}; Capsule<T> cap{c[15],c[16],c[17],c[18],c[19],c[20],c[21]}; return grid_collision::grid_cc_capsule_cuboid<T>(b,cap); }
+static T host_ss(const T *c){ return grim_collision::grim_cc_sphere_sphere<T>(c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7]); }
+static T host_sc(const T *c){ Capsule<T> cap{c[0],c[1],c[2],c[3],c[4],c[5],c[6]}; return grim_collision::grim_cc_sphere_capsule<T>(cap,c[7],c[8],c[9],c[10]); }
+static T host_cb(const T *c){ Cuboid<T> b{c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],c[12],c[13],c[14]}; return grim_collision::grim_cc_sphere_cuboid<T>(b,c[15],c[16],c[17],c[18]); }
+static T host_cc(const T *c){ Capsule<T> A{c[0],c[1],c[2],c[3],c[4],c[5],c[6]}, B{c[7],c[8],c[9],c[10],c[11],c[12],c[13]}; return grim_collision::grim_cc_capsule_capsule<T>(A,B); }
+static T host_cp(const T *c){ Plane<T> p{c[0],c[1],c[2],c[3]}; Capsule<T> cap{c[4],c[5],c[6],c[7],c[8],c[9],c[10]}; return grim_collision::grim_cc_capsule_plane<T>(p,cap); }
+static T host_cx(const T *c){ Cuboid<T> b{c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],c[12],c[13],c[14]}; Capsule<T> cap{c[15],c[16],c[17],c[18],c[19],c[20],c[21]}; return grim_collision::grim_cc_capsule_cuboid<T>(b,cap); }
 
 // push an axis*sign rotation frame (columns of a rotation) for cuboid tests
 static void push_box(std::vector<T>&v, T cx,T cy,T cz, T yaw,T pitch,
@@ -244,14 +244,14 @@ int main(){
     // 3-sphere set with one overlapping pair. Driver: broad free -> return true; broad hit -> fine.
     Sphere<T> obs[1] = {{0,0,0,0.3}};
     Environment<T> env{obs,1,nullptr,0,nullptr,0};
-    bool e_hit  = grid_collision::grid_cc_sphere_in_environment<T>(env, 0.2,0,0, 0.2);   // 0.4<0.5 -> hit
-    bool e_miss = grid_collision::grid_cc_sphere_in_environment<T>(env, 1.0,0,0, 0.2);   // 1.0>0.5 -> miss
+    bool e_hit  = grim_collision::grim_cc_sphere_in_environment<T>(env, 0.2,0,0, 0.2);   // 0.4<0.5 -> hit
+    bool e_miss = grim_collision::grim_cc_sphere_in_environment<T>(env, 1.0,0,0, 0.2);   // 1.0>0.5 -> miss
     T spos[9] = {0,0,0,  0.4,0,0,  5,5,5};   // sphere0 & sphere1 overlap; sphere2 far
     T sr[3]   = {0.3,0.3,0.1};
     int ranges_hit[3]  = {0,1,1};            // check s0 vs s1 -> overlap
     int ranges_free[3] = {0,2,2};            // check s0 vs s2 -> free
-    bool s_hit  = grid_collision::grid_cc_self_collision<T>(spos,sr,ranges_hit,1);
-    bool s_free = grid_collision::grid_cc_self_collision<T>(spos,sr,ranges_free,1);
+    bool s_hit  = grim_collision::grim_cc_self_collision<T>(spos,sr,ranges_hit,1);
+    bool s_free = grim_collision::grim_cc_self_collision<T>(spos,sr,ranges_free,1);
     printf("COMPO env_hit=%d env_miss=%d self_hit=%d self_free=%d\n",
            e_hit?1:0, e_miss?1:0, s_hit?1:0, s_free?1:0);
 
@@ -268,20 +268,20 @@ int main(){
         T x=pts[k][0], y=pts[k][1], z=pts[k][2], r=0.03;
         for (int shape=0; shape<3; ++shape){
             T nx,ny,nz;
-            T d0 = shape==0 ? grid_collision::grid_cc_sphere_sphere_signed<T>(x,y,z,r, 0.0,0.0,0.0,0.08, &nx,&ny,&nz)
-                 : shape==1 ? grid_collision::grid_cc_sphere_capsule_signed<T>(cap,x,y,z,r,&nx,&ny,&nz)
-                 :            grid_collision::grid_cc_sphere_cuboid_signed<T>(box,x,y,z,r,&nx,&ny,&nz);
+            T d0 = shape==0 ? grim_collision::grim_cc_sphere_sphere_signed<T>(x,y,z,r, 0.0,0.0,0.0,0.08, &nx,&ny,&nz)
+                 : shape==1 ? grim_collision::grim_cc_sphere_capsule_signed<T>(cap,x,y,z,r,&nx,&ny,&nz)
+                 :            grim_collision::grim_cc_sphere_cuboid_signed<T>(box,x,y,z,r,&nx,&ny,&nz);
             (void)d0;
             T fd[3]; T p[3]={x,y,z};
             for (int a=0;a<3;++a){
                 T sv=p[a]; T t2,t3,t4; p[a]=sv+eps;
-                T dp = shape==0 ? grid_collision::grid_cc_sphere_sphere_signed<T>(p[0],p[1],p[2],r,0.0,0.0,0.0,0.08,&t2,&t3,&t4)
-                     : shape==1 ? grid_collision::grid_cc_sphere_capsule_signed<T>(cap,p[0],p[1],p[2],r,&t2,&t3,&t4)
-                     :            grid_collision::grid_cc_sphere_cuboid_signed<T>(box,p[0],p[1],p[2],r,&t2,&t3,&t4);
+                T dp = shape==0 ? grim_collision::grim_cc_sphere_sphere_signed<T>(p[0],p[1],p[2],r,0.0,0.0,0.0,0.08,&t2,&t3,&t4)
+                     : shape==1 ? grim_collision::grim_cc_sphere_capsule_signed<T>(cap,p[0],p[1],p[2],r,&t2,&t3,&t4)
+                     :            grim_collision::grim_cc_sphere_cuboid_signed<T>(box,p[0],p[1],p[2],r,&t2,&t3,&t4);
                 p[a]=sv-eps;
-                T dm = shape==0 ? grid_collision::grid_cc_sphere_sphere_signed<T>(p[0],p[1],p[2],r,0.0,0.0,0.0,0.08,&t2,&t3,&t4)
-                     : shape==1 ? grid_collision::grid_cc_sphere_capsule_signed<T>(cap,p[0],p[1],p[2],r,&t2,&t3,&t4)
-                     :            grid_collision::grid_cc_sphere_cuboid_signed<T>(box,p[0],p[1],p[2],r,&t2,&t3,&t4);
+                T dm = shape==0 ? grim_collision::grim_cc_sphere_sphere_signed<T>(p[0],p[1],p[2],r,0.0,0.0,0.0,0.08,&t2,&t3,&t4)
+                     : shape==1 ? grim_collision::grim_cc_sphere_capsule_signed<T>(cap,p[0],p[1],p[2],r,&t2,&t3,&t4)
+                     :            grim_collision::grim_cc_sphere_cuboid_signed<T>(box,p[0],p[1],p[2],r,&t2,&t3,&t4);
                 p[a]=sv; fd[a]=(dp-dm)/(2*eps);
             }
             nerr = std::max(nerr, std::max(std::fabs(fd[0]-nx), std::max(std::fabs(fd[1]-ny), std::fabs(fd[2]-nz))));

@@ -3,7 +3,7 @@ Tutorials
 
 Two audiences share this section. Pick your track.
 
-Using GRiD
+Using GRiM
 ----------
 
 .. toctree::
@@ -18,7 +18,7 @@ Using GRiD
    urdf_parser
    cuda_support_status
 
-Contributing to GRiD
+Contributing to GRiM
 --------------------
 
 .. toctree::

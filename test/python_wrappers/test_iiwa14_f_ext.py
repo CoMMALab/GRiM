@@ -1,4 +1,4 @@
-"""External-force (f_ext) handle coverage for `grid-rbd` (E6).
+"""External-force (f_ext) handle coverage for `grim` (E6).
 
 Exercises the optional ``f_ext=`` kwarg threaded through the numpy ``RobotHandle``
 and (when torch is available) the ``TorchRobotHandle`` for inverse_dynamics / forward_dynamics
@@ -31,13 +31,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 
 _URDF = robot_urdf("iiwa14")
 if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -51,7 +51,7 @@ _GRAVITY = -9.81  # RBDReference convention; handle takes +9.81 magnitude.
 
 @pytest.fixture(scope="module")
 def handle():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_fext_smoke", urdf_path=str(_URDF),
         floating_base=False, max_batch_size=8)
 
@@ -172,7 +172,7 @@ def test_torch_inverse_dynamics_f_ext(handle, ref, samples):
     torch = pytest.importorskip("torch", reason="torch not installed")
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available for torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     th = gt.get_robot("iiwa14_fext_smoke")
     NB = th.num_bodies
 
@@ -208,7 +208,7 @@ def test_jax_no_f_ext_residue_after_f_ext_call(handle, samples):
     f_ext input while still passing d_f_ext to their kernels — without the
     stream-ordered reset in the value handlers, a prior f_ext call silently
     poisoned every later jax gradient (repro measured 21.2 max drift)."""
-    gj = pytest.importorskip("grid_rbd.jax")
+    gj = pytest.importorskip("grim.jax")
     jh = gj.register_robot(name="iiwa14_fext_smoke", urdf_path=str(_URDF),
                            floating_base=False, max_batch_size=8)
     q = samples["q"]; qd = samples["qd"]

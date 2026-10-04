@@ -1,14 +1,14 @@
 Input / Output ABI (``h_q_qd_u``)
 =================================
 
-**Read this before you pack a buffer by hand.** GRiD is built for power users who
+**Read this before you pack a buffer by hand.** GRiM is built for power users who
 call the generated kernels directly from their own CUDA (see
 :doc:`design_principles`), which means *you* own the layout of the input buffer.
 This page is the contract for that raw kernel buffer. Getting it wrong on a
 floating base does not crash and does not warn: it silently returns wrong
 dynamics.
 
-The Python handles and the C ABI of the compiled ``grid-rbd`` wrapper do **not**
+The Python handles and the C ABI of the compiled ``grim`` wrapper do **not**
 expose this buffer. They take ``q`` at the configuration width ``nq`` and every
 velocity-like input (``qd``, ``qdd``, ``u``) at the tangent width ``nv``, and
 return dynamics vectors at ``nv``, exactly as Pinocchio and MuJoCo do. The
@@ -38,10 +38,10 @@ The generated kernels slice it exactly that way::
 The header also emits the slot offsets as named constants, right next to the
 contract stated as a comment block::
 
-   grid::GRID_Q_OFFSET     // 0
-   grid::GRID_QD_OFFSET    // NUM_POS
-   grid::GRID_U_OFFSET     // 2*NUM_POS
-   grid::GRID_QDD_OFFSET   // == GRID_U_OFFSET (qdd shares slot 2 with u)
+   grim::GRIM_Q_OFFSET     // 0
+   grim::GRIM_QD_OFFSET    // NUM_POS
+   grim::GRIM_U_OFFSET     // 2*NUM_POS
+   grim::GRIM_QDD_OFFSET   // == GRIM_U_OFFSET (qdd shares slot 2 with u)
 
 Always derive your offsets from these emitted constants (or ``NUM_POS`` /
 ``Q_QD_U_STRIDE``) rather than hardcoding integers.
@@ -72,7 +72,7 @@ In the raw kernel buffer ``qd`` and ``u`` occupy **``NUM_POS``-wide slots**: the
 trailing entry is a pad (write zero). The kernels index velocities by tangent
 index, so this "leading entries, then padding" rule holds for every model,
 floating or spherical. The quaternion is ``xyzw``; identity is ``[0, 0, 0, 1]``.
-The user-facing root velocity is ordered ``[linear; angular]``; GRiD permutes it
+The user-facing root velocity is ordered ``[linear; angular]``; GRiM permutes it
 into the internal Featherstone ``[angular; linear]`` spatial ordering for you.
 
 .. note::
@@ -85,13 +85,13 @@ into the internal Featherstone ``[angular; linear]`` spatial ordering for you.
 Which surface protects you
 --------------------------
 
-* **Python bindings and the C ABI (**``grid-rbd``**)** — protected. You pass
+* **Python bindings and the C ABI (**``grim``**)** — protected. You pass
   ``qd``/``qdd``/``u`` at ``nv`` and the wrapper stages the padded buffer itself;
   an ``nq``-wide (padded) array on a floating-base robot raises a precise
   ``ValueError`` naming the tangent width. Nothing is auto-padded or sliced.
 * **Direct CUDA consumers** — unprotected by construction. You pack
   ``h_q_qd_u`` yourself, so this page is the only contract. Size the buffer as
-  ``3 * NUM_JOINTS * NUM_TIMESTEPS`` (what ``init_gridData`` allocates) and take
+  ``3 * NUM_JOINTS * NUM_TIMESTEPS`` (what ``init_grimData`` allocates) and take
   the offsets from the constants above.
 
 Stability

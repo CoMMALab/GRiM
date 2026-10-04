@@ -18,7 +18,7 @@ so FDSVA-SO inherits the same per-base-type performance crossover.
 Shared-Memory Tier Selector
 ---------------------------
 On sm_120 (RTX 5090) the per-block dynamic shared-memory cap is roughly
-100 KiB. FDSVA-SO is the most shared-memory-intensive algorithm in GRiD;
+100 KiB. FDSVA-SO is the most shared-memory-intensive algorithm in GRiM;
 the codegen automatically picks one of four tiers per (robot, base)
 combination based on the arena size needed:
 
@@ -32,10 +32,10 @@ combination based on the arena size needed:
    mechanism the first-order ID gradient uses.
 
 The tier is determined at codegen time from
-``GRID_CUDA_TARGET_SHARED_MEM_BYTES`` and the robot's NB / NV; no runtime
+``GRIM_CUDA_TARGET_SHARED_MEM_BYTES`` and the robot's NB / NV; no runtime
 selection is required. The selector lives next to the other generated-size
 helpers in
-`GRiDCodeGenerator.py <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`_.
+`GRiMCodeGenerator.py <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`_.
 
 Implementation
 --------------
@@ -43,7 +43,7 @@ The reference implementation is ``RBDReference.fdsva_so`` in
 `RBDReference/RBDReference.py
 <https://github.com/A2R-Lab/RBDReference>`__. The CUDA kernel codegen
 lives in
-`grid_codegen/algorithms/_fdsva_so.py
+`grim_codegen/algorithms/_fdsva_so.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__.
 
 Example Usage

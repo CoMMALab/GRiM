@@ -1,7 +1,7 @@
 The MuJoCo (mjx) output convention
 ==================================
 
-**The canonical page** for GRiD's MuJoCo-convention support: what differs,
+**The canonical page** for GRiM's MuJoCo-convention support: what differs,
 what transforms, where it applies, and what it costs. The mathematical
 derivation with its machine-precision validation lives in
 ``external/RBDReference/equivalents/mujoco_convention.md`` (the transforms
@@ -11,11 +11,11 @@ themselves in ``mujoco_convention.py``); the per-method API tour is in
 The two raw differences
 -----------------------
 
-GRiD is natively **Pinocchio**-convention. MuJoCo differs for the
+GRiM is natively **Pinocchio**-convention. MuJoCo differs for the
 free-floating base in exactly two ways:
 
 1. **Quaternion order.** MuJoCo ``qpos`` stores the free-flyer quaternion
-   **wxyz** (scalar first); pin/GRiD use **xyzw**. A pure relabel on ``q``
+   **wxyz** (scalar first); pin/GRiM use **xyzw**. A pure relabel on ``q``
    and integrator outputs — never touches velocities, forces, or gradients.
 2. **Free-joint velocity frame.** MuJoCo ``qvel`` is
    ``[v_lin GLOBAL ; omega LOCAL]``; the pin spatial twist is
@@ -41,7 +41,7 @@ baseline FIRST — pin↔mjx is a KNOWN, validated transform, and every mjx bug
 so far was actually a pin bug or a caller-side convention mixup
 (`agent debugging guide <https://github.com/A2R-Lab/GRiD/blob/main/docs/agent_debugging_guide.md>`_ §1k).
 
-How GRiD serves it: native kernel twins
+How GRiM serves it: native kernel twins
 ---------------------------------------
 
 For a **floating-base robot without mimic joints or skew axes**, codegen
@@ -72,7 +72,7 @@ the second-order twins are the largest kernels in a big floating-base build
 (``idsva_so_world_frame``'s twin was 28× its pin kernel raw; block-
 parallelizing the epilogue cut it to ~2.4×). If you only need
 Pinocchio-convention outputs, build pin-only with
-``enable_mujoco_kernels=False`` (or ``grid-generate --no-mujoco-kernels``) —
+``enable_mujoco_kernels=False`` (or ``grim-generate --no-mujoco-kernels``) —
 on a large robot this is the difference between building and running out of
 memory. A pin-only floating build then refuses ``output_convention="mujoco"``
 with a clear error at registration time.
@@ -98,7 +98,7 @@ rotation; every transform is a no-op on a fixed base. Verified against real
 MuJoCo (``mj_jacBody`` / ``mj_fullM`` / ``mj_inverse`` / ``mj_energy*`` /
 ``mj_integratePos`` / ``mj_step``) to ~1e-15, or by finite differences along
 the mjx retraction where MuJoCo has no equivalent. The implementation is
-``bindings/grid_rbd/_mujoco.py`` (values) and the generated mjx kernel twins
+``bindings/grim/_mujoco.py`` (values) and the generated mjx kernel twins
 (derivatives / second order).
 
 .. code-block:: text
@@ -144,7 +144,7 @@ the mjx retraction where MuJoCo has no equivalent. The implementation is
    | end_effector_pose_gradient | column_reframe dpose·G^{-1} | column-reframe | FD-mjx 1.9e-10 |
    | **dccrba** dh_dq ⚠REVISED | dh_dq·G^{-1} + A_pin·Jv_q on base-ROT cols (Jv_q=_cross_cols(v_lin,−1)); dhdot_dq/dv/da same family | column-reframe + **vel-couple** | naive off 25→**1.5e-8** |
    | id/fd gradient, idsva_so, fdsva_so | full (rows+cols+couplings) | gradient/SO | done in oracle |
-   | **end_effector_pose_hessian** ⚠REVISED | H_mjx[i,a,k]=Σ H_pin[i,b,c]G^{-1}[b,a]G^{-1}[c,k] + sym(dpose_pin·∂(G^{-1})/∂θ_k); ∂(G^{-1})/∂θ_a base-lin block=−[e_a]×R^T; **symmetrize** in the 2 tangent idx (GRiD analytic hess IS symmetric; raw Lie 2nd-deriv isn't) | tensor-slab + frame | FD-mjx 2.1e-10 |
+   | **end_effector_pose_hessian** ⚠REVISED | H_mjx[i,a,k]=Σ H_pin[i,b,c]G^{-1}[b,a]G^{-1}[c,k] + sym(dpose_pin·∂(G^{-1})/∂θ_k); ∂(G^{-1})/∂θ_a base-lin block=−[e_a]×R^T; **symmetrize** in the 2 tangent idx (GRiM analytic hess IS symmetric; raw Lie 2nd-deriv isn't) | tensor-slab + frame | FD-mjx 2.1e-10 |
    | **integrator** (euler+rk) | mjx retract: floating pos += dt·qvel[:3] GLOBAL (vs pin SE(3) V(φ), O(dt²) wrong) | retract | mj_integratePos **0.0** |
    | integrator_gradient | mjx_dIntegrate (base-lin→I, no lin↔ang) + fd value transform + minv_pin_to_mjx velocity rows | retract | FD-mjx 2.7e-10 |
    | plant_step | composes fd qdd transform (ω×v) + mjx retract | retract | mj_step (si_euler) 1e-16 |

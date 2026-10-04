@@ -1,21 +1,21 @@
 // config_free latency cell (night queue, Bundle 1a follow-up): times the broad->fine
 // config_free over a batch of random configs against a fixed obstacle set. Compiled twice
 // per A/B arm — once against the SPHERIZED header (default) and once against the NATIVE
-// capsule-row header (-DGRID_CC_NATIVE, which only switches the fine-tier scratch sizes;
+// capsule-row header (-DGRIM_CC_NATIVE, which only switches the fine-tier scratch sizes;
 // both config_free overloads share the same 4-scratch call shape). Interleaving of the
 // two exes across reps happens at the script level (same-run pairs, per A/B policy).
 // Output: one line "config_free_us_per_config=<v> free_frac=<f> B=<B> iters=<I>".
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 
 using T = float;   // production collision precision
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
 constexpr int NB_ = gc::NUM_COLLISION_SPHERES_BROAD;
-#ifdef GRID_CC_NATIVE
+#ifdef GRIM_CC_NATIVE
 constexpr int FINE_POS_SZ = 6 * gc::NUM_COLLISION_ROWS;
 constexpr int FINE_R_SZ   = gc::NUM_COLLISION_ROWS;
 #else
@@ -25,7 +25,7 @@ constexpr int FINE_R_SZ   = gc::NUM_COLLISION_SPHERES;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); exit(2);} }while(0)
 
-__global__ void time_kernel(const T *d_qs, int B, const grid::robotModel<T> *m,
+__global__ void time_kernel(const T *d_qs, int B, const grim::robotModel<T> *m,
                             const gc::Sphere<T> *obs, int nobs, const gc::Plane<T> *pl,
                             int *d_free_count) {
     __shared__ T s_q[NQ], s_bpos[3*NB_], s_br[NB_], s_fpos[FINE_POS_SZ], s_fr[FINE_R_SZ];
@@ -47,9 +47,9 @@ int main(int argc, char **argv) {
     const int B = argc > 1 ? atoi(argv[1]) : 1024;
     const int ITERS = argc > 2 ? atoi(argv[2]) : 50;
     const int threads = argc > 3 ? atoi(argv[3]) : 128;
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t sb = grid::MULTI_TARGET_POSITION_BROAD_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t sf = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t sb = grim::MULTI_TARGET_POSITION_BROAD_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t sf = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t smem = sb > sf ? sb : sf;
     cudaFuncSetAttribute(time_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
 

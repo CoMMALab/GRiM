@@ -4,7 +4,7 @@
 UNTESTED: there is no `curobo` package installed on this machine yet. This
 adapter is modeled byte-for-byte on baselines/mjx/run.py and
 baselines/mujoco_warp/run.py (the closest GPU analogs). It shells out to
-`timeCurobo.py` and reuses the SAME shared helpers (parse_grid_output /
+`timeCurobo.py` and reuses the SAME shared helpers (parse_grim_output /
 fill_nulls / build_metadata), so its JSON is drop-in compatible with
 generate_report.py under the baseline key "curobo".
 
@@ -19,7 +19,7 @@ It builds `Dynamics` from a cuRobo robot YAML and times the RNEA-forward
 real GPU competitive baseline for inverse_dynamics + inverse_dynamics_gradient
 (earlier we wrongly concluded it was paper-reference-only). `timeCurobo.py`
 mirrors that benchmark's sync/measurement approach but reports in OUR label
-format + batch sweep (16..256) so parse_grid_output can ingest it.
+format + batch sweep (16..256) so parse_grim_output can ingest it.
 
 INSTALL (VERIFIED 2026-06-13 on RTX 5090 / sm_120 / torch 2.12-dev cu128):
     git clone --depth 1 https://github.com/NVlabs/curobo.git
@@ -33,7 +33,7 @@ INSTALL (VERIFIED 2026-06-13 on RTX 5090 / sm_120 / torch 2.12-dev cu128):
   kinematics (END_EFFECTOR_POSE) currently nulls ('Tensor' has no attribute 'joint_names'
   — the Kinematics FK entry needs a JointState, not a bare tensor; id + id_du work + are
   the meaningful comparison). Measured g1 fixed N=256: id 173.9us, id_du 644.8us (with-mem)
-  — GRiD-autotuned beats both (5.75x / 10.44x).
+  — GRiM-autotuned beats both (5.75x / 10.44x).
 
 ROBOT COVERAGE (cuRobo content/configs/robot/*.yml)
 ---------------------------------------------------
@@ -64,7 +64,7 @@ ALGORITHM COVERAGE
                                 (RNEA forward kernel, "rnea_forward").
   inverse_dynamics_gradient  -> torch.autograd.backward(tau, ...) on the above
                                 (RNEA backward kernel, "rnea_backward"). This is
-                                the analytic d(tau)/d(q,qd,qdd) that GRiD's
+                                the analytic d(tau)/d(q,qd,qdd) that GRiM's
                                 inverse_dynamics_gradient also computes.
   end_effector_pose          -> cuRobo's forward-kinematics kernel
                                 (kin.forward / compute_kinematics). The cuRobo
@@ -73,7 +73,7 @@ ALGORITHM COVERAGE
                                 end_effector_pose. ASSESS on first run whether
                                 the FK kernel maps to our EE-pose semantics; null
                                 it if not (see checklist).
-All other GRiD algos -> null (cuRobo's dynamics surface only exposes RNEA
+All other GRiM algos -> null (cuRobo's dynamics surface only exposes RNEA
 fwd/bwd; no forward_dynamics / crba / minv / SO / Jacobian dynamics kernels).
 
 FIRST-RUN VALIDATION CHECKLIST (see docs/open-tasks/curobo_baseline_plan.md)
@@ -81,7 +81,7 @@ FIRST-RUN VALIDATION CHECKLIST (see docs/open-tasks/curobo_baseline_plan.md)
     of shape (batch, dof) on cuda.
   * confirm the RNEA-backward (torch.autograd.backward) path is the gradient we
     mean: q/qd/qdd.grad populated, shape (batch, dof); compare a couple of
-    columns vs GRiD's inverse_dynamics_gradient at the same state.
+    columns vs GRiM's inverse_dynamics_gradient at the same state.
   * confirm setup_batch_size(batch_size=N) is required before each batch N.
   * sanity-check µs/iter vs mjx + grid (same robot, same N) — same ballpark or
     cuRobo faster on g1 id/id_grad (the author tuned g1).
@@ -107,7 +107,7 @@ THIS_DIR  = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from test.benchmarks.timing_parser import (  # noqa: E402
-    parse_grid_output, fill_nulls, build_metadata,
+    parse_grim_output, fill_nulls, build_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ ROBOT_CUROBO_YML: dict[str, str | None] = {
     "g1":      os.environ.get("CUROBO_G1_YML", "unitree_g1_29dof_retarget.yml"),
     "iiwa14":  None,   # cuRobo ships no iiwa/kuka config
     "go2":     None,   # cuRobo ships no go2 config
-    "h2_plus": None,   # H2+ is GRiD-internal; cuRobo ships no config -> null column
+    "h2_plus": None,   # H2+ is GRiM-internal; cuRobo ships no config -> null column
 }
 
 # cuRobo Dynamics models a FIXED base only (tree rooted at base_link, no
@@ -238,8 +238,8 @@ def main() -> None:
         _null_column(args.robot, args.base, args, reason=f"timeCurobo failed: {e}")
         return
 
-    # parse_grid_output handles the same label format that timeCurobo.py emits.
-    timings = parse_grid_output(output, single_statistic="median")
+    # parse_grim_output handles the same label format that timeCurobo.py emits.
+    timings = parse_grim_output(output, single_statistic="median")
     # Zero out algos cuRobo doesn't support (so they appear as null, not absent).
     for algo in list(timings.keys()):
         if algo not in CUROBO_ALGOS:

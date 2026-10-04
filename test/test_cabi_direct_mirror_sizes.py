@@ -1,7 +1,7 @@
 """CPU referee for abi_specs.cabi_direct (2026-10-01).
 
 A cabi_direct row makes the C-ABI body aim the generated host wrapper's D2H copy at the
-caller's buffer (GridMirrorRetarget) instead of copying a second time (a memcpy of the
+caller's buffer (GrimMirrorRetarget) instead of copying a second time (a memcpy of the
 pinned mirror, or — the device-direct rows — a second download of the device buffer). That
 is only memory-safe when the wrapper copies EXACTLY batch * out_size_expr elements into the
 mirror.
@@ -27,9 +27,9 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen.abi_specs import ABI_SPECS
-from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
-from grid_codegen.wrapper_body_gen import (GENERATED_KEYS, MJX_KEYS, _mirror_name, _mirror_swap,
+from grim_codegen.abi_specs import ABI_SPECS
+from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
+from grim_codegen.wrapper_body_gen import (GENERATED_KEYS, MJX_KEYS, _mirror_name, _mirror_swap,
                                            gen_body, gen_mjx_body)
 from RBDReference.equivalents.reference_backend import build_project_adapter
 from RBDReference.tests import MANIFEST_PATH
@@ -39,11 +39,11 @@ _CASES = (("iiwa14", "fixed"), ("go2", "floating"))
 
 
 def _header(robot, base, monkeypatch):
-    monkeypatch.setenv("GRID_ENABLE_MUJOCO_KERNELS", "1")   # the mjx-twin bodies retarget too
+    monkeypatch.setenv("GRIM_ENABLE_MUJOCO_KERNELS", "1")   # the mjx-twin bodies retarget too
     spec = next(c["spec"] for c in iter_robot_cases(MANIFEST_PATH, base_mode=base) if c["spec"].robot_id == robot)
     pm = build_project_adapter(spec, resolve_robot_spec(spec), base_mode=base)
-    out = Path(tempfile.mkdtemp()) / "grid.cuh"
-    gen = GRiDCodeGenerator(pm.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    out = Path(tempfile.mkdtemp()) / "grim.cuh"
+    gen = GRiMCodeGenerator(pm.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         gen.gen_all_code(output_path=str(out), codegen_profile="all", include_homogenous_transforms=True)
     return out.read_text()
@@ -51,15 +51,15 @@ def _header(robot, base, monkeypatch):
 
 def _consts(src):
     c = {m.group(1): int(m.group(2)) for m in re.finditer(r"const int (\w+) = (\d+);", src)}
-    for m in re.finditer(r"#define (GRID_RBD_NUM_EES|NUM_EES)\s+(\d+)", src):
+    for m in re.finditer(r"#define (GRIM_NUM_EES|NUM_EES)\s+(\d+)", src):
         c[m.group(1)] = int(m.group(2))
-    c.setdefault("GRID_RBD_NUM_EES", c.get("NUM_EES", 0))
+    c.setdefault("GRIM_NUM_EES", c.get("NUM_EES", 0))
     return c
 
 
 def _ev(expr, c, batch):
     env = dict(c, num_timesteps=batch)
-    return eval(expr.replace("grid::", "").replace("sizeof(T)", "1"), {"__builtins__": {}}, env)
+    return eval(expr.replace("grim::", "").replace("sizeof(T)", "1"), {"__builtins__": {}}, env)
 
 
 @pytest.mark.parametrize("robot,base", _CASES, ids=[f"{r}-{b}" for r, b in _CASES])
@@ -71,9 +71,9 @@ def test_every_cabi_direct_wrapper_copies_exactly_batch_times_out_size(robot, ba
     assert direct and all(_mirror_swap(s) for s in direct.values())
     # The comparison below evaluates both sides with THIS header's constants, so it is only
     # a proof if the spec's size names nothing the wrapper can define differently from the
-    # header. GRID_RBD_NUM_EES is such a name (1 on a named-target build, grid::NUM_EES
+    # header. GRIM_NUM_EES is such a name (1 on a named-target build, grim::NUM_EES
     # leaves in the host function's download).
-    wrapper_sized = [k for k, s in direct.items() if "GRID_RBD_" in s.out_size_expr]
+    wrapper_sized = [k for k, s in direct.items() if "GRIM_" in s.out_size_expr]
     assert not wrapper_sized, f"direct rows sized by a wrapper-side macro: {wrapper_sized}"
     problems = []
     for key, s in direct.items():
@@ -118,7 +118,7 @@ def test_every_generated_cabi_body_delivers_its_output():
     for name, body in bodies:
         spec = ABI_SPECS[name.removesuffix("_mujoco")]
         out = re.escape(_out_name(spec))
-        guard = re.search(r"GridMirrorRetarget \w+\(&g_data->" + re.escape(_mirror_name(spec)) + r", " + out + r"\);", body)
+        guard = re.search(r"GrimMirrorRetarget \w+\(&g_data->" + re.escape(_mirror_name(spec)) + r", " + out + r"\);", body)
         copy = re.search(r"(?:std::memcpy|unpack_rows|cudaMemcpy(?:2D)?)\(" + out + r",", body)
         if _mirror_swap(spec) and not guard:
             problems.append(f"{name}: cabi_direct body has no retarget guard")

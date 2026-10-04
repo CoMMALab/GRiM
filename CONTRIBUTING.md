@@ -1,13 +1,13 @@
-# Contributing to GRiD
+# Contributing to GRiM
 
-Thanks for your interest in contributing! GRiD is a GPU-accelerated rigid body
+Thanks for your interest in contributing! GRiM is a GPU-accelerated rigid body
 dynamics library that **generates** per-robot CUDA C++ from a URDF.
 
 ## Getting set up
 
 ```bash
 git clone --recursive https://github.com/A2R-Lab/GRiD.git
-cd GRiD
+cd GRiM
 bash install/base_install.sh && source .venv/bin/activate   # single `pip install -e .`
 ```
 
@@ -25,7 +25,7 @@ tooling (Pinocchio, docs, comparators) installs via
   oracle in `RBDReference` (validated against Pinocchio) and the generated CUDA
   (validated against that oracle). Preserve that invariant.
 - **Byte-identical codegen:** a refactor that shouldn't change emitted code must
-  produce a byte-identical `grid.cuh` (regenerate before/after and `diff`).
+  produce a byte-identical `grim.cuh` (regenerate before/after and `diff`).
   Never land a non-identical diff without a CUDA-equivalence sign-off.
 - **Run the tests** (`.venv/bin/python -m pytest -q`; GPU markers need a GPU —
   see the [testing guide](docs/source/user_guide/tutorials/cuda_validation.rst)).
@@ -51,12 +51,12 @@ algorithm coverage (40+ equivalence modules across the robot manifest).
 For floating CUDA development, the pytest harness also accepts optional env
 overrides:
 
-+ `GRID_CUDA_FLOATING_ALGORITHMS=all` to try the broader floating candidate set
-+ `GRID_CUDA_FLOATING_ALGORITHMS=inverse_dynamics,forward_dynamics` to request a subset
-+ `GRID_CUDA_FLOATING_SAMPLE_NAMES=all` to run every deterministic/random sample instead of only `zero`
++ `GRIM_CUDA_FLOATING_ALGORITHMS=all` to try the broader floating candidate set
++ `GRIM_CUDA_FLOATING_ALGORITHMS=inverse_dynamics,forward_dynamics` to request a subset
++ `GRIM_CUDA_FLOATING_SAMPLE_NAMES=all` to run every deterministic/random sample instead of only `zero`
 
 Generated CUDA defaults to a 96 KiB dynamic shared-memory target
-(`GRID_CUDA_TARGET_SHARED_MEM_BYTES=98304`) and selects spill fallbacks only
+(`GRIM_CUDA_TARGET_SHARED_MEM_BYTES=98304`) and selects spill fallbacks only
 when the generated arena would exceed that target. See
 [CUDA validation guide](https://a2r-lab.github.io/GRiD/user_guide/tutorials/cuda_validation.html)
 for shared-memory target overrides, L2 controls, and the recommended

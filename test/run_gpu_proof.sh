@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the signed GPU-proof receipt for GRiD's CUDA + wrapper equivalence
+# Generate the signed GPU-proof receipt for GRiM's CUDA + wrapper equivalence
 # suites. Run this on a machine with a real GPU and a quiet box.
 #
 # Receipt SCOPE is tiered so the receipt is never an all-or-nothing barrier —
@@ -42,7 +42,7 @@
 #      shards whose fingerprints changed vs the COMMITTED gpu-proof.json and
 #      carry the rest — soundness-gated by codegen_neutrality's covering
 #      matrix + robot-asset gate + per-shard header-key replay. Requires a
-#      CLEAN tree. GRID_SPLIT_REFRESH_DRY=1 previews the stale/carried plan.)
+#      CLEAN tree. GRIM_SPLIT_REFRESH_DRY=1 previews the stale/carried plan.)
 # To pause a running SPLIT pass: `touch <out_dir>/PAUSE` (stops cleanly between
 # shards, ≤ one shard's latency), or SIGINT/SIGTERM the driver (stops within
 # the shard); resume with SPLIT_RESUME.

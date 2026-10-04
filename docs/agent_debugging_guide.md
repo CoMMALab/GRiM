@@ -1,8 +1,8 @@
-# GRiD agent guide — debugging, patterns, pitfalls (what works, what doesn't)
+# GRiM agent guide — debugging, patterns, pitfalls (what works, what doesn't)
 
 Hard-won institutional knowledge from the multi-agent campaigns on `modernizing-tests`
 (F/G/H/I/J/K + the mimic-completion + perf/SO-audit rounds). **Read this before debugging a
-GRiD codegen/CUDA issue or doing a refactor.** GRiD = Python codegen (`GRiDCodeGenerator`)
+GRiM codegen/CUDA issue or doing a refactor.** GRiM = Python codegen (`GRiMCodeGenerator`)
 emitting CUDA C++ from URDFs; numpy/pinocchio reference oracle lives in `RBDReference`.
 
 > **APPEND-ONLY: never renumber or retitle existing §IDs.** A dozen source files cite
@@ -39,11 +39,11 @@ emitting CUDA C++ from URDFs; numpy/pinocchio reference oracle lives in `RBDRefe
 ---
 
 ## 0. The validation checklist (do these EVERY time — they each caught a real bug)
-1. **Clean the generated-header cache before re-validating.** A stale `grid.cuh` gives phantom
+1. **Clean the generated-header cache before re-validating.** A stale `grim.cuh` gives phantom
    pass/fail. The CUDA equivalence harness keys its cache on a hash of the whole
-   `grid_codegen/*.py` tree (`_header_cache_key`), so codegen edits self-invalidate — but
+   `grim_codegen/*.py` tree (`_header_cache_key`), so codegen edits self-invalidate — but
    manual/ad-hoc `gen_all_code` runs into temp dirs do not. When in doubt, clear it.
-2. **Gate-A byte-identical** for any refactor or opt-in algorithm: capture the generated `grid.cuh`
+2. **Gate-A byte-identical** for any refactor or opt-in algorithm: capture the generated `grim.cuh`
    for representative robots (iiwa14-fixed + a floating + a big robot) BEFORE your change, regen
    AFTER, `diff`. Must be empty (refactor) or confined to your new opt-in kernel (additive).
 3. **Floating + fixed codegen smoke, not just `py_compile`.** A floating-codegen regression (the
@@ -148,12 +148,12 @@ DtoH copy of an `nv*nv`-written matrix — is the bug.
 ### 1f. New compile-time kernel VARIANT must be registered for `cudaFuncSetAttribute` (mjx >48KB launch fail)
 **Found adding the `MUJOCO_OUTPUT=true` kernel variants (G-cross, 2026-06-09).** Adding a new compile-time
 template instantiation (here `kernel<T, TIER, MUJOCO_OUTPUT=true>`) creates a DISTINCT `__global__` function
-with its OWN attributes. `KERNEL_ATTR_MANIFEST`/`init_grid_kernel_attrs` registered
+with its OWN attributes. `KERNEL_ATTR_MANIFEST`/`init_grim_kernel_attrs` registered
 `cudaFuncSetAttribute(MaxDynamicSharedMemorySize)` ONLY for the pin (`false`) instantiation. The mjx twins
 whose dynamic smem exceeds the 48 KB device default (fdsva_so, idsva_so-world, integrator*, id-grad on
 humanoids) launched with `cudaErrorInvalidValue` ("invalid argument") while their pin twins succeeded.
 - **Symptom:** `GPUassert: invalid argument` at the kernel-launch line for the mjx variant only; pin works.
-- **Fix:** register the new instantiation too, up to the DEVICE max (`grid_get_max_dynamic_shared_memory_bytes`,
+- **Fix:** register the new instantiation too, up to the DEVICE max (`grim_get_max_dynamic_shared_memory_bytes`,
   ~96 KB on sm_120 — NOT a hardcoded 48 KB). >48 KB is fine once registered.
 - **TRAP:** gate the registration on the ACTUAL emission condition. The mjx kernels are emitted for any
   `self.robot.floating_base` robot (the template param is added there); they are NOT gated on the
@@ -197,12 +197,12 @@ mjx path through the flag-carrying overload — for ID-grad, the bias path zeros
 overload (matches the jax handler, which always passes qdd) under `if constexpr(MUJOCO)`.
 
 **Sibling (2026-06-10): wrapper gated on the wrong capability macro → mimic/skew robots fail to build.**
-The binding's mjx (`*_mujoco`) C-ABI handlers instantiate `grid::*<...,MUJOCO_OUTPUT=true>`, but codegen EMITS
+The binding's mjx (`*_mujoco`) C-ABI handlers instantiate `grim::*<...,MUJOCO_OUTPUT=true>`, but codegen EMITS
 those template overloads only for `floating && !mimic && !skew` (the `mjx_inner`/`mjx_device` gates). They were
-`#ifdef GRID_FLOATING_BASE` — defined for ANY floating robot — so a floating+mimic robot (h1_2, 12 mimic joints)
-compiled the wrapper against overloads codegen never emitted → `grid::fdsva_so<T,GRID_DATA_ALL,true>` "no matching
+`#ifdef GRIM_FLOATING_BASE` — defined for ANY floating robot — so a floating+mimic robot (h1_2, 12 mimic joints)
+compiled the wrapper against overloads codegen never emitted → `grim::fdsva_so<T,GRIM_DATA_ALL,true>` "no matching
 function." Fix: emit a DEDICATED capability macro whose condition mirrors the codegen emission EXACTLY
-(`GRID_RBD_WITH_MUJOCO`, defined iff `floating && !mimic && !skew`) and gate the wrapper + pybind on it; the
+(`GRIM_WITH_MUJOCO`, defined iff `floating && !mimic && !skew`) and gate the wrapper + pybind on it; the
 pybind side already used `opt_sym` (nullptr-tolerant) so only the wrapper's compile-time instantiation was the
 hard failure. RULE: a wrapper that references a conditionally-emitted kernel variant must gate on a macro that
 tracks the EMISSION condition, not a looser proxy (floating ⊋ mjx-capable).
@@ -227,10 +227,10 @@ template args must emit N params on ALL robot classes — prefer making the DEFI
 every call site. (Validated bit-exact on iiwa14-fixed + go2-floating + fr3-mimic, jax+torch.)
 
 ### 1j. `beta=0` GEMM still READS C → uninitialized-scratch `0*NaN` poisoning (load-dependent thread-inv flake)
-**Found in spherical CRBA (2026-06-11).** A composite-inertia fold emitted `grid_linalg_gemm<...,false,true>(.., &s_temp[off], 1, 0, ..)` — alpha=1, **beta=0**, into a scratch slot. GLASS's with-beta gemm kernel computes `C[i] = alpha*res + beta*C[i]`, i.e. it **reads C even when beta=0**. On the slot's COLD first use that scratch is uninitialized; whenever the leftover bit-pattern happened to be NaN/Inf, `0*NaN == NaN` poisoned the whole fold (and M, minv, fd downstream). It presented as a *thread-invariance flake on `mixed_spherical_arm` under heavy concurrent build load*: at `threads=1` the work serializes and the slot is effectively always overwritten cleanly; at `threads>1` it intermittently surfaced (slot contents are nondeterministic across launches). Equivalence-vs-oracle (single isolated run) almost always passed — so it hid as "1×/15 under load." Fix: **zero the gemm temp slot once before the first beta=0 write** (a tiny `parallel_loop` + `sync`). RULES: (1) `beta=0` is NOT "write-only" in GLASS — a destination that a beta gemm writes must be initialized (or use a beta-less / overwrite kernel variant). (2) A *thread-count-dependent* discrepancy that vanishes when isolated is almost always an **uninitialized/under-initialized shared-scratch read** (or a missing sync), not a hardware blip — hunt the cold scratch slot. (3) Reproduce flakes by running the thread-inv check 20–30× **under concurrent GPU load**, not isolated. (Gate-A byte-identical for cardinal robots — the fix is in the spherical-only emit path.)
+**Found in spherical CRBA (2026-06-11).** A composite-inertia fold emitted `grim_linalg_gemm<...,false,true>(.., &s_temp[off], 1, 0, ..)` — alpha=1, **beta=0**, into a scratch slot. GLASS's with-beta gemm kernel computes `C[i] = alpha*res + beta*C[i]`, i.e. it **reads C even when beta=0**. On the slot's COLD first use that scratch is uninitialized; whenever the leftover bit-pattern happened to be NaN/Inf, `0*NaN == NaN` poisoned the whole fold (and M, minv, fd downstream). It presented as a *thread-invariance flake on `mixed_spherical_arm` under heavy concurrent build load*: at `threads=1` the work serializes and the slot is effectively always overwritten cleanly; at `threads>1` it intermittently surfaced (slot contents are nondeterministic across launches). Equivalence-vs-oracle (single isolated run) almost always passed — so it hid as "1×/15 under load." Fix: **zero the gemm temp slot once before the first beta=0 write** (a tiny `parallel_loop` + `sync`). RULES: (1) `beta=0` is NOT "write-only" in GLASS — a destination that a beta gemm writes must be initialized (or use a beta-less / overwrite kernel variant). (2) A *thread-count-dependent* discrepancy that vanishes when isolated is almost always an **uninitialized/under-initialized shared-scratch read** (or a missing sync), not a hardware blip — hunt the cold scratch slot. (3) Reproduce flakes by running the thread-inv check 20–30× **under concurrent GPU load**, not isolated. (Gate-A byte-identical for cardinal robots — the fix is in the spherical-only emit path.)
 
 ### 1k. pin↔mjx is a KNOWN frame transform — don't "debug" the reframe; check the pin baseline FIRST
-**Cost a long session 2026-06-19.** GRiD exposes BOTH pinocchio (default) and mujoco/mjx output conventions
+**Cost a long session 2026-06-19.** GRiM exposes BOTH pinocchio (default) and mujoco/mjx output conventions
 (intentional, user directive — keep both; flag = handle `output_convention` / the per-call `handle.mujoco`
 view / C-ABI `*_mujoco` twins). They differ by a **documented, validated** base-frame transform, NOT a bug:
 pinocchio = quat **xyzw** + free-joint velocity `[v_lin LOCAL; ω LOCAL]`; mujoco = quat **wxyz** + `qvel
@@ -250,9 +250,9 @@ G orthogonal ⇒ `G^{-1}=G^T`. Gradient base-linear maps `grad_mjx = R·grad_pin
   RBDReference by `test_cuda_plant_centroidal_costs_match_reference` (go2:floating, via the standalone `.cu` harness).
   A passing plant-equiv ⇒ the centroidal/cost CORE is correct ⇒ a binding-layer mjx test failure is in the bindings
   wiring or build staleness, not the kernel math. (Don't re-derive a "kernel bug" the .cu harness already disproved.)
-- **STALE-BUILD GOTCHA (updated 2026-06-21):** the grid_rbd compile cache key hashes URDF + options + arch +
+- **STALE-BUILD GOTCHA (updated 2026-06-21):** the grim compile cache key hashes URDF + options + arch +
   package version + `_wrapper_template_hash()` + `_codegen_source_hash()` (the latter hashes all `*.py` under
-  `grid_codegen/` + `URDFParser/`, AND now `bindings/grid_rbd/_compile.py`). So a codegen-SOURCE edit DOES
+  `grim_codegen/` + `URDFParser/`, AND now `bindings/grim/_compile.py`). So a codegen-SOURCE edit DOES
   rotate the key (no `force_rebuild` needed). The historical trap was narrower: editing the codegen INVOCATION in
   `_compile.py` (algorithm_list / `enable_*` flags) was NOT hashed → a flag change silently reused an old .so. That
   gap is now closed (`_compile.py` hashed). Still verify with `stat` if suspicious. NOTE: re-keying invalidates ALL
@@ -280,7 +280,7 @@ modernizing-tests.** `idsva_so` picks body- vs world-frame at codegen time via `
 (= floating OR spherical OR NV≥`NV_FIXED_WORLD_THRESHOLD`-fixed; `_idsva_so.py:20`). The dispatcher + `idsva_so_device`
 EMIT a call to `idsva_so_world_frame_inner` whenever that predicate is true — but the world-frame *emission*
 (`gen_idsva_so_world_frame()`, which DEFINES the inner) was gated on `floating_base` only, in TWO places
-(`GRiDCodeGenerator.py` default + the `_compile.py` binding kwarg). For a high-DOF FIXED robot the predicate routes
+(`GRiMCodeGenerator.py` default + the `_compile.py` binding kwarg). For a high-DOF FIXED robot the predicate routes
 to world, the inner is CALLED, but never DEFINED → `error: identifier "idsva_so_world_frame_inner" is undefined`.
 - **THE RULE:** any "pick variant X at codegen time" predicate used by a dispatcher/device wrapper MUST be the SAME
   predicate that gates EMISSION of X. Don't write the selection logic twice. Fix here: emission default now reuses
@@ -290,15 +290,15 @@ to world, the inner is CALLED, but never DEFINED → `error: identifier "idsva_s
   (g1-fixed) when touching idsva_so/fdsva_so frame selection** — that's where dispatch and emission diverge.
 - Relevant to the perf-cleanup idsva_so agents (11a/11b): they rework exactly this body/world emission.
 - **2026-09-08 recurrence, WRAPPER flavor (the "h1_2 idsva_so unlaunchable" myth):** the jax FFI + torch
-  handlers for `idsva_so` picked body- vs world-frame via `#ifdef GRID_RBD_WITH_MUJOCO` — the mjx-TWINS
+  handlers for `idsva_so` picked body- vs world-frame via `#ifdef GRIM_WITH_MUJOCO` — the mjx-TWINS
   gate (floating AND non-mimic AND non-skew), NOT the dispatch predicate. A floating MIMIC robot (h1_2)
   has no `WITH_MUJOCO`, so the handlers launched the 3.0MB body-frame no-ladder diagnostic → launch fail
   at every thread count → the 09-05 autotune verdict "genuinely unlaunchable" (the DISPATCHED world frame
-  needs 15KB and runs fine — proven by the numpy path, which goes through `grid::idsva_so` itself). The
+  needs 15KB and runs fine — proven by the numpy path, which goes through `grim::idsva_so` itself). The
   same wrong gate silently ran body-frame on high-DOF FIXED robots (g1-fixed: 98KB body vs the intended
-  33KB world). Fix: both handlers now fork on `GRID_IDSVA_SO_DISPATCHES_WORLD_FRAME` (the macro codegen
+  33KB world). Fix: both handlers now fork on `GRIM_IDSVA_SO_DISPATCHES_WORLD_FRAME` (the macro codegen
   emits FROM the dispatch predicate), with the MUJOCO_OUTPUT template param forked separately on
-  `GRID_RBD_SIG_MJX_IDSVA_SO` (floating-mimic world kernels carry the param; high-DOF-fixed ones don't).
+  `GRIM_SIG_MJX_IDSVA_SO` (floating-mimic world kernels carry the param; high-DOF-fixed ones don't).
   **Tell:** numpy path works, FFI/torch path "launch failed", error names a kernel the dispatcher
   wouldn't pick. **Rule addendum:** `WITH_MUJOCO` gates TWIN existence, never frame/variant selection.
 
@@ -315,7 +315,7 @@ It was NOT. The `*_device` wrappers (`forward_dynamics_device`, `minv_device`, �
    0 but that does NOT mean the band is free — it moved into `s_temp`. A caller who sizes `s_temp` short (e.g. reuses a
    smaller-DoF constant) makes the inner read its own never-written band → NaN. **DoF-specific because the band scales
    as `6*NV*NV`** (indy7 216 fits the slack; iiwa14 294 overflows). This is the "why only 7-DoF" tell.
-- **THE RULE / triage order:** before touching codegen for a consumer-reported NaN, reproduce **correct GRiD usage** in
+- **THE RULE / triage order:** before touching codegen for a consumer-reported NaN, reproduce **correct GRiM usage** in
   a standalone harness — `*_device<T, TIER_SHARED>` (and the correctly-wired `*_inner`) on zero input. If that's finite
   (it was: float+double, 1+32 threads, sensible gravity qdd), the codegen is fine and the bug is the call site:
   unloaded/partial XImats, under-sized `s_temp` (missing the band), wrong `MINV_F_IN_SMEM`/`nullptr` pairing, or scratch
@@ -331,25 +331,25 @@ as the #1 silent-wrong-answer risk, and it is the same *index-convention* family
 point, or a foam collision sphere) is a fixed offset off a link; its world position/gradient reads
 `s_Xworld[16*anchor_jid]`. Different tools index links DIFFERENTLY: **foam's `sphere_to_joint` uses an
 actuated-joint COUNT** (base=0, +1 per revolute/prismatic/continuous, fixed joints don't advance), while HJCD's
-`utils.cuh` *also* carries a rival URDF-link-ORDINAL table (hand=9 vs 7). **GRiD must map each target's link to
+`utils.cuh` *also* carries a rival URDF-link-ORDINAL table (hand=9 vs 7). **GRiM must map each target's link to
 ITS OWN frame/joint id (the `s_Xhom`/`s_Xworld` slot) via `URDFParser`, NOT copy either external table.** A
 mismatch silently checks collision / places the target on the wrong link with NO error — positions look
 plausible. Guard: assert the mapping against a base-0-monotone-down-chain property (port foam's
 `test_foam_spheres.py` UR10e assertion) and cross-check one sphere's world position vs an independent numpy FK.
 
-### 1p. Consumer "uninitialized-`s_vaf` read" is USUALLY a STALE GLASS pin (§1j), not a GRiD read-before-write — the NaN-poison harness settles it
-**PDDP filed (2026-07-09):** `grid_plant::plant_step_gradient` → the emitted `[A|B]` B-block (the
+### 1p. Consumer "uninitialized-`s_vaf` read" is USUALLY a STALE GLASS pin (§1j), not a GRiM read-before-write — the NaN-poison harness settles it
+**PDDP filed (2026-07-09):** `grim_plant::plant_step_gradient` → the emitted `[A|B]` B-block (the
 `d(qd_next)/dx` rows) goes NaN whenever garbage/NaN is resident in shared memory (a diverged rollout);
 poison-bisect showed zeroing **only** the `s_vaf` slice restores immunity → looks like a genuine
 `s_vaf` read-before-write in the du-gradient chain. **It is not.** It is §1j (a `beta==0` GLASS gemm
 that still READS its destination `C`, `0*NaN=NaN`) landing on an `s_vaf` slot — and it was **already
 fixed upstream** by GLASS PR#19 (`beta_blend`, pinned `08b98a7`). A consumer only still hits it if its
 vendored GLASS predates PR#19 (PDDP's checked-in header was GLASS `5caa6d0`).
-- **THE TRIAGE (do this before touching any emitter):** generate the header at *current* GRiD HEAD and
+- **THE TRIAGE (do this before touching any emitter):** generate the header at *current* GRiM HEAD and
   diff the whole chain function-by-function against the consumer's header
   (`plant_step_gradient` → `integrator_gradient_device` → `forward_dynamics_gradient_device` →
   `inverse_dynamics_gradient_inner` / `inverse_dynamics_inner` / `minv_inner`). If **every
-  GRiD-generated function is byte-identical** and only the vendored GLASS block differs, the fix is a
+  GRiM-generated function is byte-identical** and only the vendored GLASS block differs, the fix is a
   **GLASS pin bump + REGEN**, not a codegen change. (Verified: current HEAD, GLASS `08b98a7`, is
   poison-immune with no zeroing; PDDP's `5caa6d0` header reproduces 98 NaN, deterministic.)
 - **THE TOOL — NaN-poison harness** (reusable; the arbiter for every "is this arena slot read before
@@ -363,10 +363,10 @@ vendored GLASS predates PR#19 (PDDP's checked-in header was GLASS `5caa6d0`).
   scheduling), not that the path is clean. Reference harness + scrub-bisect (`zero=none|vaf|df_du|…`)
   in this session's scratch `poison/` + `poison_pddp/`; the poison recipe mirrors PDDP
   `docs/agent_debugging_guide.md` "Bug class 8".
-- **RESOLUTION for consumers (PDDP et al.):** bump the GLASS pin to `≥08b98a7` (via a GRiD submodule
-  bump), then **regenerate `grid.cuh`** — a *gitignored/per-robot* header does NOT auto-regen when you
+- **RESOLUTION for consumers (PDDP et al.):** bump the GLASS pin to `≥08b98a7` (via a GRiM submodule
+  bump), then **regenerate `grim.cuh`** — a *gitignored/per-robot* header does NOT auto-regen when you
   bump the submodule pointer (PDDP's did not, which is why they believed "08b98a7 still reproduces").
-  Then drop any caller-side `s_vaf` zero-fill workaround. GRiD itself needs no change: the `beta==0`
+  Then drop any caller-side `s_vaf` zero-fill workaround. GRiM itself needs no change: the `beta==0`
   contract is GLASS's (`beta_blend`), and current HEAD already pins the fix.
 - Same family as §1j (root), §1n (consumer-NaN triage-before-fixing), §1a (`s_vaf` sizing).
 
@@ -395,7 +395,7 @@ under the §1p 0xFF sweep — the slots ARE written, only their *summation order
 - **VERIFY: correctness, not the symptom.** The nondeterminism is INTERMITTENT (a warp-race needs
   scheduling contention — on a quiet box even the pre-fix binary is often bit-stable across dozens of
   trials), so don't try to reproduce the jitter as your gate. Instead verify the conversion is
-  numerically correct: equivalence-vs-oracle still passes + `grid.cuh` byte-identical for robots the
+  numerically correct: equivalence-vs-oracle still passes + `grim.cuh` byte-identical for robots the
   fold doesn't exercise (fixed-base) → identical-in-exact-arithmetic by construction (pure summation
   reorder). The new values land inside the old atomicAdd jitter band (old = oracle-passing).
 - **DURABLE GATE (§0-style):** `test_cuda_executable_equivalence.py` now runs the equivalence runner
@@ -454,7 +454,7 @@ feedback indexes up to slot **1023**, so `gen_anti_licm_*` silently REQUIRE the 
 but any algo whose output scales with a *user-supplied batch* can under-allocate: a 1-target
 `multi_target` batch is only `3*1*256` = 768 < 1024 → **out-of-bounds read**, surfacing as
 `cudaErrorLaunchFailure (719)` under memcheck. Fixed by flooring the DEVICE buffer at 1024 elements in
-`gen_init_gridData` (the D2H copy still moves only the natural size). **If you add an algo whose output
+`gen_init_grimData` (the D2H copy still moves only the natural size). **If you add an algo whose output
 size depends on a batch/config count, check this floor.**
 
 ---
@@ -508,7 +508,7 @@ EVERY thread count** (32..1024) and every batch size (died on the first launch, 
 process and `gpuErrchk` does `exit(code)`. So one kernel's death **killed the entire shared-tier
 binary**, and *every* algo on go2-floating lost its shared-tier probes (`shared=0 / lite=240 /
 minimal=192`). SHARED is the no-spill tier and usually the fastest ⇒ the autotune silently fell back to
-lite/minimal and **GRiD under-reported its own performance on that robot**. The picks were not *wrong*,
+lite/minimal and **GRiM under-reported its own performance on that robot**. The picks were not *wrong*,
 they were *pessimistic* — a far quieter failure than a crash.
 
 **Root cause.** The spill pool is a **`max` over three INDEPENDENT consumers**:
@@ -529,8 +529,8 @@ On go2-floating the max is dominated by the **contraction**, not the idsva inner
 **The kernel was correct all along; the ARENA FORMULA lied.** The kernel carved the full pool (25311
 elems) while the launch reserved the fraudulent 24234 → **short by 1077 elems (4308 B)** → OOB write.
 
-**Why the "does it fit" guard didn't catch it.** `grid_check_dynamic_shared_memory_bytes` compares the
-*computed* arena against `GRID_CUDA_TARGET_SHARED_MEM_BYTES` (98304). The fraudulent 24234 (= 97396 B)
+**Why the "does it fit" guard didn't catch it.** `grim_check_dynamic_shared_memory_bytes` compares the
+*computed* arena against `GRIM_CUDA_TARGET_SHARED_MEM_BYTES` (98304). The fraudulent 24234 (= 97396 B)
 **passed** the check; the honest 25326 (= 101764 B) does **not** — so with the fix the picker correctly
 rejects the rung and falls to `workspace_temp` (spilling the contraction to global). **An under-counted
 arena doesn't just under-reserve — it defeats the fits-check that exists to prevent exactly this.**
@@ -546,7 +546,7 @@ arena doesn't just under-reserve — it defeats the fits-check that exists to pr
   fdsva_so was the ONLY algo where macro ≠ carve, which is how it was localized.)
   **★ NOW ENFORCED — `test/test_shared_arena_covers_carve.py` (2026-07-13).** Purely static on the
   GENERATED header (no compile, no GPU, zero blast radius on codegen): `gen_declare_shared_arena` already
-  emits every carve as a `// GRID shared arena layout` comment block, so the test sums each `__global__`
+  emits every carve as a `// GRIM shared arena layout` comment block, so the test sums each `__global__`
   kernel's regions per tier branch and asserts its launch-sizing macro covers them. **Positive control
   run:** re-introducing the bad rung makes it fail with
   `fdsva_so_kernel: tier 0 macro reports 24234 but the kernel CARVES 25311 (short by 1077)` — i.e. it
@@ -554,7 +554,7 @@ arena doesn't just under-reserve — it defeats the fits-check that exists to pr
   fr3(mimic); 48 kernel/tier pairs checked. The assert is `>=`, not `==`: a spill ladder legitimately
   leaves slack (the arena is a max over rungs and the picked rung may not be the argmax). **Slack is
   waste; under-count is corruption.**
-  Note the pre-existing `#ifdef GRID_CUDA_DEBUG_LAYOUT` assert in `gen_declare_shared_arena` does NOT
+  Note the pre-existing `#ifdef GRIM_CUDA_DEBUG_LAYOUT` assert in `gen_declare_shared_arena` does NOT
   cover this — it checks the carve against the SAME t_buffers list it was built from (self-consistent by
   construction) and never against the macro the HOST uses to size the launch. That was the whole gap.
 - **Sanitizers find this instantly, tier sweeps don't.** The bug needs (floating base) × (TIER_SHARED) ×
@@ -618,7 +618,7 @@ launch; only the largest one fails.
   large `STACK:` on a single-block kernel is the smell (same probe as §1u's register spill, different
   cause: DATA on the stack vs WORKING arrays spilling).
 - **Gotcha:** the error surfaces at the *next* `gpuErrchkKernel`/sync after the failed launch, so the
-  reported `grid.cuh` line points at the sync, not the array. Distinct from §1u (that was per-thread
+  reported `grim.cuh` line points at the sync, not the array. Distinct from §1u (that was per-thread
   working arrays spilling to local; this is per-thread const DATA sitting on the stack). Sweep for the
   same pattern in sibling emitters (the value −Jᵀ path's `feg_job_S[]` had the same latent leak).
 
@@ -635,7 +635,7 @@ eager.** Two stacked causes, neither a kernel bug:
   never changed. For repeated identical launches the apples-to-apples graph number is
   **`replay()` only** (update `static_in` in place outside the timed region, symmetric with eager
   reading the same tensors).
-- **Genuine structural fact:** at B ∈ {64…1024} a GRiD fd kernel is 14–80 us of GPU work vs
+- **Genuine structural fact:** at B ∈ {64…1024} a GRiM fd kernel is 14–80 us of GPU work vs
   ~13 us of CPU submission — the loop is **GPU-execution-bound**, so collapsing launch overhead
   cannot move the wall clock (replay ≈ eager, 0.9–1.0×; even a 140-node 20-step captured rollout
   is 1.00–1.02×). The graph win is real but lives on the **CPU-submission axis**: enqueue drops
@@ -656,28 +656,28 @@ eager.** Two stacked causes, neither a kernel bug:
 Found building the first `floating_base=True, enable_mujoco_kernels=False` robot through the
 jax/torch BINDINGS (go2 gpu-resident examples). Two independent bugs:
 
-- **Dropped kwarg in backend delegation:** top-level `grid_rbd.register_robot(backend="jax"/"torch")`
-  forwards to `grid_rbd.{jax,torch}.register_robot(...)` with an EXPLICIT kwarg list — and
+- **Dropped kwarg in backend delegation:** top-level `grim.register_robot(backend="jax"/"torch")`
+  forwards to `grim.{jax,torch}.register_robot(...)` with an EXPLICIT kwarg list — and
   `enable_mujoco_kernels` wasn't in it, so the flag silently reverted to True and the build got the
   full mjx twins (different cache key, double compile time; a humanoid would OOM). The numpy backend
-  honored it. **Tell:** two cache entries whose grid.cuh differ by `#define GRID_RBD_WITH_MUJOCO`.
+  honored it. **Tell:** two cache entries whose grim.cuh differ by `#define GRIM_WITH_MUJOCO`.
   When a backend wrapper mirrors a long kwarg list, every new register_robot option must be added in
   THREE places (top-level → backend fn signature → backend's base call) — grep all delegation sites.
 - **Wrapper signature switch keyed on the mjx-KERNELS gate instead of the emitted SIGNATURE:**
-  grid.cuh emits host launchers as `<..., KIND, MUJOCO_OUTPUT, RESOURCE_TIER>` on FLOATING robots
+  grim.cuh emits host launchers as `<..., KIND, MUJOCO_OUTPUT, RESOURCE_TIER>` on FLOATING robots
   (per-algo exceptions: fdsva_so/fd_gradient drop it on mimic/skew; id_gradient also on spherical) —
   INDEPENDENT of `enable_mujoco_kernels`. The wrapper's pin call sites chose the 3-vs-4-template-arg
-  form via `#if defined(GRID_RBD_WITH_MUJOCO)` (= enable && floating && !mimic && !skew). On any
+  form via `#if defined(GRIM_WITH_MUJOCO)` (= enable && floating && !mimic && !skew). On any
   floating build where those diverge (pin-only floating; floating mimic/skew), the 3-arg form binds
   the explicit TIER into the `bool MUJOCO_OUTPUT` slot: **TIER=2 → hard nvcc error** ("narrowing
   conversion of '2' to bool", seen on fdsva_so), **TIER=1 → silently compiles with
   MUJOCO_OUTPUT=true + default RESOURCE_TIER** (mjx-convention output from the pin entry point).
   **Fix (no rule duplication — §1m):** `_compile._mjx_signature_flags()` scans the JUST-GENERATED
-  grid.cuh for each host fn's template line and passes `-DGRID_RBD_SIG_MJX_<FN>` iff it carries
+  grim.cuh for each host fn's template line and passes `-DGRIM_SIG_MJX_<FN>` iff it carries
   MUJOCO_OUTPUT; the wrapper's 13 signature switches key on those per-fn flags. Ground truth = the
   emitted header, so the switch can never drift from codegen's per-algo rules.
 - **Still latent (out of scope 2026-08-01):** a floating SPHERICAL non-mimic robot with mjx enabled
-  — `GRID_RBD_WITH_MUJOCO` is defined but id_gradient's mjx overload/signature is not emitted, so
+  — `GRIM_WITH_MUJOCO` is defined but id_gradient's mjx overload/signature is not emitted, so
   the wrapper's mjx ENTRY POINT for it should fail to compile. Same class, needs the entry-point
   gates audited against the per-algo `mjx_host` rules.
 
@@ -707,13 +707,13 @@ wrappers' D2H `cudaMemcpy` sizes. Latent since those emissions existed — every
 h2_plus `idsva_so` reported "SKIPPED (242,816 B shared mem exceeds device cap)" at EVERY tier —
 looked like a hard smem wall. It was the bench's skip probe: `PER_ALGO_SPECS["idsva_so"]`
 checked `IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES` (the floating no-ladder DIAGNOSTIC path),
-but `grid::idsva_so` forwards AT CODEGEN TIME to the WORLD frame on floating/spherical/high-DOF
+but `grim::idsva_so` forwards AT CODEGEN TIME to the WORLD frame on floating/spherical/high-DOF
 robots — which fits (84 KB shared / 23 KB lite+minimal). The cell was never actually blocked.
 - **Tell:** "skipped for resource X" where the probed constant belongs to a DIFFERENT emitted
   variant than the dispatcher's forward target; the per-tier constants in the generated header
   (grep `*_DYNAMIC_SHARED_MEM_BYTES`) disagree with the skip message's number.
 - **Fix pattern:** emit the dispatch decision as a header macro
-  (`GRID_IDSVA_SO_DISPATCHES_WORLD_FRAME`, from the same predicate the dispatcher emit uses) and
+  (`GRIM_IDSVA_SO_DISPATCHES_WORLD_FRAME`, from the same predicate the dispatcher emit uses) and
   make the probe `#if` on it (undefined → old behavior, so stale headers keep working).
 - **General rule:** any consumer-side gate keyed to "algorithm X" must resolve X the way the
   PUBLIC entry point does. Same class as §1x (wrapper switch keyed on the wrong macro).
@@ -721,10 +721,10 @@ robots — which fits (84 KB shared / 23 KB lite+minimal). The cell was never ac
 ### 1aa. Restricted `algorithm_list` emits a CALLER whose shared HELPER is gated behind an unrequested algorithm (2026-08-02)
 
 `algorithm_list=[idsva_so_body_frame,fdsva_so]` + `enable_floating_second_order=True` emitted the
-floating integrator-hessian SE(3) block (calls `grid_dIntegrate_{q,v}_block` /
-`grid_d2Integrate_block`) but NOT `gen_lie_group_helpers` — every full-profile header gets those
+floating integrator-hessian SE(3) block (calls `grim_dIntegrate_{q,v}_block` /
+`grim_d2Integrate_block`) but NOT `gen_lie_group_helpers` — every full-profile header gets those
 helpers from ANOTHER consumer (integrator / f_ext_gradient / d2ee / frame_jacobian_dot), so the
-gap only reproduces under a restricted list → nvcc "identifier undefined" deep in grid.cuh.
+gap only reproduces under a restricted list → nvcc "identifier undefined" deep in grim.cuh.
 - **Fix pattern:** the EMITTER that emits the caller calls the (idempotent) helper emitter itself
   — `gen_lie_group_helpers` guards with `_lie_helpers_emitted`, so a duplicate call is a no-op
   and full-profile headers stay byte-identical.
@@ -818,7 +818,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   it fits, spill to d_workspace when not). Cue: a sub-expr inside the body-walk whose inputs are all
   per-iteration-local and whose output is consumed after the walk.
 - **P4 — Offline memory layout: sparse compaction + coalesced distribution + topology-helper indirection.**
-  GRiD is a code GENERATOR that knows the robot's topology + matrix sparsity OFFLINE — spend that to make
+  GRiM is a code GENERATOR that knows the robot's topology + matrix sparsity OFFLINE — spend that to make
   online reads cheap: (a) **compact** to only structurally-nonzero entries (fewer bytes → higher tier fits;
   don't loop/store over known zeros); (b) **lay out** data (SoA/stride/padding) offline so the thread→data
   map reads CONTIGUOUS aligned addresses per warp — an uncoalesced strided access can erase a P1/P2 fan-out
@@ -892,21 +892,21 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   lanes, or just leave tiny-fan-out assemblies serial. A/B at MULTIPLE thread counts (not just MAX) — a
   thread-count-SCALING regression is the tell. (#3 stays open in the audit with this caveat; the win is real only
   for big floating robots and would need the const-table-hoist redesign to not regress the common small case.)
-- **GLASS is VENDORED (inlined) into every generated `grid.cuh` at codegen time — a GLASS change does NOT reach
-  GRiD's emit until you also do the GRiD-side plumbing.** Mechanism (`grid_codegen/helpers/_lin_alg_helpers.py`):
-  `gen_grid_linalg_backend_helpers` reads each file in the curated list `_GLASS_BASE_FILES` *fresh from the GLASS
+- **GLASS is VENDORED (inlined) into every generated `grim.cuh` at codegen time — a GLASS change does NOT reach
+  GRiM's emit until you also do the GRiM-side plumbing.** Mechanism (`grim_codegen/helpers/_lin_alg_helpers.py`):
+  `gen_grim_linalg_backend_helpers` reads each file in the curated list `_GLASS_BASE_FILES` *fresh from the GLASS
   submodule* and inlines it into the header (`// BEGIN/END GLASS ...`), pinning the GLASS commit in a comment.
-  GRiD code never `#include`s GLASS — it's embedded, so the generated header is self-contained. Three consequences
+  GRiM code never `#include`s GLASS — it's embedded, so the generated header is self-contained. Three consequences
   any GLASS-touching agent MUST handle: **(1)** the vendoring is automatic *on regen*, so editing an
-  already-listed file (e.g. `src/base/L2/gemv_segmented.cuh`) reaches GRiD on the next `gen_all_code` — but
-  **(2)** a NEW GLASS file is invisible to GRiD until you add it to `_GLASS_BASE_FILES` (so keep additions inside
-  an already-vendored file when you can); and **(3)** GRiD calls GLASS ONLY through the `grid_linalg_*` wrappers
-  in the same file (e.g. `grid_linalg_gemm → glass::gemm`) — a new GLASS *capability/flag* (e.g. the L2
+  already-listed file (e.g. `src/base/L2/gemv_segmented.cuh`) reaches GRiM on the next `gen_all_code` — but
+  **(2)** a NEW GLASS file is invisible to GRiM until you add it to `_GLASS_BASE_FILES` (so keep additions inside
+  an already-vendored file when you can); and **(3)** GRiM calls GLASS ONLY through the `grim_linalg_*` wrappers
+  in the same file (e.g. `grim_linalg_gemm → glass::gemm`) — a new GLASS *capability/flag* (e.g. the L2
   `TRANSPOSE`/`ATOMIC_Y` flags) is present-but-uncallable until you EXTEND the wrapper to pass it. So "land a GLASS
-  feature for GRiD" = GLASS change + (file in `_GLASS_BASE_FILES`) + wrapper exposing it + regen to verify it
-  vendored. The committed example headers (`./grid.cuh`, `examples/cuda/grid.cuh`) are stale snapshots — regen them
-  if they must track GLASS. (Caller compat: don't reorder GLASS template params *before* a param a `grid_linalg_*`
-  wrapper or emitter passes positionally; GRiD callers pass `<T,M,N,ROW_STRIDE,FUSE>` and no `IDX_T`, so appending
+  feature for GRiM" = GLASS change + (file in `_GLASS_BASE_FILES`) + wrapper exposing it + regen to verify it
+  vendored. The committed example headers (`./grim.cuh`, `examples/cuda/grim.cuh`) are stale snapshots — regen them
+  if they must track GLASS. (Caller compat: don't reorder GLASS template params *before* a param a `grim_linalg_*`
+  wrapper or emitter passes positionally; GRiM callers pass `<T,M,N,ROW_STRIDE,FUSE>` and no `IDX_T`, so appending
   flags before `IDX_T` was safe — verify this when generalizing a vendored signature.)
 
 - **Parallelize independent COLUMNS in gradients/hessians.** d2ee (per-slot Step-2 + per-cell
@@ -936,7 +936,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 - **Mixed-precision device sub-blocks: do a tiny FD in `double` inside a float32 kernel to match a
   float64 oracle.** The floating `plant_step_hessian` needs `d2Integrate` = FD of the 6×6 SE(3)
   `dIntegrate` blocks. A float32 FD there is too noisy to hit the equivalence bucket, but the blocks
-  are tiny (6×6×6), so compute the FD by calling the `T`-templated helper as `grid_dIntegrate_*_block<double>`
+  are tiny (6×6×6), so compute the FD by calling the `T`-templated helper as `grim_dIntegrate_*_block<double>`
   (h=1e-3, 4th-order), then cast the result to `T`. The float32 kernel then matches the float64 oracle
   to ~1e-6 while paying double only on a negligible sub-computation.
 - **Reuse the freed inner pool for follow-on scratch (inner-owns-placement).** After a composed
@@ -982,7 +982,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
     coeff baked as exact `0.0`. This is BIT-identical (`X*0.0==0.0`, `sum+0.0==sum` in IEEE; no
     signed-zero/NaN in play) — same argument the gradient inner's `eeg_job_ax` table already relies on.
     Snap `|c|<1e-15→0.0` when baking and format `{:.17g}` so the loaded `const T` equals the old inline
-    literal exactly. Gate = CUDA numerical equivalence (grid.cuh TEXT changes — that's the win — so it
+    literal exactly. Gate = CUDA numerical equivalence (grim.cuh TEXT changes — that's the win — so it
     is NOT a byte-diff gate). Validated 2026-07-07 (GCG b8bc31e): CUDA equivalence PASSED on iiwa14-fixed
     (rev-rev + tail) AND go2-floating (mixed + off-diagonal + pris-pris, all three shape arms).
 - **PERF TIMING — measure in ISOLATION; concurrently-measured verdicts are PROVISIONAL (2026-06-07).**
@@ -1010,9 +1010,9 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 - **NEW robot or NEW GPU → run the launch-config autotune so it defaults to a FAST launch (A1).** The
   per-`(robot, base, algo)` optimal `(tier, threads)` is device- AND robot-specific (register-clamped big
   kernels want LOW threads; it is NOT "bigger → more threads"). Codegen bakes
-  `config/launch_configs/<robot>/<gpu>.json` into `grid_launch_config.cuh` so the host launchers (and every
+  `config/launch_configs/<robot>/<gpu>.json` into `grim_launch_config.cuh` so the host launchers (and every
   python/jax/torch binding) default to it — fixing the FFI thread-default pathology at the C++ root. If a
-  `(robot, GPU)` pair has no entry, GRiD falls back to a conservative (slow) default. To generate one:
+  `(robot, GPU)` pair has no entry, GRiM falls back to a conservative (slow) default. To generate one:
   `bash config/autotune_robot.sh <robot> [fixed floating]` (RAM-safe serial build; single-call timing OFF —
   it needs the `-rdc` shim; tunes on batch N=256). It auto-detects the GPU key `<model>_sm<arch>` (override
   with `GPU_KEY=`), writes the override JSON via `config/autotune_to_launch_config.py`, then you re-codegen +
@@ -1025,7 +1025,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 ## 5. Merge discipline (multi-agent, file-isolated clones)
 
 - Agents clone off varying bases → expect **3-way merges**. File-isolated agents merge clean; the
-  ONE collision zone is `GRiDCodeGenerator.py`'s **`(historical: `_MIMIC_GRADIENT_ALGORITHMS`, removed 2026-08-27 — mimic refusals fully ungated)`** set (every mimic
+  ONE collision zone is `GRiMCodeGenerator.py`'s **`(historical: `_MIMIC_GRADIENT_ALGORITHMS`, removed 2026-08-27 — mimic refusals fully ungated)`** set (every mimic
   ungate touches it). Hand-reconcile to the **UNION** of removals.
 - **`set()` not `{}`** for an empty refusal set — `{}` is a dict and `dict |= set` raises.
 - **API 529 / an agent that dies MID-process** leaves UNVALIDATED partial edits in its file. PRESERVE
@@ -1044,8 +1044,8 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 
 ## 6. Oracle / reference gotchas
 
-- **Pinocchio's reduced model OMITS mimic bodies**, so its column/output dims differ from GRiD's
-  complete (NB-wide) outputs (e.g. f_ext_gradient: pin gives nv×6·(NB−1), GRiD/RBDReference give
+- **Pinocchio's reduced model OMITS mimic bodies**, so its column/output dims differ from GRiM's
+  complete (NB-wide) outputs (e.g. f_ext_gradient: pin gives nv×6·(NB−1), GRiM/RBDReference give
   nv×6·NB). For mimic robots, **skip the pinocchio cross-check and treat RBDReference as
   authoritative** (CUDA matches it exactly). The RBDReference numpy ref IS mimic-aware.
 - **The RBDReference numpy suite has ~38 PRE-EXISTING failures** (h1_2 minv, plant-floating,
@@ -1118,7 +1118,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   document the rpy limitation.) Also: `pin.dccrba(model,data,q,v)` is the exact analytic `Adot` oracle (= ∂A/∂t,
   NOT the ∂A/∂q tensor — they differ; ∂A/∂q contracts to Adot over the DOF axis and to dh_dq over the column axis).
 - **MuJoCo/mjx free-joint convention: ACCELERATION is not a frame rotation (cost us a wrong gradient model).**
-  Converting GRiD↔MuJoCo for a floating base, the velocity is a simple root-block rotation `G=blockdiag(R,I)`
+  Converting GRiM↔MuJoCo for a floating base, the velocity is a simple root-block rotation `G=blockdiag(R,I)`
   (mjx base-linear vel is GLOBAL `ṗ=R·v_local`), BUT acceleration carries an extra `ω×v` term:
   `a_mjx_lin = R(a_pin_lin + ω×v_local)`. Skipping it matches gravity + the `M·a` inertial term but is O(1) wrong
   on the **Coriolis** term — invisible to FD-self-consistency (which differentiates your *own* value def), caught
@@ -1136,14 +1136,14 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   full convention map (formula + class + verified error per function) is the *Convention map* section of `docs/source/user_guide/concepts/mjx_convention.rst` (promoted 09-23 from the gitignored ledger).
 - **Test the HOST-WRAPPER BATCH path, not just the single-timestep device fn (2026-06-08).** The
   floating nq-vs-nv matrix-buffer stride bug (Minv/M/dc_du/df_du host malloc+copy at nq² while the
-  kernel writes nv²) corrupted only BATCHED floating (`init_gridData<T,B>`, B>1, slot k>0) — silent
+  kernel writes nv²) corrupted only BATCHED floating (`init_grimData<T,B>`, B>1, slot k>0) — silent
   on fixed base (nq==nv) AND on batch=1. It survived because every CUDA equivalence test drove either
-  the `*_device` functions or kernels with single-timestep buffers it owned, never the gridData `h_*`
+  the `*_device` functions or kernels with single-timestep buffers it owned, never the grimData `h_*`
   host-wrapper copy at B>1. New regression guard: `test/cuda_equivalents/test_cuda_batched_host_wrapper.py`
-  (batched `grid::minv`/`grid::crba` host wrappers, every slot vs oracle, floating + fixed control).
+  (batched `grim::minv`/`grim::crba` host wrappers, every slot vs oracle, floating + fixed control).
   **Rule:** any new output buffer needs a batch>1 FLOATING host-wrapper equivalence test; a
   single-timestep or device-fn check cannot see a per-timestep stride bug.
-- **EE-Hessian (and any coordinate-Hessian) validation trap (cost a cycle, 2026-06-08).** GRiD's analytic
+- **EE-Hessian (and any coordinate-Hessian) validation trap (cost a cycle, 2026-06-08).** GRiM's analytic
   `end_effector_pose_hessian` is the SYMMETRIC coordinate Hessian (2nd derivative of the scalar value along
   the retract), NOT `d/dξ[gradient]`. To FD-validate it, use the symmetric 2nd central-difference of the
   VALUE along the retract — `d/dξ_mjx[gradient_mjx]` carries retract-connection curvature, is non-symmetric
@@ -1174,8 +1174,8 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 ## 7. Test-infra gotchas
 
 - **A runner's support-header include silently kills every test that compiles it from an
-  isolated dir (2026-08-02, `grid_runner_select.cuh`).** The 07-28 split scaffold added an
-  UNGUARDED `#include "grid_runner_select.cuh"` to `cuda_equivalence_runner.cu`; the flagship
+  isolated dir (2026-08-02, `grim_runner_select.cuh`).** The 07-28 split scaffold added an
+  UNGUARDED `#include "grim_runner_select.cuh"` to `cuda_equivalence_runner.cu`; the flagship
   harness copies the selector next to its runner copy, but three OTHER tests (fext,
   continuous_joint, fd_du_output_spill) copy only the runner into a tmp build dir → quote-include
   searches the includer's dir (NOT cwd, NOT the source tree) → fatal missing-include → those
@@ -1191,7 +1191,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   monolith runner's FIXED-base section printed id/fd gradients as `NUM_JOINTS^2` blocks with the
   qd half at offset `NJ*NJ`, over a buffer the kernels write `2*NV*NV`-strided. Fixed non-mimic
   robots (nq==nv) are exactly right; but `test_cuda_fd_du_output_spill` compiled the runner
-  WITHOUT `-DGRID_CUDA_FLOATING_BASE=1` for its go2-floating case, so the floating header ran
+  WITHOUT `-DGRIM_CUDA_FLOATING_BASE=1` for its go2-floating case, so the floating header ran
   the fixed section: the "qd" block (offset 361 > written extent 324) read allocation tail —
   zeros on a fresh GPU (weeks of green), garbage under memory pressure (today's 63/361 flake,
   run-to-run NONdeterministic in BOTH arms). Diagnostics that localized it fast: (a) run each
@@ -1226,44 +1226,44 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   equivalence), and quarantine the perf sweep to its own isolated phase at the end. "No concurrent heavy
   GPU builds" applies to TIMING, not to correctness builds. See [[feedback_parallel_equivalence_testing]],
   [[feedback_safe_dev_and_timing_methodology]].
-- **A test that validates a CODEGEN EMIT must `force_rebuild=True`.** grid-rbd's build cache is
-  content-addressed on build INPUTS (urdf + flags + arch + grid_rbd_version + wrapper_template_hash) —
+- **A test that validates a CODEGEN EMIT must `force_rebuild=True`.** grim's build cache is
+  content-addressed on build INPUTS (urdf + flags + arch + grim_version + wrapper_template_hash) —
   NOT on the generated CUDA source, and NOT on the GCG codegen version. So after a codegen change, a
   `register_robot(...)` with the same inputs silently returns a STALE `.so` built by the OLD codegen.
   This burned a damping-gradient test: the robots were cached before the gradient emit existed, so
   `inverse_dynamics_gradient` came out identical on-vs-off (the new term was in the source but not the
   cached binary) — looking exactly like a "missing emit" bug when the emit was correct. Fix: any pytest
   asserting on generated-code behavior must pass `force_rebuild=True` to `register_robot` (or clear
-  `~/.cache/grid-rbd`). Same root cause as "clear GCG `__pycache__` after codegen edits" — the cache
+  `~/.cache/grim`). Same root cause as "clear GCG `__pycache__` after codegen edits" — the cache
   key doesn't track the codegen, so the human/test must force regeneration.
 - **VENDORED dependency content is a codegen INPUT — the cache key must track it (GLASS bump, 2026-06-18).**
   The CUDA-equivalence header cache (`test_cuda_executable_equivalence._header_cache_key`) hashed
-  `_hash_tree(GRiDCodeGenerator, ".py")` but NOT the GLASS submodule commit — yet GLASS sources are vendored
-  VERBATIM into every generated `grid.cuh` (`helpers/_lin_alg_helpers.py::_emit_glass_source_file`). So after
+  `_hash_tree(GRiMCodeGenerator, ".py")` but NOT the GLASS submodule commit — yet GLASS sources are vendored
+  VERBATIM into every generated `grim.cuh` (`helpers/_lin_alg_helpers.py::_emit_glass_source_file`). So after
   a GLASS bump the cache would FALSELY HIT headers vendored from the OLD GLASS — a silent stale-codegen
-  validation, the same family as the grid-rbd build-cache trap above. Fix: fold `_glass_commit()` into the
+  validation, the same family as the grim build-cache trap above. Fix: fold `_glass_commit()` into the
   cache-key payload (git HEAD of the GLASS submodule, with a hash-of-`src/base` fallback for exported trees).
   **General rule:** anything copied INTO generated output (vendored headers, baked tables, template files) is a
   codegen input; if the cache key only tracks the generator's own source, a dependency bump goes undetected.
-  When in doubt after bumping a vendored dep, clear `.grid_build_cache/cuda` to force regeneration.
-- **The `grid::grid::` per-tier macro trap.** `GRID_DEFAULT_RESOURCE_TIER` is `#define`d BARE (`TIER_SHARED`).
-  Algos emitting INSIDE `namespace grid` (11 of 12) reference it bare; `_plant` emits its kernel +
-  `*_DYNAMIC_SHARED_MEM_BYTES` OUTSIDE the namespace so it correctly qualifies `grid::GRID_DEFAULT_RESOURCE_TIER`
+  When in doubt after bumping a vendored dep, clear `.grim_build_cache/cuda` to force regeneration.
+- **The `grim::grim::` per-tier macro trap.** `GRIM_DEFAULT_RESOURCE_TIER` is `#define`d BARE (`TIER_SHARED`).
+  Algos emitting INSIDE `namespace grim` (11 of 12) reference it bare; `_plant` emits its kernel +
+  `*_DYNAMIC_SHARED_MEM_BYTES` OUTSIDE the namespace so it correctly qualifies `grim::GRIM_DEFAULT_RESOURCE_TIER`
   (bare would not resolve there — NOT a uniformity wart, do not "fix" it). The trap: a `-D` tier override must
-  MATCH the bare `#define` style — passing `-DGRID_DEFAULT_RESOURCE_TIER=grid::TIER_*` makes `_plant` expand to the
-  illegal `grid::grid::TIER_*` and breaks EVERY per-tier build. Pass bare `-D...=TIER_*`. (Cost a per-tier build
+  MATCH the bare `#define` style — passing `-DGRIM_DEFAULT_RESOURCE_TIER=grim::TIER_*` makes `_plant` expand to the
+  illegal `grim::grim::TIER_*` and breaks EVERY per-tier build. Pass bare `-D...=TIER_*`. (Cost a per-tier build
   break this session; fixed in `baselines/grid/run.py`.)
-- **The bench harness `timeGRiD_{batch,single}.cu` + `timeGRiD_common.h` are NOT subset-aware.** Only the
-  SO/integrator measure block is `#if GRID_HAS_*`-gated; the 10 CORE measures (id/minv/fd/aba/crba/id_du/fd_du/
+- **The bench harness `timeGRiM_{batch,single}.cu` + `timeGRiM_common.h` are NOT subset-aware.** Only the
+  SO/integrator measure block is `#if GRIM_HAS_*`-gated; the 10 CORE measures (id/minv/fd/aba/crba/id_du/fd_du/
   ee_pose{,_gradient,_hessian}) — both their CALLS and their `measure_*` / `*_single_timing` DEFINITIONS — reference
-  `grid::<algo>` unconditionally. So a `GRID_BENCH_ALGORITHM_LIST` subset build fails to link on every omitted core
-  algo. Gating the CALLS is necessary but NOT sufficient (the DEFINITIONS in `timeGRiD_common.h` + the
-  `_single_timing`/`_batch_timing` wrappers must also be `#if GRID_HAS_*`-wrapped — bench analogue of C1, still TODO).
+  `grim::<algo>` unconditionally. So a `GRIM_BENCH_ALGORITHM_LIST` subset build fails to link on every omitted core
+  algo. Gating the CALLS is necessary but NOT sufficient (the DEFINITIONS in `timeGRiM_common.h` + the
+  `_single_timing`/`_batch_timing` wrappers must also be `#if GRIM_HAS_*`-wrapped — bench analogue of C1, still TODO).
   Gating CALLS only is timing-neutral for FULL builds (`#if 1`), a safe partial step. After any gating edit, verify a
   full build still TIMES all 10 core algos (a wrong macro name silently drops an algo from the sweep).
-- **Single-CALL timing is OPT-IN / DEFAULT-OFF (`run.py --single-timing` / env `GRID_BENCH_SINGLE_TIMING=1`; B8,
-  2026-06-12).** The bench builds TWO timing binaries per cell: `timeGRiD_single.cu` (single-call latency,
-  `-rdc=true`) and `timeGRiD_batch.cu` (batch throughput, `-rdc=false`). The single binary NEEDS `-rdc=true` for its
+- **Single-CALL timing is OPT-IN / DEFAULT-OFF (`run.py --single-timing` / env `GRIM_BENCH_SINGLE_TIMING=1`; B8,
+  2026-06-12).** The bench builds TWO timing binaries per cell: `timeGRiM_single.cu` (single-call latency,
+  `-rdc=true`) and `timeGRiM_batch.cu` (batch throughput, `-rdc=false`). The single binary NEEDS `-rdc=true` for its
   anti-LICM shim, but under `-rdc` nvcc does NOT inline `inverse_dynamics_inner_vaf` (140 regs) into the
   `__launch_bounds__(128)` kernels (fdsva_so / integrator(_with)_gradient / id-gradient), so ptxas FATALLY errors on
   BIG FLOATING robots (g1/h1_2): `Entry function <kernel> with max regcount of 128 calls <inner> with regcount of 140`.
@@ -1277,12 +1277,12 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   latency on small/fixed robots; never expect it to build on g1/h1_2 floating.
 - **Two DISTINCT caches in the bench path — a subset request must be in BOTH or a stale full-set artifact is served.**
   `run.py generate_header` keys a `codegen_hash` cache (hashes the GCG `.py` tree, so codegen edits self-invalidate);
-  it now ALSO includes `GRID_BENCH_ALGORITHM_LIST` (else a cached full-set header is reused and the subset silently
-  ignored). The binary `runner_key` includes `header_hash` so it follows. SEPARATE from the bindings `grid-rbd`
+  it now ALSO includes `GRIM_BENCH_ALGORITHM_LIST` (else a cached full-set header is reused and the subset silently
+  ignored). The binary `runner_key` includes `header_hash` so it follows. SEPARATE from the bindings `grim`
   content-cache above (which is NOT codegen-keyed). Don't conflate them.
 - **pytest-xdist needs deterministic collection.** Per-process randomness (a random default thread
   count) → "different tests collected between workers." Make defaults deterministic.
-- The CUDA equivalence harness has graceful-skip idioms: `GRID_SKIP_IF_KERNEL_TOO_BIG` (smem cap)
+- The CUDA equivalence harness has graceful-skip idioms: `GRIM_SKIP_IF_KERNEL_TOO_BIG` (smem cap)
   prints a parseable `SKIPPED` line the parser nulls. The timing parser overwrites with the LAST
   numeric `Single Call X` line and ignores non-numeric ones.
 - **Static `__shared__` in a smoke-runner kernel is capped at 48 KB (0xC000) even on sm_120** — a
@@ -1296,19 +1296,19 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 - **The plant smoke runner's `plant_step_kernel` / `plant_kernel` use big STATIC `__shared__` arrays
   (`s_dAB`, `s_D_qdd_stage`, `s_XImats`, `s_temp[4096]`…) and DO NOT compile for big robots** — g1
   (nv=29) overflows the 48 KB static cap (`ptxas: plant_step_kernel uses too much shared data
-  0xe1d0`). This is pre-existing and independent of any one algorithm: `GRID_CUDA_PLANT_ROBOTS=g1`
+  0xe1d0`). This is pre-existing and independent of any one algorithm: `GRIM_CUDA_PLANT_ROBOTS=g1`
   fails at *compile* on the sibling kernel before the kernel-under-test even builds. So **validate
-  big-robot plant surfaces (e.g. `plant_step_hessian`) via the BINDINGS** (`grid_rbd`, a separate TU
+  big-robot plant surfaces (e.g. `plant_step_hessian`) via the BINDINGS** (`grim`, a separate TU
   whose kernels are all dynamic-smem + `cudaFuncSetAttribute`), not the cuda_equivalents smoke runner.
   Making the smoke runner's plant kernels dynamic-smem (mirroring the hessian kernel, which already is)
   is the proper infra fix to unblock big-robot plant smoke — a separate, bounded task.
 - **Force a spill tier on a SMALL robot to validate the spill *code path* without a big-robot compile.**
-  `GRID_CUDA_TARGET_SHARED_MEM_BYTES=10000` makes `select_shared_tier_3way` pick the deep-spill tier
+  `GRIM_CUDA_TARGET_SHARED_MEM_BYTES=10000` makes `select_shared_tier_3way` pick the deep-spill tier
   even for iiwa14, so the equivalence test exercises the exact `d_workspace`-band / pool-aliasing kernel
   body (the one g1 would use) in a ~3-min iiwa14 compile instead of a ~17-min g1 build. Pair it with a
   codegen-only header regen of the big robot to confirm its per-tier smem macro fits the ~99 KB cap.
 - **Plant kernels are NOT in `KERNEL_ATTR_MANIFEST`, so they get no automatic `cudaFuncSetAttribute`.**
-  `init_grid_kernel_attrs` raises `MaxDynamicSharedMemorySize` only for the manifest's kernels; the
+  `init_grim_kernel_attrs` raises `MaxDynamicSharedMemorySize` only for the manifest's kernels; the
   plant kernels (`plant_step_gradient_kernel`, `plant_step_hessian_kernel`) aren't listed, so when a
   plant kernel's dynamic-smem arena exceeds the 48 KB default (the hessian's 18·nv³ `s_d2AB` band pushes
   iiwa14 to ~53 KB) the **binding launcher must call `cudaFuncSetAttribute(kernel<T,IT>, MaxDynamicSharedMemorySize, bytes)`
@@ -1319,16 +1319,16 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 - **Binding a kernel templated on an enum some of whose values `static_assert` out: the C-ABI dispatch
   switch must NOT name the unsupported cases.** Even an unreached `case FN<RK4>(...)` *instantiates* the
   template and trips the device `static_assert` at compile time. Use a restricted dispatch macro
-  (e.g. `GRID_RBD_IT_DISPATCH_HESSIAN` lists only EULER/SI-EULER) and return rc=3 for the rest.
+  (e.g. `GRIM_IT_DISPATCH_HESSIAN` lists only EULER/SI-EULER) and return rc=3 for the rest.
 - Parallel equivalence runs go through `test/run_split_suite.py` (RAM-aware compile pool in `test/compile_sched.py`); the old `run_parallel.sh` xdist wrapper was retired 2026-09-08.
   correctness-only and safe to run concurrent; the PERF sweep must run ISOLATED (no other GPU/CPU,
   it skews timing).
-- **The editable `grid_rbd` install can point at a STALE sibling worktree.** `.venv` is under main
-  but `pip install -e .` may have last run from another worktree (e.g. `GRiD-H-roadmap`), so a
-  bare `import grid_rbd` silently loads OLD bindings — `AttributeError: 'RobotHandle' has no
+- **The editable `grim` install can point at a STALE sibling worktree.** `.venv` is under main
+  but `pip install -e .` may have last run from another worktree (e.g. `GRiM-H-roadmap`), so a
+  bare `import grim` silently loads OLD bindings — `AttributeError: 'RobotHandle' has no
   attribute 'inverse_dynamics_gradient'` for a method that exists in main. pytest under the repo tree
   passes (repo-relative `sys.path`) while a notebook/example fails. Confirm with
-  `python -c "import grid_rbd, inspect; print(inspect.getfile(grid_rbd))"`; the editable `.pth`
+  `python -c "import grim, inspect; print(inspect.getfile(grim))"`; the editable `.pth`
   merely *appends*, so `sys.path.insert(0, '<main>/bindings')` (or `PYTHONPATH`) reliably overrides it
   for validation. The real fix is `pip install -e .` from the intended tree. (Sibling of the
   §0/B5 stale-compiled-binary class: always verify you imported the tree you think you did.)
@@ -1350,7 +1350,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
 - **Big-robot (g1/h1_2) second-order kernels compile 20–40 min EACH** (`idsva_so`/`fdsva_so`/
   `ee_hessian`); a per-robot gate/sweep chunk of ~30 such cells at -n4 will EXIT 124 on a 60 min budget.
   Budget big-robot chunks generously, or isolate the slow 2nd-order algos into their own long-budget chunk.
-  **It is COMPILATION, not code-generation, that is slow** — Python codegen emits the full `grid.cuh` in
+  **It is COMPILATION, not code-generation, that is slow** — Python codegen emits the full `grim.cuh` in
   ~20 s (fast `ccode` string-printing); the 20–40 min is one `cicc` process (nvcc's NVVM/LLVM optimizer)
   at 99.9 %CPU, SINGLE-THREADED, on the enormous single-block fully-unrolled kernel (cicc's reg-alloc/
   sched/LICM scale superlinearly with function size; ptxas is a smaller tail). So: a "stuck" big-robot
@@ -1358,7 +1358,7 @@ A serial block with no P1/P2/P3 justification is a bug to file, not a style choi
   For DEV iteration on big robots, trade compile-time via the sweep's `--split-compile` /
   `--ofast-compile {min,mid,max}` / `--ptxas-opt-level` knobs; a MEASURING sweep wants full opt.
 - **Header cache key does NOT hash codegen source** (only schema/robot/nq/nv/urdf) → a comment-only or
-  internal codegen change is cache-invisible. `rm -rf .grid_build_cache/cuda` to force a fresh emit when
+  internal codegen change is cache-invisible. `rm -rf .grim_build_cache/cuda` to force a fresh emit when
   you NEED to test new codegen; conversely, a proven comment-only change reuses the cache validly (the
   compiled binary is identical) — no wipe needed.
 - **A STRUCTURALLY ZERO reference makes a norm guard vacuous — and only an absolute floor is
@@ -1415,9 +1415,9 @@ immediately launches exe #N+1 which allocates into the still-freeing memory —
 serial processes, but DRIVER-INTERNAL concurrency — and 610.57.04 (open
 kmod) races to the NULL deref. Only h2_plus triggers it: ~30 GB/invocation on
 a 32 GB card × dozens of rapid autotune invocations. This also reframes
-08-22's zombie (same teardown subsystem) and largely EXONERATES the GRiD
+08-22's zombie (same teardown subsystem) and largely EXONERATES the GRiM
 kernels (memcheck-clean arms stand; the Xid-31 "OOB write" was post-Oops).
-- **FIX: the settle gate** (`gridrun.settle_gpu_before_launch`, wired into
+- **FIX: the settle gate** (`grimrun.settle_gpu_before_launch`, wired into
   every bench exe launch path): before each launch, wait until memory.used is
   back at the process-start baseline (+1 GB margin, 120 s cap); refuse loudly
   on non-settle AND on a dirty-GPU process start (a fresh process must never
@@ -1477,7 +1477,7 @@ is their tombstone):
   strictly serial (24-36 GB each observed on g1-floating; worst non-SO single
   compile 17 GB), and no `set -e` in the night script so a late failure can't
   discard earlier banked exes (everything is content-cached and resumable).
-- 2026-08-08 addendum: `GRID_ENABLE_MUJOCO_KERNELS=0` (pin-only) shrinks the same
+- 2026-08-08 addendum: `GRIM_ENABLE_MUJOCO_KERNELS=0` (pin-only) shrinks the same
   h2_plus SO-family compiles to ~1 min each — always build pin-only for timing
   cells; the mjx twins are what made these "monster" compiles.
 
@@ -1495,7 +1495,7 @@ is their tombstone):
   NOT emitted" (it IS — verify by calling `_normalize_codegen_algorithms("all")` and checking the algo set for
   a mimic robot like fr3/h1_2, + the validating runner); "prismatic `theta` undeclared" (the substitution was
   already in `_eepose_gradient_hessian.py`); "eePos/deePos rename pending" (grep finds only the clean current
-  name). CHEAP CHECKS THAT SETTLE IT WITHOUT A BUILD: (a) instantiate `GRiDCodeGenerator(robot)` +
+  name). CHEAP CHECKS THAT SETTLE IT WITHOUT A BUILD: (a) instantiate `GRiMCodeGenerator(robot)` +
   `gen_add_constants_helpers()` and print per-tier arena bytes vs cap; (b) `_normalize_codegen_algorithms`
   to see what's actually emitted; (c) grep the validating smoke-runner/test for the robot. A wrapper comment
   that says "NOT emitted for mimic / returns rc=3" is describing the `#else` branch, NOT proof the `#ifdef`
@@ -1511,21 +1511,21 @@ is their tombstone):
 - **Docs + READMEs are part of "done" — propagate EVERY change to keep the project UNIFIED.** A code
   change (rename, new feature, convention shift, API tweak) that doesn't also update the user-facing
   docs + ALL relevant READMEs (top-level AND every submodule: RBDReference / URDFParser /
-  GRiDCodeGenerator / python) + examples/notebooks leaves the project inconsistent. The verbose rename
+  GRiMCodeGenerator / python) + examples/notebooks leaves the project inconsistent. The verbose rename
   touched code but left `docs/source/**`, the `RBDReference/README.md` submodule README, and a `rnea.rst`
   page stale (audit A3). For any change: in the SAME pass update its doc page, the relevant main+submodule
   README(s), examples/notebooks, and do the cleanup (names/tokens/dead code/comments). After a rename/
   convention change, grep docs/READMEs/submodule-READMEs for the OLD names/values too — code-only greps
   miss them. Keep it consistent + clean + COMPACT.
 - **Internal renames: prove safety with a before/after HEADER BYTE-DIFF.** Regen the same robots
-  pre- and post-rename and diff the emitted `grid.cuh`. If every delta is a `//`-comment line, the
+  pre- and post-rename and diff the emitted `grim.cuh`. If every delta is a `//`-comment line, the
   emitted CUDA is functionally IDENTICAL (compiled-identical) → no equivalence re-run needed for those
   cells. Classify each token: **Tier-1** pure-Python identifiers (byte-identical output) / **Tier-2**
   abbreviations inside emitted COMMENT strings (`gen_add_func_doc`) (equiv-safe, comment-only diff) /
   **Tier-3** emitted SYMBOLS — struct fields/buffers (`d_eePos`, `d_did_du_dfext`), printf labels —
-  which are the C-ABI surface referenced by bindings (`wrapper_template.cu`/`_handle.py`) + `printGRiD.cu`
+  which are the C-ABI surface referenced by bindings (`wrapper_template.cu`/`_handle.py`) + `printGRiM.cu`
   + example notebooks; renaming those is high-blast-radius and MUST be a single lockstep change across
-  emit+bindings+printGRiD+examples with full re-validation (NEVER piecemeal). Before a blind substring
+  emit+bindings+printGRiM+examples with full re-validation (NEVER piecemeal). Before a blind substring
   replace, SENTINEL-PROTECT the Tier-3 emitted symbols so the rename can't corrupt the ABI.
 - **`pkill -f '<pattern>'` can self-terminate the job** if `<pattern>` appears in your OWN command line
   (the script that runs the pkill). It silently kills the wrapper before the real work runs (empty log,
@@ -1562,7 +1562,7 @@ is their tombstone):
 - **Shared-helper scratch must be reserved in EVERY per-algo arena `t_count` (a SILENT OOB class).** When a SHARED device
   helper (e.g. `load_update_XImats_helpers`) writes a new block into `s_temp` (runtime_transform appended a 36·NB `Xfixed`
   block at offset 2·num_pos), growing the helper's OWN declared temp size is NOT enough — every algorithm's arena `t_count`
-  (grid_codegen/_constants_arena.py (arena/tier section; moved in the 2026-08-27 monolith split), feeding `grid_shared_arena_bytes(t_count,…)`) must reserve it too, or the helper writes past
+  (grim_codegen/_constants_arena.py (arena/tier section; moved in the 2026-08-27 monolith split), feeding `grim_shared_arena_bytes(t_count,…)`) must reserve it too, or the helper writes past
   the kernel's dynamic-shared allocation. NO compile error, and the functional test can pass on small data — only
   **`compute-sanitizer --tool memcheck`** catches the "Invalid __shared__ write … out of bounds". A purely-additive `+= reserve`
   per arena is safe when the block is consumed inside the helper (dead after). The M descriptor table kills this class via an
@@ -1573,7 +1573,7 @@ is their tombstone):
   wait on the PID, then RE-RUN the validation yourself — definitive gate = compute-sanitizer + a committed equivalence test.
   Memory `feedback_capture_subagent_verdict_yourself`. (Also: pass `isolation: worktree` so WIP isn't left on the main tree.)
 - **Editing codegen invalidates the .so cache → every robot is a FRESH 28-57min rebuild.** The cache key hashes the
-  GRiDCodeGenerator+URDFParser source (the J fix), so after any codegen commit ALL robots cache-miss. This paces GPU
+  GRiMCodeGenerator+URDFParser source (the J fix), so after any codegen commit ALL robots cache-miss. This paces GPU
   validation; keep it serial, prefer light robots (iiwa14/fr3) for correctness, reserve g1/h2_plus SO builds for when needed.
 - **"Already built but unvalidated" is the dominant backlog state.** This session confirmed mimic, damping/friction,
   install-extras, runtime_inertia were ALL already implemented — the work was VALIDATION (run the test) + closing narrow gaps,
@@ -1608,7 +1608,7 @@ compose into a "clean" prebuild with ZERO binaries in one arm (rcA=0, no error l
    Always `git -C $WT submodule update --init external/...` after creating one.
 2. **Relative paths resolve against the WORKTREE root** in the worktree's harness (its
    `run.py` prepends its own repo root): a relative `--build-dir` bakes a relative
-   `GRID_HEADER_FILE` into nvcc, which then can't find the header. Pass ABSOLUTE dirs.
+   `GRIM_HEADER_FILE` into nvcc, which then can't find the header. Pass ABSOLUTE dirs.
 3. **`per_algo_bench --compile-only` (pre-af27345) exited 0 on failed compiles** — the
    BUILD-phase philosophy ("failures surface in the measure phase") is wrong for A/B
    prebuilds, where the measure phase would time a one-armed pair and produce
@@ -1633,13 +1633,13 @@ suite log via the `--collect-only` order-replay trick, §triage.)
 Second escape from the SAME wave, same lesson inverted: an emission that only fires
 on SOME robots (±inf limit defaults — only robots with unlimited slots) compiled on
 the one robot the gate compiled (iiwa14, full limit tags → zero inf rows) and broke
-everywhere else (`std::numeric_limits` with no `<limits>` in grid.cuh). Text-grep
+everywhere else (`std::numeric_limits` with no `<limits>` in grim.cuh). Text-grep
 gates don't catch uncompilable spellings; compile gates must cover a robot that
-actually EMITS the new lines. grid.cuh deliberately has C-header includes only —
+actually EMITS the new lines. grim.cuh deliberately has C-header includes only —
 prefer `INFINITY`/math.h forms over `std::` in emitted code.
 Third escape, same family: emitting a CALL to a new `glass::` primitive without
 adding its source file to the `_lin_alg_helpers.py` vendoring list — the name
-resolves in the GLASS checkout but not in the emitted, self-contained grid.cuh.
+resolves in the GLASS checkout but not in the emitted, self-contained grim.cuh.
 Any new glass:: reference in an emitter needs (a) the vendor-list entry (ordered
 after its dependencies) and (b) a compile gate on a header that emits the call.
 
@@ -1648,7 +1648,7 @@ Root cause of the ps5 ordering-dependent failure (fr3 dccrba: module-run fails
 1.33 / solo passes / EVERY sanitizer passes with 0 findings). Every generated
 host wrapper does `cudaMemcpyAsync(d_q, h_q, ..., streams[0])` then launches the
 kernel on the DEFAULT stream — an ordering that is only safe via legacy
-default-stream implicit sync, which `cudaStreamNonBlocking` (in init_grid since
+default-stream implicit sync, which `cudaStreamNonBlocking` (in init_grim since
 the original codebase) explicitly disables. The race hid for years because:
 (a) large pageable copies take the driver's synchronous path, (b) a process's
 FIRST launch is slow (module load) so the copy wins, (c) all sanitizers
@@ -1668,7 +1668,7 @@ an event) with its consumer — grep new wrappers for `<<<` launches whose
 inputs were last touched on a different stream.
 
 ### 7.z Bindings .so cache poisoning: disk-hash key, loaded-module emission (2026-08-11)
-`register_robot` keys the compile cache by hashing the ON-DISK `grid_codegen/`
+`register_robot` keys the compile cache by hashing the ON-DISK `grim_codegen/`
 tree (`_cache.py`), but the code it compiles is emitted by the ALREADY-IMPORTED
 modules. A long-running pytest session (15h equivalence pass) imported codegen at
 00:13; a codegen commit landed at 12:38; wrapper tests registering robots after
@@ -1721,7 +1721,7 @@ VRAM at backend init, and `test/conftest.py`'s `XLA_PYTHON_CLIENT_PREALLOCATE=fa
 guard only covers pytest — every STANDALONE driver ran unguarded, so heavy kernels
 (fd/minv/fdgrad on a 46-joint humanoid) failed at launch while light ones (id) passed,
 mimicking a per-kernel smem bug. Now guarded at the top of
-`test/benchmarks/baselines/grid/timeGRiD_bindings.py` (imported by the drivers before jax).
+`test/benchmarks/baselines/grid/timeGRiM_bindings.py` (imported by the drivers before jax).
 
 Triage recipe for FFI "launch failed":
 1. Run the SAME call on the numpy/pybind surface in the SAME process — it goes through the
@@ -1733,22 +1733,22 @@ Triage recipe for FFI "launch failed":
    IDSVA_SO_BODY_FRAME bakes 782,584 floats ≈ 3.0MB at EVERY tier — unlaunchable on any
    GPU, the legitimate hardware-limit skip class (real fix = SO memory wave-2).
 
-### 7.z4 Inline-function statics in grid.cuh UNIFY across dlopened robot .so's (2026-09-09, device-pool)
+### 7.z4 Inline-function statics in grim.cuh UNIFY across dlopened robot .so's (2026-09-09, device-pool)
 
-**Symptom.** Two robots in one process; the second robot's `grid_rbd_init()`
+**Symptom.** Two robots in one process; the second robot's `grim_init()`
 fails with `GPUassert: out of memory` on a GPU with tens of GB free — and the
 assert's `__FILE__` cites the FIRST robot's generated header path.
 
-**Cause.** A `__host__ inline` function in grid.cuh holding a function-local
+**Cause.** A `__host__ inline` function in grim.cuh holding a function-local
 `static` (the device-pool state) compiles to a WEAK symbol with default
 visibility in every robot `.so`. When a process dlopens a second robot, the
 dynamic linker binds that weak symbol to the first `.so`'s copy — so robot
-B's `init_gridData` carved from robot A's (already exhausted) slab and its
-`grid_device_alloc` returned `cudaErrorMemoryAllocation`. Alone, each robot
+B's `init_grimData` carved from robot A's (already exhausted) slab and its
+`grim_device_alloc` returned `cudaErrorMemoryAllocation`. Alone, each robot
 is green; only multi-`.so` processes break, which is exactly the pattern the
 per-module split suite never exercises — a probe/bench process caught it.
 
-**Fix + rule.** Mark any state-carrying inline accessor emitted into grid.cuh
+**Fix + rule.** Mark any state-carrying inline accessor emitted into grim.cuh
 `__attribute__((visibility("hidden")))` (the local static's guard/storage
 inherit the function's visibility, so each `.so` keeps its own copy). File-
 scope `static` state in wrapper_template.cu is already internal-linkage and
@@ -1764,7 +1764,7 @@ correct, only the f_ext-less consumers drift (repro measured 21.2 max).
 
 **Cause.** Singleton device state (`g_data->d_f_ext`) written by handlers
 that TAKE the input but read by handlers that DON'T. The C-ABI bodies reset
-f_ext in their epilogue and torch has `grid_torch_f_ext_reset`; the
+f_ext in their epilogue and torch has `grim_torch_f_ext_reset`; the
 hand-written jax FFI section had NO reset anywhere — the classic risk of the
 same contract hand-copied across three surfaces (found by the surface-gen
 survey, not by any test: every suite exercised f_ext and gradients in
@@ -1801,14 +1801,14 @@ bitwise, do not introduce `@`/`matmul`/`bmm` on fp32 CUDA without either an
 explicit highest-precision guarantee or an A/B under `jax.jacobian` (not
 just eager `jax.vjp` — the failing kernel selection only appears vmapped).
 
-### 7.z7 Derived-code transcription drops function-local decls (2026-09-10, gridData_device_bytes)
+### 7.z7 Derived-code transcription drops function-local decls (2026-09-10, grimData_device_bytes)
 
-**Symptom.** `grid.cuh` fails to COMPILE (`identifier "MT_POS_SLOTS" is
-undefined` inside `gridData_device_bytes`) — but only for multi-target
+**Symptom.** `grim.cuh` fails to COMPILE (`identifier "MT_POS_SLOTS" is
+undefined` inside `grimData_device_bytes`) — but only for multi-target
 robots; every byte-identity baseline robot is clean.
 
 **Cause.** `_derive_device_bytes_lines` transcribes each `cudaMalloc` SIZE
-EXPRESSION from the init_gridData line list into the derived bytes function,
+EXPRESSION from the init_grimData line list into the derived bytes function,
 and copies structural lines (#if/needs_/}) — but silently DROPPED plain
 statements, including the `const int MT_*_SLOTS = ...;` locals the MT malloc
 sizes reference. The MT block is the only init site whose malloc size uses
@@ -1845,8 +1845,8 @@ which is exactly why the rule exists.
 
 ### 7.z9 XLA-pool accumulation across sequential registrations in ONE process (2026-09-13)
 A jax-surface process that registers robot A (XLA's allocator grows through
-the sweep/tests), then registers a BIG robot B, can fail B's `grid_rbd_init`
-with `GPUassert: out of memory` at the gridData arena cudaMalloc — XLA never
+the sweep/tests), then registers a BIG robot B, can fail B's `grim_init`
+with `GPUassert: out of memory` at the grimData arena cudaMalloc — XLA never
 returns its grown pool. First hit: autotune_ffi `--base both` on h1_2 (fixed
 sweep first, floating init OOM) — this was the REAL cause of the 08-28
 "h1_2 n16 launch-fail", not a kernel/config misfit. Rule: one process per
@@ -1860,7 +1860,7 @@ jax-C-API slab + MEM_FRACTION integration (see _install_xla_device_pool).
 LANDED 2026-09-13 (canonical-plan S5): conftest now sets
 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.35` instead of the prealloc opt-out —
 XLA's preallocating allocator stays ON but bounded at 11.2 GiB (of 32),
-which with the slab carve keeps GRiD fed from inside the pool and leaves
+which with the slab carve keeps GRiM fed from inside the pool and leaves
 torch the rest of the card. Validated same day on a live wrapper module
 run; the first post-flip SPLIT_REFRESH re-executed the whole wrapper
 domain under the new setting.
@@ -1903,7 +1903,7 @@ Two sub-classes, both found by the 2026-09-15 parked-list audit:
    off its optimum (lite/224/958µs) for three months. RULE: a commit that
    re-routes an algo's dispatch (or otherwise changes which kernel a config
    row times) must re-sweep or at least flag that row in the same arc.
-2. **Sweep-era drift between redundant rows**: `grid::idsva_so` forwards to
+2. **Sweep-era drift between redundant rows**: `grim::idsva_so` forwards to
    the routed frame family's host wrapper — the SAME kernel — so its row and
    the `idsva_so_<frame>` row measure one kernel twice, at whatever dates
    their sweeps ran. Rows carry NO per-row provenance, so a large alias-vs-
@@ -1956,7 +1956,7 @@ this had made _submodule_pins_match vacuously True since it was written.
 ### 7.z14 Header-cache flavor collision: env knobs that change emission MUST be in the cache key (2026-09-16)
 The equivalence harness's `_header_cache_key` folded in three env knobs
 (TARGET_SHARED_MEM, SHARED_MEM_TYPE_SIZE, CODEGEN_PROFILE) but NOT
-`GRID_ENABLE_MUJOCO_KERNELS` — and for a floating non-mimic robot that
+`GRIM_ENABLE_MUJOCO_KERNELS` — and for a floating non-mimic robot that
 toggle changes the emitted header wholesale (mjx twins). The pin-only and
 with-mjx flavors therefore shared ONE cache entry: whichever context
 generated first poisoned every later lookup of the other flavor. Latent
@@ -1995,8 +1995,8 @@ one writer per cell), iiwa14/go2 unchanged. Lessons:
 - Permuting which thread computes which cell is a free, provably
   output-identical transformation (verify with a raw-uint32 `array_equal`
   before/after through the numpy handle — cheap and stronger than tolerance).
-- How to read a GRiD kernel profile: `ncu --set full --import-source yes` on a
-  `-lineinfo` bench exe (`GRID_BENCH_EXTRA_NVCC_FLAGS=-lineinfo` +
+- How to read a GRiM kernel profile: `ncu --set full --import-source yes` on a
+  `-lineinfo` bench exe (`GRIM_BENCH_EXTRA_NVCC_FLAGS=-lineinfo` +
   `--build-dir` in per_algo_bench), then `--page source --print-source
   cuda,sass --csv` and attribute EVERY SASS instruction to the nearest
   preceding algorithm-level source line (helpers like dot/gemm are inlined
@@ -2015,7 +2015,7 @@ dynamics-only `algorithm_list`:
 1. **Emission nested inside another feature's gate.** `gen_f_ext_contact` was
    called inside `if include_any_kinematics:` in gen_all_code, so a subset
    with no kinematics algorithm silently emitted NO contact section
-   (`GRID_HAS_CONTACT_FRAMES` absent, `grid_rbd_num_contact_frames()==0`,
+   (`GRIM_HAS_CONTACT_FRAMES` absent, `grim_num_contact_frames()==0`,
    and the numpy handle then failed a shape check with a misleading message).
    Hoisting it out exposed its real dependency — the value-form
    `load_update_XmatsHom_helpers`, which only the kinematics block emitted —
@@ -2089,7 +2089,7 @@ first, then a profile. Both directions are pinned in the closure net.
   `batch*6*NB` sized by the STATE batch → a (1, 6nb) force for batch 8 read
   past its buffer. Now broadcasts are materialized on the jax surface, other
   leading shapes rejected, and BOTH native boundaries (jax handler, torch
-  `grid_torch_f_ext_apply`) check `f_ext.dim(0) == batch`.
+  `grim_torch_f_ext_apply`) check `f_ext.dim(0) == batch`.
 - Nets: `test_floating_q_cotangent.py` (jax+torch, go2, unit AND non-unit
   quaternion, ID/FD/EE vs ambient FD) and `test_f_ext_backward_and_shapes.py`
   (force-conditioned grads vs FD, jit no-capture, jax==torch, shapes).
@@ -2120,7 +2120,7 @@ The bindings' `bykey/<input_key>` pointer returned the stored `.so` before the
 content key (the one that knew about nvcc and GLASS) was ever recomputed, so
 anything outside the caller's options — a toolkit upgrade, a dirty GLASS
 checkout at the same commit, a generation-time env knob
-(`GRID_CUDA_TARGET_SHARED_MEM_BYTES`, `GRID_NO_LICM_BARRIER`, …), an edit to
+(`GRIM_CUDA_TARGET_SHARED_MEM_BYTES`, `GRIM_NO_LICM_BARRIER`, …), an edit to
 `_compile.py` — could hand back a stale artifact while the fast path looked
 "warm". Fix (`_cache.build_identity`): one readable dict of every
 artifact-shaping non-option input, folded into the stage-1 key AND persisted
@@ -2146,7 +2146,7 @@ threads register without a lost update).
 ### 7.z18 Generated initializers must be library-safe: status-returning, rollback, publish-on-success (2026-09-22, HJCD ask)
 `init_robotModel()` built the struct member by member with `gpuErrchk` around
 every alloc/copy: default policy `cudaDeviceReset(); exit(code)` (kills an
-embedding interpreter), and under `GRID_GPUERRCHK_NO_EXIT` the sticky slot
+embedding interpreter), and under `GRIM_GPUERRCHK_NO_EXIT` the sticky slot
 just recorded the error and the function CONTINUED — returning a partially
 built struct whose earlier members leaked and whose later members were
 garbage; `free_robotModel` then trusted a device struct that may never have
@@ -2154,13 +2154,13 @@ been completed. The fix is in the GENERATOR (`_topology_helpers.py` +
 `_gpu_err.py`), one implementation, two spellings: every table initializer
 emits `init_X_checked(T **out, const char **failed_op)` (null `*out` first,
 checked `calloc`, guarded `cudaMalloc`+`cudaMemcpy` through the host-only
-`GRID_CUDA_CALL`/`GRID_HOST_ALLOC` seams, release-on-failure, publish on
+`GRIM_CUDA_CALL`/`GRIM_HOST_ALLOC` seams, release-on-failure, publish on
 success), `init_robotModel_checked` composes them with a reverse-order
 rollback (`release_robotModel_members`), `free_robotModel_checked` validates
 device affinity (`cudaPointerGetAttributes`), treats nullptr as a no-op and a
 failed copy-back as "touch nothing, report, documented leak"; the legacy
 names are thin wrappers calling the checked function INTO A LOCAL and then
-`grid_legacy_check(e, op, ...)`. RULES: (1) never pass `f(&op), op` in one
+`grim_legacy_check(e, op, ...)`. RULES: (1) never pass `f(&op), op` in one
 argument list — C++ argument evaluation order is unspecified and the op read
 raced the call that set it (caught by the runner's message check);
 (2) a new owned member of `robotModel<T>` joins `_robotModel_members()` and
@@ -2172,12 +2172,12 @@ sanitizer run on the success path is supplementary, not a substitute;
 (4) `exit()` tests run in a subprocess, never inside pytest's process.
 
 **7.z18 addendum (part 2: arena / streams / close, same day).** The batch
-arena has ~80 allocation sites behind `#if`/`needs_*` gating, and `close_grid`
+arena has ~80 allocation sites behind `#if`/`needs_*` gating, and `close_grim`
 carried a HAND-WRITTEN free list that had already drifted (buffers with no
 matching free). The checked constructor, its rollback and
-`close_grid_checked` are now all DERIVED from the one `code_lines` list in
-`gen_init_gridData` (`_checked_init_lines` / `_release_lines`), the way
-`gridData_device_bytes` already was — RULE: never hand-write a second copy
+`close_grim_checked` are now all DERIVED from the one `code_lines` list in
+`gen_init_grimData` (`_checked_init_lines` / `_release_lines`), the way
+`grimData_device_bytes` already was — RULE: never hand-write a second copy
 of an emitted resource list; derive it. Three traps met on the way: (1) a
 legacy wrapper `void f(){ e = f_checked<T>(&op); ... }` must be emitted
 AFTER the checked template — an undeclared dependent template-id parses as
@@ -2193,14 +2193,14 @@ paired acquire/release.
 The constexpr-sizer change was gated on an ID-only header and a generic
 `if constexpr (TIER ==` grep. Both missed the one chain that mattered: the
 plant's `INTEGRATOR_HESSIAN_DYNAMIC_SHARED_MEM_BYTES` spells the tier symbols
-`grid::TIER_SHARED` (it is emitted inside `grid_plant`), so the grep never saw
+`grim::TIER_SHARED` (it is emitted inside `grim_plant`), so the grep never saw
 it, and no ID-only header emits the plant — 14 red receipt cells (3 shards),
 every one a C++11 "constexpr function must contain exactly one return". RULES:
 (1) an emitter change is gated by generating FULL all-profile headers for
 iiwa14-fixed, go2-floating (+mjx twins) and fr3 (mimic) and compiling each with
 `nvcc -std=c++11 -c` (~3 min total) — the equivalence runners are C++11;
 (2) when sweeping emitted text, grep BOTH the bare and the namespace-qualified
-spellings (`TIER_SHARED` and `grid::TIER_SHARED`); (3) the local gate ceiling is
+spellings (`TIER_SHARED` and `grim::TIER_SHARED`); (3) the local gate ceiling is
 g1 — h1_2/h2_plus SO compiles (20-30 min each) belong to the real receipt only;
 (4) prefer the exact 14 red cells as the re-run set over a fleet-wide `-k`.
 Mechanical-refactor traps met the same day: a non-greedy `\[(.*?)\]\)` regex
@@ -2210,9 +2210,9 @@ sites by asserting an exact shape match per site (skip + report the rest),
 never by best-effort substitution. Byte gate before AND after (8 cells).
 
 ### 7.z20 `get_robot` must validate LOAD compatibility — the manifest is a bare name→key binding (2026-09-24)
-`grid_rbd.get_robot("iiwa14")` on a cache whose entry predated the build-identity
+`grim.get_robot("iiwa14")` on a cache whose entry predated the build-identity
 record dlopen'ed an August `.so` and died with `undefined symbol:
-grid_rbd_device_pool_bytes`. `register_robot` validated its stage-1 pointer
+grim_device_pool_bytes`. `register_robot` validated its stage-1 pointer
 against the full identity (W05), but `get_robot` took the manifest binding at
 face value. Fix: `_cache.load_incompat_reasons` checks the LOAD subset
 (`LOAD_IDENTITY_KEYS` = key_schema, cuda_arch, wrapper_template, torch_abi,
@@ -2227,17 +2227,17 @@ validates what the pointer implies before dereferencing it — a name binding
 carries no proof of ABI compatibility.
 
 ### 7.z21 Header caches must key EVERY generation-time env knob from one list (2026-09-24)
-The L2 A/B toggled `GRID_FDSVA_SO_MINV_TILE=1` between two per_algo_bench builds;
+The L2 A/B toggled `GRIM_FDSVA_SO_MINV_TILE=1` between two per_algo_bench builds;
 both came back untiled. The bench header cache keyed the codegen tree hash plus a
-hand-picked `GRID_NO_LICM_BARRIER`, so the second build was served the first
+hand-picked `GRIM_NO_LICM_BARRIER`, so the second build was served the first
 build's header — the A/B was comparing a header to itself (the same trap the
 runtime-param A/B hit in 2026-07). Three caches each hand-listed a different
 subset: the bench (`baselines/grid/run.py`), the CUDA equivalence harness
 (`cuda_harness._header_cache_key`) and the bindings store (`_cache.GENERATION_ENV_KNOBS`).
-Fix: `grid_codegen/env_knobs.py` is the single list (`GENERATION_ENV_KNOBS`,
+Fix: `grim_codegen/env_knobs.py` is the single list (`GENERATION_ENV_KNOBS`,
 `generation_env()`), every cache folds it, and `test/test_generation_env_knobs.py`
-asserts the list equals the `os.environ` reads in grid_codegen and that each cache
-references it. RULES: (1) a new `os.environ.get("GRID_…")` in grid_codegen goes into
+asserts the list equals the `os.environ` reads in grim_codegen and that each cache
+references it. RULES: (1) a new `os.environ.get("GRIM_…")` in grim_codegen goes into
 that list in the same commit (the test fails otherwise); (2) an A/B script asserts
 the variant marker is present/absent in EACH built header before timing (l2_ab.py
 does, which is how this was caught) — never trust a cache to honour a knob.
@@ -2281,11 +2281,11 @@ symbolic predicate is only ever consumed as a boolean, refute numerically first.
 The wrapper's `g_data / g_robot / g_streams / g_plant` were used at ~600 sites
 across hand-written and generated code. Instead of rewriting every reference,
 B1 deleted the globals and made every entry point start with a guard macro
-(`GRID_RBD_CTX_OR_RETURN/OR_FFI/OR_THROW(ctx_id)`) that resolves the context
+(`GRIM_CTX_OR_RETURN/OR_FFI/OR_THROW(ctx_id)`) that resolves the context
 by id and declares SHADOW LOCALS with the old names — bodies stay textually
 identical, and any function that still reaches a global without the guard fails
 to compile, which is how the last stragglers were found. Lessons from the
-four compile rounds it took: (1) internal helpers take `GridCtx *ctx` and
+four compile rounds it took: (1) internal helpers take `GrimCtx *ctx` and
 declare the same locals — a helper must NOT also carry the guard (double
 declaration; the guard is for ENTRY points only); (2) thin delegating wrappers
 (the joint barriers, the quadratic-cost pair, the jax/torch `_impl<N>`
@@ -2314,7 +2314,7 @@ the backward hands that slot to every gradient op, which reads it (4-byte
 D2H + stream sync, inside its own admission scope) and refuses on mismatch.
 JAX gets separate `_stamped` (extra S32 result) / `_checked` (leading S32
 operand) handler symbols generated from the vjp role table, with the handler
-body split into `_body(GridCtx*, …)` + entry shims so both twins share one
+body split into `_body(GrimCtx*, …)` + entry shims so both twins share one
 launch; torch gets optional trailing `Tensor? stamp_out=None` /
 `Tensor? stamp_expect=None` args so every existing call site and captured
 graph is untouched. The admission lock itself is a `std::shared_mutex` on
@@ -2334,7 +2334,7 @@ loads it); (4) the crosscheck's body extractor must look for `_body(` before
 `_impl(` once a key is split.
 
 ### 7.z26 A consistently generated omission passes every generator-consistency gate (2026-09-24, codex R1)
-Thirty generated `grid_rbd_<op>_mujoco` C-ABI twins lacked the new leading
+Thirty generated `grim_<op>_mujoco` C-ABI twins lacked the new leading
 `long long ctx_id` while their bodies named it. Every gate stayed green: the
 generated-block drift test faithfully reproduced the broken generator, the
 signature crosscheck only inspected the primary symbol, and the wrapper
@@ -2357,7 +2357,7 @@ admission with the GIL held — a runtime-parameter setter (exclusive), a
 launch override, `ctx_close`/`close_arena` (drain), or the token bracket
 itself — deadlocks: the token holder needs the GIL to reach `graph_end()`,
 the waiter holds it. Reproduced deterministically (child hung, rc 124) and
-fixed by releasing the GIL around every such native wait (`GridNoGil`:
+fixed by releasing the GIL around every such native wait (`GrimNoGil`:
 `py::gil_scoped_release` guarded by `PyGILState_Check`), taking array data
 pointers BEFORE the released section and touching no Python object inside
 it. The last-owner `release()` also stopped draining under the owners mutex:
@@ -2437,7 +2437,7 @@ guard has to explain it; (2) when the kernel indexes by tangent index, one strid
 converts widths for free — reach for `cudaMemcpy2D` before a pad/slice op; (3) the
 old-width array must still be REJECTED with a migration message (`tangent width` in the
 error), never silently sliced, or a padded caller gets plausible wrong dynamics on the
-last joint; (4) `grid.cuh` and its raw buffer contract (`test_cuda_input_abi.py`) are
+last joint; (4) `grim.cuh` and its raw buffer contract (`test_cuda_input_abi.py`) are
 unchanged, so kernel timings survive — only wrapper-boundary timings on nq != nv robots
 need re-collection.
 
@@ -2587,7 +2587,7 @@ re-measured.
 - Guards are full-matrix norm bounds at ≤ ~3× the measured worst, applied only after the
   entrywise check fails. Never loosen one without the numbers.
 - Tools: `probes/audit_summary.py` (per robot × base, worst default excess), the fp64 plugin
-  (generator `dtype="double"` + `GRID_EQUIV_T=double`), and `probes/fdgrad_noise.py`
+  (generator `dtype="double"` + `GRIM_EQUIV_T=double`), and `probes/fdgrad_noise.py`
   (fp32 noise model).
 
 ### 7.z35 Session-random compile flags poison a content-keyed cache; shards can share a cache only with per-key locks (2026-10-01)
@@ -2597,12 +2597,12 @@ re-measured.
 cache held the SAME header built at 251 and at 347 threads.
 
 **Cause.** The test drew a session-random block thread count and baked it into the nvcc
-command (`-DGRID_CUDA_SECOND_ORDER_TEST_THREADS=<n>`). `executable_cache` keys on every
+command (`-DGRIM_CUDA_SECOND_ORDER_TEST_THREADS=<n>`). `executable_cache` keys on every
 input byte plus the flags, so a different random value is a different key: a guaranteed
 miss, every session, forever. The runner only used the value as a runtime `int`.
 
 **Fix.** The count travels as `argv[1]` (the flagship runner's existing pattern); the test
-prints it and `GRID_CUDA_SECOND_ORDER_TEST_THREADS=<n>` reproduces a run. Two executables
+prints it and `GRIM_CUDA_SECOND_ORDER_TEST_THREADS=<n>` reproduces a run. Two executables
 per header (the `ENABLE_FDSVA` flag) instead of one per session.
 
 **Rules.**
@@ -2613,7 +2613,7 @@ per header (the `ENABLE_FDSVA` flag) instead of one per session.
   nvcc builds (integrator ×2 tiers, SO fallback) were ~4 h of a ~9.5 h serial cuda domain,
   and compile-time fixes only pay when those are MISSES. A CPU-only predictor (regenerate
   the header, recompute the key, test for the manifest) tells you before launching.
-- Predicting hits OUTSIDE pytest: set `GRID_ENABLE_MUJOCO_KERNELS=0` (the suite's
+- Predicting hits OUTSIDE pytest: set `GRIM_ENABLE_MUJOCO_KERNELS=0` (the suite's
   conftest and `run_split_suite.cuda_worker_env()` do). Without it floating robots gain
   their mjx twins, every floating key changes, and "fixed hits, floating misses" looks
   like a codegen change when it is only the knob.
@@ -2622,7 +2622,7 @@ per header (the `ENABLE_FDSVA` flag) instead of one per session.
 locking, which is why `run_split_suite.phase_run` ran GPU shards one at a time. They now
 take a per-key exclusive flock (`cuda_harness._cache_key_lock`, the `executable_cache`
 idiom) around check-then-build, the runner executable is published by `os.replace`
-from a `.partial`, and `GRID_SPLIT_SHARD_JOBS` (default 1) runs that many shards side by
+from a `.partial`, and `GRIM_SPLIT_SHARD_JOBS` (default 1) runs that many shards side by
 side. Host RAM, not the GPU, is the bound: a shard's inline humanoid nvcc builds are not
 pool-admitted, so pilot >1 only under a `MemoryMax`'d unit. Guard:
 `test/test_cuda_cache_locking.py`.
@@ -2632,12 +2632,12 @@ pool-admitted, so pilot >1 only under a `MemoryMax`'d unit. Guard:
 device→host copy and proposed pinned output arrays. A probe that passed a page-locked
 destination to the C ABI measured NO change (67.3 vs 67.8 ms on g1 idsva_so @1024).
 
-**Cause.** The generated `grid::<op>` host wrapper already copies D2H into the page-locked
+**Cause.** The generated `grim::<op>` host wrapper already copies D2H into the page-locked
 `g_data->h_<out>` mirror; the C ABI then `std::memcpy`'d the whole slab into the caller's
 array (~28 ms of 67), and the handle added further copies (~53 ms). The destination's
 pinnedness was never the variable.
 
-**Fix.** `GridMirrorRetarget` (wrapper_template.cu hand region): the C-ABI body points
+**Fix.** `GrimMirrorRetarget` (wrapper_template.cu hand region): the C-ABI body points
 `g_data->h_<out>` at the caller's buffer for the duration of the call, so the wrapper's own
 D2H lands there; an RAII destructor restores the mirror on EVERY exit path (the first draft
 restored it after the sync and would have left the context aimed at freed numpy memory on a
@@ -2657,13 +2657,13 @@ PCIe rate.
 - Any code that temporarily redirects a context pointer restores it by destructor, never by
   a statement after the call.
 - The pybind shim does not link cudart: anything needing the CUDA runtime from Python goes
-  through an export in the per-robot `.so` (here `grid_rbd_pinned_alloc/free/is_pinned`),
+  through an export in the per-robot `.so` (here `grim_pinned_alloc/free/is_pinned`),
   and a buffer that outlives the call keeps the Runner alive via its capsule.
 
 ### 7.z37 A generator branch that REMOVES code needs its twin: the MuJoCo C-ABI bodies returned unwritten buffers (2026-10-02)
 
 **Symptom.** None in any gate. Found by reading a generated body while extending the
-retarget: `grid_rbd_idsva_so_mujoco` ended `sync_consume(); return 0;` with no copy into
+retarget: `grim_idsva_so_mujoco` ended `sync_consume(); return 0;` with no copy into
 `out` at all. Fifteen twin bodies were like it.
 
 **Cause.** `_out_copy_lines` is shared by `gen_body` and `gen_mjx_body`; for a
@@ -2687,13 +2687,13 @@ mirror-stride workaround the generator has since fixed. They are `cabi_direct` n
 download, into the caller's buffer.
 
 **And a third defect, found by the receipt (segfault, rc=-11).** The baked EE-pose family
-was `cabi_direct`. Its public size is `6*GRID_RBD_NUM_EES*…` — a WRAPPER-side macro that a
+was `cabi_direct`. Its public size is `6*GRIM_NUM_EES*…` — a WRAPPER-side macro that a
 named-target build (`ee_joint_names=[one joint]`) sets to 1 — while the generated host
-function still downloads all `grid::NUM_EES` leaves into the mirror. Behind a memcpy that
+function still downloads all `grim::NUM_EES` leaves into the mirror. Behind a memcpy that
 is harmless (the first slot is the named target); retargeted, the download overran the
 caller's array 4x on go2 (the gradient and pose calls before it corrupted the heap
 silently; the Hessian finally faulted). The size referee had evaluated both sides with one
-header's constants and `GRID_RBD_NUM_EES := NUM_EES`, i.e. only the multi-leaf build. The
+header's constants and `GRIM_NUM_EES := NUM_EES`, i.e. only the multi-leaf build. The
 three rows are back on the memcpy, and the referee refuses any direct row whose
 `out_size_expr` names a wrapper-side macro.
 

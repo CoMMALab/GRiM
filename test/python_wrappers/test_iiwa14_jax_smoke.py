@@ -1,4 +1,4 @@
-"""JAX FFI smoke tests for grid_rbd.jax.
+"""JAX FFI smoke tests for grim.jax.
 
 Validates that the JAX FFI integration:
   * Compiles the per-robot .so with the JAX FFI handler block included.
@@ -8,7 +8,7 @@ Validates that the JAX FFI integration:
   * Works under ``jax.jit`` and accepts both numpy + JAX arrays as input
     (JAX moves CPU→GPU transparently before the FFI handler runs).
 
-Skips if jax, grid_rbd, or the URDF fixture aren't available.
+Skips if jax, grim, or the URDF fixture aren't available.
 
 Run with:
     pytest test/python_wrappers/test_iiwa14_jax_smoke.py -m python_wrappers -v
@@ -31,9 +31,9 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # ─── preconditions ───────────────────────────────────────────────────────────
 
-_grid_rbd      = pytest.importorskip("grid_rbd",      reason="grid-rbd not installed")
-_jax           = pytest.importorskip("jax",           reason="jax not installed (pip install grid-rbd[jax])")
-_grid_rbd_jax  = pytest.importorskip("grid_rbd.jax",  reason="grid_rbd.jax import failed")
+_grim      = pytest.importorskip("grim",      reason="grim not installed")
+_jax           = pytest.importorskip("jax",           reason="jax not installed (pip install grim[jax])")
+_grim_jax  = pytest.importorskip("grim.jax",  reason="grim.jax import failed")
 
 _URDF = (
     Path.home()
@@ -43,7 +43,7 @@ if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid_rbd.jax.register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim.jax.register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -55,7 +55,7 @@ _TOL = 5e-3
 
 @pytest.fixture(scope="module")
 def jax_handle():
-    return _grid_rbd_jax.register_robot(
+    return _grim_jax.register_robot(
         name="iiwa14_jax_pytest",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -66,7 +66,7 @@ def jax_handle():
 @pytest.fixture(scope="module")
 def plain_handle():
     # Same cache key, same .so — picked up by name from the manifest.
-    return _grid_rbd.get_robot("iiwa14_jax_pytest")
+    return _grim.get_robot("iiwa14_jax_pytest")
 
 
 @pytest.fixture(scope="module")
@@ -512,7 +512,7 @@ def test_register_idempotent(jax_handle):
     """Re-registering under the same name reuses the cached .so."""
     import time
     t0 = time.time()
-    h2 = _grid_rbd_jax.register_robot(
+    h2 = _grim_jax.register_robot(
         name="iiwa14_jax_pytest",
         urdf_path=str(_URDF),
         floating_base=False,

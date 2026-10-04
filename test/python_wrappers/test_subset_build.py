@@ -1,14 +1,14 @@
-"""Subset-build tests for the `grid-rbd` package.
+"""Subset-build tests for the `grim` package.
 
 `register_robot(algorithm_list=[...])` builds only a SUBSET of algorithms into the
 per-robot `.so` (cuts nvcc wall-time / RAM / `.so` size for big robots). Codegen
 already supported subsets via `_normalize_codegen_algorithms` (transitive-dep
-expansion) + per-algorithm emission in grid.cuh; this suite exercises the binding
+expansion) + per-algorithm emission in grim.cuh; this suite exercises the binding
 stack that plumbs the request and rc=3-gates the wrapper bodies.
 
-The model (rc=3, low blast-radius): the codegen emits `#define GRID_HAS_<ALGO>
+The model (rc=3, low blast-radius): the codegen emits `#define GRIM_HAS_<ALGO>
 {0,1}` per core algorithm, the wrapper guards each `extern "C"` body with `#if
-GRID_HAS_<ALGO>` (real body when 1, `(void)args; return 3;` when 0), and the
+GRIM_HAS_<ALGO>` (real body when 1, `(void)args; return 3;` when 0), and the
 pybind Runner maps rc==3 to a clean "<algo> not built — add to algorithm_list and
 rebuild" error. For the default "all" profile every macro is 1, so the wrapper
 selects the real body verbatim and the default `.so` is byte-identical / fully
@@ -42,7 +42,7 @@ from config import robot_urdf
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (pip install bindings/)")
+_grim = pytest.importorskip("grim", reason="grim not installed (pip install bindings/)")
 
 # Use the in-repo iiwa14 URDF (always present alongside the codegen submodules),
 # so the suite doesn't depend on an external robot_descriptions cache.
@@ -51,7 +51,7 @@ if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -65,7 +65,7 @@ _TOL = 5e-3  # float32 vs float64 cross-precision
 @pytest.fixture(scope="module")
 def cache_dir(tmp_path_factory):
     # Isolated cache so these (force_rebuild) builds never collide with the shared
-    # ~/.cache/grid-rbd/ entries used by the other suites.
+    # ~/.cache/grim/ entries used by the other suites.
     return tmp_path_factory.mktemp("subset_build_cache")
 
 
@@ -73,7 +73,7 @@ def cache_dir(tmp_path_factory):
 def default_handle(cache_dir):
     """The full default profile (algorithm_list=None) — must stay byte-identical /
     fully working. force_rebuild to exercise the real codegen+nvcc path."""
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_subset_default",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -91,7 +91,7 @@ def subset_handle(cache_dir):
     and the gradients are available WITHOUT being named — proving dep expansion.
     crba / idsva_so / fdsva_so / end_effector_pose / integrator are NOT pulled in,
     so they must rc=3-stub with a clean error."""
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_subset_reduced",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -232,8 +232,8 @@ def test_subset_unrequested_raises_clean_error(subset_handle, samples, method, c
 def test_subset_so_is_smaller_than_default(default_handle, subset_handle, cache_dir):
     """The reduced .so is meaningfully smaller than the full build (the un-requested
     heavy second-order / integrator inner kernels are simply not emitted)."""
-    from grid_rbd._cache import store_dir
-    entries = {e["name"]: e for e in _grid_rbd.list_registered(str(cache_dir))}
+    from grim._cache import store_dir
+    entries = {e["name"]: e for e in _grim.list_registered(str(cache_dir))}
     d = store_dir(Path(cache_dir), entries["iiwa14_subset_default"]["cache_key"]) / "robot.so"
     s = store_dir(Path(cache_dir), entries["iiwa14_subset_reduced"]["cache_key"]) / "robot.so"
     if not d.exists() or not s.exists():
@@ -247,7 +247,7 @@ def test_subset_does_not_rekey_default(cache_dir):
     proving the subset plumbing is inject-only-when-set."""
     import time
     t0 = time.time()
-    h = _grid_rbd.register_robot(
+    h = _grim.register_robot(
         name="iiwa14_subset_default",
         urdf_path=str(_URDF),
         floating_base=False,

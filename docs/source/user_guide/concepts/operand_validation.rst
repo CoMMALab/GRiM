@@ -86,9 +86,9 @@ Where each surface enforces the rules
    * - torch
      - none: a CPU tensor, a non-contiguous tensor or a wrong dtype is
        refused (the op never copies an input)
-     - ``grid_torch_check`` per tensor (CUDA, contiguous, dtype, 2D, last
-       dim); ``grid_torch_batch`` (``1 <= B <= max_batch``);
-       ``grid_torch_check_rows`` for every operand after the leading one
+     - ``grim_torch_check`` per tensor (CUDA, contiguous, dtype, 2D, last
+       dim); ``grim_torch_batch`` (``1 <= B <= max_batch``);
+       ``grim_torch_check_rows`` for every operand after the leading one
        (inside the shared input pack, so no op can skip it); ``f_ext`` batch
      - ``RuntimeError`` (``TORCH_CHECK``)
    * - JAX
@@ -96,8 +96,8 @@ Where each surface enforces the rules
        placement is XLA's
      - Python: 2D or 1D-under-``vmap``, last dim, same batch, ``max_batch``.
        Native (every FFI handler, so a traced program or a direct handler
-       call is covered too): ``GRID_RBD_FFI_VALIDATE_2D`` on the leading
-       operand, ``GRID_RBD_FFI_VALIDATE_ROWS`` on every other one,
+       call is covered too): ``GRIM_FFI_VALIDATE_2D`` on the leading
+       operand, ``GRIM_FFI_VALIDATE_ROWS`` on every other one,
        ``1 <= B <= max_batch``
      - ``ValueError`` (Python), ``XlaRuntimeError`` (native)
 

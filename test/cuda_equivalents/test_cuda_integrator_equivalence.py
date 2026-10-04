@@ -1,6 +1,6 @@
 """CUDA equivalence test for the generated time-integrator kernels.
 
-Validates `grid::integrator<EULER|SEMI_IMPLICIT_EULER>` and the matching
+Validates `grim::integrator<EULER|SEMI_IMPLICIT_EULER>` and the matching
 `integrator_gradient<...>` / `integrator_with_gradient<...>` host
 wrappers against the Python reference composed in
 `ProjectModelAdapter.integrator` / `integrator_gradient`. Mirrors the
@@ -9,8 +9,8 @@ world-frame IDSVA-SO smoke-runner pattern: codegen iiwa14 with the
 integrator types over each sample (q, qd, u, dt), then diff the printed
 matrices block-by-block.
 
-Default robot is iiwa14-fixed; pass GRID_CUDA_INTEGRATOR_ROBOTS to widen
-the sweep. Set GRID_CUDA_INTEGRATOR_DT to override the integration
+Default robot is iiwa14-fixed; pass GRIM_CUDA_INTEGRATOR_ROBOTS to widen
+the sweep. Set GRIM_CUDA_INTEGRATOR_DT to override the integration
 timestep (default 0.01).
 """
 
@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -91,12 +91,12 @@ def _robot_ids() -> tuple[str, ...]:
     # BIG MIMIC case (NB=51>NV=39 fixed, NB=52>NV=45 floating) — its per-body
     # s_vaf/scratch MUST size by NB, not NV, or the composed FD-grad inner overflows
     # (the recurring mimic-overflow bug class).
-    return _comma_separated_env("GRID_CUDA_INTEGRATOR_ROBOTS", "iiwa14,go2,fr3,g1,h1_2")
+    return _comma_separated_env("GRIM_CUDA_INTEGRATOR_ROBOTS", "iiwa14,go2,fr3,g1,h1_2")
 
 
 def _dts() -> tuple[float, ...]:
     """Set of dt values to exercise. Override with comma-separated env var."""
-    raw = os.environ.get("GRID_CUDA_INTEGRATOR_DT", "0.001,0.01,0.1")
+    raw = os.environ.get("GRIM_CUDA_INTEGRATOR_DT", "0.001,0.01,0.1")
     return tuple(float(item.strip()) for item in raw.split(",") if item.strip())
 
 
@@ -143,8 +143,8 @@ _FLOATING_MIMIC_NORM_RTOL = 3e-3
 
 
 def _generate_header(project_model, build_dir: Path) -> Path:
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot,
         DEBUG_MODE=False,
         NEED_PRINT_MAT=False,
@@ -164,14 +164,14 @@ def _compile_runner(build_dir: Path, tier: str | None = None):
     # d_workspace / d_temp_spill) in addition to PERF. The math is tier-independent,
     # so a tier sweep must still match the reference. The default `tier` arg comes
     # from the parametrized `tier` fixture (TIER_SHARED + TIER_LITE); the legacy
-    # GRID_CUDA_INTEGRATOR_TIER env still overrides it for ad-hoc single-tier runs.
-    tier = os.environ.get("GRID_CUDA_INTEGRATOR_TIER", tier)
+    # GRIM_CUDA_INTEGRATOR_TIER env still overrides it for ad-hoc single-tier runs.
+    tier = os.environ.get("GRIM_CUDA_INTEGRATOR_TIER", tier)
     if tier and tier != "TIER_SHARED":
         if tier not in ("TIER_SHARED", "TIER_LITE", "TIER_MINIMAL"):
-            pytest.fail("GRID_CUDA_INTEGRATOR_TIER must be TIER_SHARED, TIER_LITE, or TIER_MINIMAL.")
-        flags.append(f"-DGRID_DEFAULT_RESOURCE_TIER={tier}")
+            pytest.fail("GRIM_CUDA_INTEGRATOR_TIER must be TIER_SHARED, TIER_LITE, or TIER_MINIMAL.")
+        flags.append(f"-DGRIM_DEFAULT_RESOURCE_TIER={tier}")
     return cached_nvcc_executable(
-        [RUNNER_SOURCE, build_dir / "grid.cuh"], flags,
+        [RUNNER_SOURCE, build_dir / "grim.cuh"], flags,
         exe_name="cuda_integrator_smoke_runner.exe", fallback_dir=build_dir,
         include_dirs=[glass_inc], what="CUDA integrator smoke runner",
     )
@@ -221,15 +221,15 @@ def _assert_close_scaled(actual, expected, rtol, atol, err_msg, norm_rtol=None):
 
 
 def _base_modes() -> tuple[str, ...]:
-    return _comma_separated_env("GRID_CUDA_INTEGRATOR_BASE_MODES", "fixed,floating")
+    return _comma_separated_env("GRIM_CUDA_INTEGRATOR_BASE_MODES", "fixed,floating")
 
 
 def _tiers() -> tuple[str, ...]:
     """Resource tiers to compile+run each cell at. Defaults to PERF (TIER_SHARED)
     AND a spilled tier (TIER_LITE) so the big-robot SPILL path (FD-grad inner
     s_temp / s_D_qdd_stage -> d_workspace / d_temp_spill) is exercised, not just
-    the all-in-smem PERF arena. Override with GRID_CUDA_INTEGRATOR_TIERS."""
-    return _comma_separated_env("GRID_CUDA_INTEGRATOR_TIERS", "TIER_SHARED,TIER_LITE")
+    the all-in-smem PERF arena. Override with GRIM_CUDA_INTEGRATOR_TIERS."""
+    return _comma_separated_env("GRIM_CUDA_INTEGRATOR_TIERS", "TIER_SHARED,TIER_LITE")
 
 
 def _robot_has_mimic(project_model) -> bool:
@@ -347,11 +347,11 @@ def _num_bodies(project_model):
 def test_cuda_integrator_fext_matches_python_reference(tmp_path, monkeypatch):
     """Integrator with NONZERO external forces matches the Python reference.
 
-    Gate for the f_ext threading through the integrator value + gradient: GRiD now
+    Gate for the f_ext threading through the integrator value + gradient: GRiM now
     passes d_f_ext into the integrator's FD inner (value) and the gradient's
     vaf/ID linearization, so a nonzero f_ext must shift x_kp1 AND [A|B] to match
     FD(q,qd,u, f_ext). The runner reads a body-major local-frame f_ext (opt-in via
-    GRID_RUNNER_FEXT) into hd_data->d_f_ext; the host integrator wrapper reads it.
+    GRIM_RUNNER_FEXT) into hd_data->d_f_ext; the host integrator wrapper reads it.
 
     Fixed-base iiwa14 (well-conditioned; also covers the new CONSTANT_ACCELERATION with
     f_ext). The no-fext path stays byte-identical (env unset) and is covered by
@@ -380,7 +380,7 @@ def test_cuda_integrator_fext_matches_python_reference(tmp_path, monkeypatch):
     f_ext_flat = np.concatenate(f_ext).astype(np.float64)
     f_ext_str = " ".join(repr(float(x)) for x in f_ext_flat) + "\n"
 
-    monkeypatch.setenv("GRID_RUNNER_FEXT", "1")
+    monkeypatch.setenv("GRIM_RUNNER_FEXT", "1")
     rtol = 5e-4
     atol = 5e-4
 

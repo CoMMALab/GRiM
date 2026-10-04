@@ -1,11 +1,11 @@
-"""grid_plant smoke tests for the `grid-rbd` package (G1 binding layer).
+"""grim_plant smoke tests for the `grim` package (G1 binding layer).
 
-Registers iiwa14 (fixed-base), exercises the grid_plant surface exposed on
+Registers iiwa14 (fixed-base), exercises the grim_plant surface exposed on
 the RobotHandle (plant_step, quadratic state/input cost, ee_pos_cost, and the
 joint position/velocity/torque log-barriers), and asserts numerical agreement
 with the `RBDReference._PlantMixin` numpy reference at float32 precision.
 
-Skip conditions mirror the other python-wrapper smokes (grid_rbd importable,
+Skip conditions mirror the other python-wrapper smokes (grim importable,
 nvcc on PATH, iiwa14 URDF fixture present).
 
 Run with:
@@ -25,14 +25,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (pip install python/)")
+_grim = pytest.importorskip("grim", reason="grim not installed (pip install python/)")
 
 # In-repo URDF (always present) so this smoke is self-contained.
 _URDF = robot_urdf("iiwa14")
 if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -42,7 +42,7 @@ _TOL = 5e-3
 
 @pytest.fixture(scope="module")
 def handle():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_plant_smoke",
         urdf_path=str(_URDF),
         floating_base=False,

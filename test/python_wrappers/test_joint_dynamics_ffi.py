@@ -2,7 +2,7 @@
 
 `use_joint_dynamics` is a BUILD-TIME codegen flag that bakes the viscous-damping +
 Coulomb-friction bias `tau += b*qd + f*sign(qd)` (and the `diag(b)` gradient term)
-into the id/fd/aba/*_gradient kernels — NOT a per-algo GRID_HAS_* gate. The jax/torch
+into the id/fd/aba/*_gradient kernels — NOT a per-algo GRIM_HAS_* gate. The jax/torch
 FFI handlers call those SAME baked C-ABI symbols, so a damped build computes the
 biased result on every surface. This test proves the three surfaces AGREE (the C5
 Part-A wiring: dropped the numpy-only raise + forwarded the flag) and that the bias
@@ -31,13 +31,13 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "bindings"))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
-_gj = pytest.importorskip("grid_rbd.jax", reason="grid_rbd.jax import failed (pip install grid-rbd[jax])")
+_grim = pytest.importorskip("grim", reason="grim not installed")
+_gj = pytest.importorskip("grim.jax", reason="grim.jax import failed (pip install grim[jax])")
 _jax = pytest.importorskip("jax", reason="jax not installed")
-_gt = pytest.importorskip("grid_rbd.torch", reason="grid_rbd.torch import failed (pip install grid-rbd[torch])")
+_gt = pytest.importorskip("grim.torch", reason="grim.torch import failed (pip install grim[torch])")
 _torch = pytest.importorskip("torch", reason="torch not installed")
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 if not _torch.cuda.is_available():
     pytest.skip("CUDA device not available for torch", allow_module_level=True)
 
@@ -87,11 +87,11 @@ def handles(request):
     ONE build), plus a bare (undamped) numpy build for the bias-present check."""
     name, urdf = request.param
     common = dict(urdf_path=str(urdf), floating_base=False, max_batch_size=8)
-    hn = _grid_rbd.register_robot(name=f"{name}_jd_ffi_pytest", use_joint_dynamics=True,
+    hn = _grim.register_robot(name=f"{name}_jd_ffi_pytest", use_joint_dynamics=True,
                                   force_rebuild=True, **common)
     hj = _gj.register_robot(name=f"{name}_jd_ffi_pytest", use_joint_dynamics=True, **common)
     ht = _gt.register_robot(name=f"{name}_jd_ffi_pytest", use_joint_dynamics=True, **common)
-    hbare = _grid_rbd.register_robot(name=f"{name}_jd_ffi_bare_pytest", force_rebuild=True, **common)
+    hbare = _grim.register_robot(name=f"{name}_jd_ffi_bare_pytest", force_rebuild=True, **common)
     return name, hn, hj, ht, hbare
 
 

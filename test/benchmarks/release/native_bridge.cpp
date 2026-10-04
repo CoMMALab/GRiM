@@ -5,14 +5,14 @@
 #include <dlfcn.h>
 #include <memory>
 
-extern "C" int grid_release_time(const char *library, const char *symbol,
+extern "C" int grim_release_time(const char *library, const char *symbol,
     long long context, const float *q, const float *v, const float *a,
     int batch, int output_count, int warmups, int iterations, double warm_seconds,
     double *times_us, float *last_output) {
   if (!library || !symbol || !q || !v || !a || !times_us || !last_output ||
       batch <= 0 || output_count <= 0 || warmups < 1 || iterations < 1 || warm_seconds < 0) return -1;
-  if (std::strcmp(symbol, "grid_rbd_inverse_dynamics") &&
-      std::strcmp(symbol, "grid_rbd_inverse_dynamics_gradient")) return -2;
+  if (std::strcmp(symbol, "grim_inverse_dynamics") &&
+      std::strcmp(symbol, "grim_inverse_dynamics_gradient")) return -2;
   void *lib = dlopen(library, RTLD_NOW | RTLD_LOCAL);
   if (!lib) return -3;
   using Fn = int (*)(long long, const float*, const float*, const float*,

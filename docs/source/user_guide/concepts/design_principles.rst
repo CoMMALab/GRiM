@@ -2,7 +2,7 @@ Algorithm Design Principles & Best Practices
 ============================================
 
 **Read this first.** This page is the shared mental model for anyone — human or
-agent — writing or modifying a GRiD algorithm. It captures the *why* behind the
+agent — writing or modifying a GRiM algorithm. It captures the *why* behind the
 generated-code structure so your changes match the existing grain instead of
 fighting it. The mechanics live in :doc:`codegen_architecture` (the four emission
 layers) and :doc:`resource_tier_system` (tiers + spill); this page is the ethos
@@ -12,7 +12,7 @@ like the code already here.
 The one-paragraph version
 -------------------------
 
-GRiD is a code generator for power users who call hand-tuned, robot-specialized
+GRiM is a code generator for power users who call hand-tuned, robot-specialized
 rigid-body-dynamics kernels directly from their own CUDA and want every cycle and
 byte. So: **put all the intelligence in the innermost device function, keep
 everything above it a thin shim, and let the inner own its own memory placement.**
@@ -109,7 +109,7 @@ remains.
 * **Shared memory is fast but scarce, and smaller than you think.** On
   sm_120 / RTX 5090 the *opt-in* dynamic-smem cap is only **~99 KB**, not 227 KB.
   **Query it** (``cudaDevAttrMaxSharedMemoryPerBlockOptin`` /
-  ``grid_get_max_dynamic_shared_memory_bytes``); never hardcode an assumed cap.
+  ``grim_get_max_dynamic_shared_memory_bytes``); never hardcode an assumed cap.
 * **Global ``d_workspace`` is abundant and L2-pinnable.** Spilled buffers are
   recursion-hot, so the generated workspace is pinned in L2 for the kernel's
   lifetime — a spilled access then costs roughly an L2 hit, not an HBM round-trip.
@@ -117,7 +117,7 @@ remains.
   it sequentially, so its size is the *max* live footprint across phases, and
   aliasing (``f = vJ = Xdown``) is deliberate to keep the high-water mark low.
 * **``d_workspace`` layout** is a per-timestep slot indexed
-  ``&d_workspace[k * GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + <band offset>]``,
+  ``&d_workspace[k * GRIM_WORKSPACE_BYTES_PER_TIMESTEP<T>() + <band offset>]``,
   partitioned into the GRAD / SO / FDSVA_SO_SPILL bands. Buffers not live at the
   same time may safely reuse the same region.
 * **Naming convention is load-bearing:** ``s_`` = shared, ``d_`` = device/global.
@@ -161,7 +161,7 @@ the most-spilled rung fits the device cap.
    arenas; make the per-tier smem-bytes macro emit each rung's size.
 #. **Pass the *per-rung* flag to the inner**, computed from the rung you are
    emitting (e.g. ``"true" if use_selective_spill else "false"``) — **not** a
-   single-valued ``GRID_*_USES_*`` macro (that macro is only the PERF pick).
+   single-valued ``GRIM_*_USES_*`` macro (that macro is only the PERF pick).
 #. **Add a CUDA equivalence test** vs the verified ``RBDReference`` Python, and
    exercise it at PERF *and* at a forced deep spill.
 
@@ -170,7 +170,7 @@ the most-spilled rung fits the device cap.
 ------------------------
 
 * **Equivalence vs ``RBDReference`` at PERF *and* forced spill.** PERF validates
-  the math; a forced deep spill (set ``GRID_CUDA_TARGET_SHARED_MEM_BYTES`` small)
+  the math; a forced deep spill (set ``GRIM_CUDA_TARGET_SHARED_MEM_BYTES`` small)
   validates the spill path — which is otherwise *never instantiated* on small
   robots and can ship untested.
 * **Gate before a long timing sweep.** A per-algo TU that fails to compile empties
@@ -194,7 +194,7 @@ the most-spilled rung fits the device cap.
   ``s_temp`` slot is ``nullptr``; the ``XImats``/``XmatsHom`` helper still
   dereferences it for sincos scratch → crash. Repoint first (or keep the helper
   inside the inner).
-* **A single-valued PERF-pick macro as a per-rung flag.** ``GRID_*_USES_DA_DF_SPILL``
+* **A single-valued PERF-pick macro as a per-rung flag.** ``GRIM_*_USES_DA_DF_SPILL``
   equals the *PERF* pick. Using it as the inner's template arg inside an
   ``if constexpr (RESOURCE_TIER==...)`` branch gives a non-PERF tier the wrong
   flag → it writes the full band into a selective-sized arena → shared OOB on big

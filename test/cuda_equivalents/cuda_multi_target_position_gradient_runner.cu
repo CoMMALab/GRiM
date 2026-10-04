@@ -1,4 +1,4 @@
-// Robot-general validation for W2a grid::multi_target_position_gradient_device.
+// Robot-general validation for W2a grim::multi_target_position_gradient_device.
 //
 // Prints d(world pos)/dv for every baked target (3 x NV per target, row-fastest) and the
 // end_effector_pose_gradient position rows (rows 0..2 per ee) so the Python test can
@@ -6,24 +6,24 @@
 // the corresponding end_effector_pose_gradient rows (bit-identical: same Jv fill).
 //
 // Also self-checks THREAD-INVARIANCE at 1 / 32 / 256 threads. Correctness only, no timing.
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <algorithm>
 
 using T = double;
-constexpr int NQ  = grid::NUM_POS;
-constexpr int NV  = grid::NUM_VEL;
-constexpr int NT  = grid::NUM_MULTI_TARGETS;
-constexpr int NEE = grid::NUM_EES;
+constexpr int NQ  = grim::NUM_POS;
+constexpr int NV  = grim::NUM_VEL;
+constexpr int NT  = grim::NUM_MULTI_TARGETS;
+constexpr int NEE = grim::NUM_EES;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
 
-__global__ void mtg_kernel(T *d_out, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void mtg_kernel(T *d_out, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_out[3*NV*NT];
-    grid::multi_target_position_gradient_device<T>(s_out, d_q, m);
+    grim::multi_target_position_gradient_device<T>(s_out, d_q, m);
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0)
         for (int i = 0; i < 3*NV*NT; ++i) d_out[i] = s_out[i];
@@ -31,26 +31,26 @@ __global__ void mtg_kernel(T *d_out, const T *d_q, const grid::robotModel<T> *m)
 
 // Forced-spill twin: TIER_MINIMAL routes the Jacobian scratch (Xworld|Jv|Jw|ro) to
 // d_workspace. Output must be BIT-identical to TIER_SHARED (whole-arena spill only relocates).
-__global__ void mtg_kernel_spill(T *d_out, const T *d_q, const grid::robotModel<T> *m, T *d_ws) {
+__global__ void mtg_kernel_spill(T *d_out, const T *d_q, const grim::robotModel<T> *m, T *d_ws) {
     __shared__ T s_out[3*NV*NT];
-    grid::multi_target_position_gradient_device<T, grid::TIER_MINIMAL>(s_out, d_q, m, d_ws);
+    grim::multi_target_position_gradient_device<T, grim::TIER_MINIMAL>(s_out, d_q, m, d_ws);
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0)
         for (int i = 0; i < 3*NV*NT; ++i) d_out[i] = s_out[i];
 }
 
-__global__ void eeg_kernel(T *d_g, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void eeg_kernel(T *d_g, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_g[6*NV*NEE];
-    grid::end_effector_pose_gradient_device<T>(s_g, d_q, m);
+    grim::end_effector_pose_gradient_device<T>(s_g, d_q, m);
     __syncthreads();
     if (threadIdx.x == 0 && threadIdx.y == 0)
         for (int i = 0; i < 6*NV*NEE; ++i) d_g[i] = s_g[i];
 }
 
 int main(){
-    const grid::robotModel<T> *d_m = grid::init_robotModel<T>();
-    size_t smem = std::max(grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(),
-                           grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+    const grim::robotModel<T> *d_m = grim::init_robotModel<T>();
+    size_t smem = std::max(grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(),
+                           grim::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
 
     std::vector<T> hq(NQ); for(int i=0;i<NQ;++i) hq[i]=0.2*sin(0.7*i)+0.1;
     T *d_q,*d_out,*d_g;
@@ -73,8 +73,8 @@ int main(){
     printf("THREADINV maxdiff=%.3e\n", tinv);
 
     // ---- forced-spill: TIER_MINIMAL scratch->d_workspace must be BIT-identical ----
-    size_t smem_spill = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_MINIMAL>();
-    size_t ws_bytes   = grid::MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_MINIMAL>();
+    size_t smem_spill = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, grim::TIER_MINIMAL>();
+    size_t ws_bytes   = grim::MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_MINIMAL>();
     T *d_ws=nullptr; if (ws_bytes) CK(cudaMalloc(&d_ws, ws_bytes));
     cudaFuncSetAttribute(mtg_kernel_spill, cudaFuncAttributeMaxDynamicSharedMemorySize,(int)smem_spill);
     std::vector<T> res_spill(3*NV*NT);
@@ -82,7 +82,7 @@ int main(){
     CK(cudaMemcpy(res_spill.data(),d_out,3*NV*NT*sizeof(T),cudaMemcpyDeviceToHost));
     double spilldiff=0; for(int i=0;i<3*NV*NT;++i) spilldiff=std::max(spilldiff,fabs(res_spill[i]-res[2][i]));
     printf("SPILLDIFF maxdiff=%.3e (smem %zu->%zu, ws %zu B)\n",
-           spilldiff, grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(), smem_spill, ws_bytes);
+           spilldiff, grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(), smem_spill, ws_bytes);
 
     // ---- production kernel path (W2b Component B): TIER_SHARED (smem staging)
     // vs TIER_MINIMAL (direct-to-output + SO-band workspace slot) must be
@@ -95,18 +95,18 @@ int main(){
         T *d_q4,*d_out4; unsigned char *d_wsk;
         CK(cudaMalloc(&d_q4,NQ*NTS*sizeof(T)));
         CK(cudaMalloc(&d_out4,3*NV*NT*NTS*sizeof(T)));
-        size_t wsk_bytes = grid::GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*NTS;
+        size_t wsk_bytes = grim::GRIM_WORKSPACE_BYTES_PER_TIMESTEP<T>()*NTS;
         CK(cudaMalloc(&d_wsk, wsk_bytes ? wsk_bytes : 1));
         CK(cudaMemcpy(d_q4,hq4.data(),NQ*NTS*sizeof(T),cudaMemcpyHostToDevice));
         std::vector<T> out_sh(3*NV*NT*NTS), out_min(3*NV*NT*NTS);
-        size_t k_smem_sh  = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_SHARED>();
-        size_t k_smem_min = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_MINIMAL>();
-        cudaFuncSetAttribute(grid::multi_target_position_gradient_kernel<T, grid::TIER_SHARED>,  cudaFuncAttributeMaxDynamicSharedMemorySize,(int)k_smem_sh);
-        cudaFuncSetAttribute(grid::multi_target_position_gradient_kernel<T, grid::TIER_MINIMAL>,cudaFuncAttributeMaxDynamicSharedMemorySize,(int)k_smem_min);
-        grid::multi_target_position_gradient_kernel<T, grid::TIER_SHARED><<<NTS,128,k_smem_sh>>>(d_out4,d_wsk,d_q4,NQ,d_m,NTS);
+        size_t k_smem_sh  = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, grim::TIER_SHARED>();
+        size_t k_smem_min = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T, grim::TIER_MINIMAL>();
+        cudaFuncSetAttribute(grim::multi_target_position_gradient_kernel<T, grim::TIER_SHARED>,  cudaFuncAttributeMaxDynamicSharedMemorySize,(int)k_smem_sh);
+        cudaFuncSetAttribute(grim::multi_target_position_gradient_kernel<T, grim::TIER_MINIMAL>,cudaFuncAttributeMaxDynamicSharedMemorySize,(int)k_smem_min);
+        grim::multi_target_position_gradient_kernel<T, grim::TIER_SHARED><<<NTS,128,k_smem_sh>>>(d_out4,d_wsk,d_q4,NQ,d_m,NTS);
         CK(cudaDeviceSynchronize());
         CK(cudaMemcpy(out_sh.data(),d_out4,3*NV*NT*NTS*sizeof(T),cudaMemcpyDeviceToHost));
-        grid::multi_target_position_gradient_kernel<T, grid::TIER_MINIMAL><<<NTS,128,k_smem_min>>>(d_out4,d_wsk,d_q4,NQ,d_m,NTS);
+        grim::multi_target_position_gradient_kernel<T, grim::TIER_MINIMAL><<<NTS,128,k_smem_min>>>(d_out4,d_wsk,d_q4,NQ,d_m,NTS);
         CK(cudaDeviceSynchronize());
         CK(cudaMemcpy(out_min.data(),d_out4,3*NV*NT*NTS*sizeof(T),cudaMemcpyDeviceToHost));
         for(size_t i=0;i<out_sh.size();++i) kdiff=std::max(kdiff,fabs(out_sh[i]-out_min[i]));

@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-import grid_rbd
-from grid_rbd import _cache
+import grim
+from grim import _cache
 
 URDF = "<robot name='cache_probe'><link name='base'/></robot>"
 ARCH = 120
@@ -34,12 +34,12 @@ class _Stubs:
     def __init__(self):
         self.generate_calls = 0
         self.compile_calls = 0
-        self.emitted = "// grid.cuh v1\n"
+        self.emitted = "// grim.cuh v1\n"
 
     def generate_sources(self, urdf_path, options, out_dir):
         self.generate_calls += 1
         out_dir = Path(out_dir)
-        (out_dir / "grid.cuh").write_text(self.emitted)
+        (out_dir / "grim.cuh").write_text(self.emitted)
         (out_dir / "wrapper.cu").write_text("// wrapper\n")
         return {"NUM_JOINTS": 1, "NUM_VEL": 1, "NUM_EES": 0}
 
@@ -56,16 +56,16 @@ class _Stubs:
 @pytest.fixture
 def stubs(monkeypatch, tmp_path):
     st = _Stubs()
-    monkeypatch.setattr(grid_rbd, "generate_sources", st.generate_sources)
-    monkeypatch.setattr(grid_rbd, "compile_sources", st.compile_sources)
+    monkeypatch.setattr(grim, "generate_sources", st.generate_sources)
+    monkeypatch.setattr(grim, "compile_sources", st.compile_sources)
     # Keep the launch-config lookup from touching the real config tree.
-    monkeypatch.setattr(grid_rbd, "_warn_if_no_ffi_autotune", lambda *a, **k: None)
+    monkeypatch.setattr(grim, "_warn_if_no_ffi_autotune", lambda *a, **k: None)
     st.cache_dir = tmp_path / "cache"
     return st
 
 
 def _warm(st, name="probe", **kw):
-    return grid_rbd.warm_robot(name, urdf_string=URDF, cache_dir=st.cache_dir,
+    return grim.warm_robot(name, urdf_string=URDF, cache_dir=st.cache_dir,
                                cuda_arch=ARCH, **kw)
 
 
@@ -98,7 +98,7 @@ def test_codegen_edit_with_identical_bytes_skips_nvcc(stubs, monkeypatch):
 def test_emission_change_rebuilds(stubs, monkeypatch):
     key, so, _ = _warm(stubs)
     monkeypatch.setattr(_cache, "_codegen_source_hash", lambda: "edited-tree")
-    stubs.emitted = "// grid.cuh v2\n"
+    stubs.emitted = "// grim.cuh v2\n"
     key2, so2, _ = _warm(stubs)
     assert key2 != key and so2 != so
     assert (stubs.generate_calls, stubs.compile_calls) == (2, 2)
@@ -114,13 +114,13 @@ IDENTITY_KNOBS = [
     ("wrapper_template", lambda mp: mp.setattr(_cache, "_wrapper_template_hash", lambda: "edited")),
     ("torch_abi", lambda mp: mp.setattr(_cache, "_torch_abi_tag", lambda: "torch=0.0,cxxabi=0")),
     ("jax_ffi", lambda mp: mp.setattr(_cache, "_jax_ffi_tag", lambda: "jaxffi=0.0")),
-    ("env:GRID_CUDA_TARGET_SHARED_MEM_BYTES",
-     lambda mp: mp.setenv("GRID_CUDA_TARGET_SHARED_MEM_BYTES", "65536")),
-    ("env:GRID_CUDA_TARGET_LITE_SHARED_MEM_BYTES",
-     lambda mp: mp.setenv("GRID_CUDA_TARGET_LITE_SHARED_MEM_BYTES", "32768")),
-    ("env:GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES",
-     lambda mp: mp.setenv("GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES", "8")),
-    ("env:GRID_NO_LICM_BARRIER", lambda mp: mp.setenv("GRID_NO_LICM_BARRIER", "1")),
+    ("env:GRIM_CUDA_TARGET_SHARED_MEM_BYTES",
+     lambda mp: mp.setenv("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", "65536")),
+    ("env:GRIM_CUDA_TARGET_LITE_SHARED_MEM_BYTES",
+     lambda mp: mp.setenv("GRIM_CUDA_TARGET_LITE_SHARED_MEM_BYTES", "32768")),
+    ("env:GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES",
+     lambda mp: mp.setenv("GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES", "8")),
+    ("env:GRIM_NO_LICM_BARRIER", lambda mp: mp.setenv("GRIM_NO_LICM_BARRIER", "1")),
 ]
 
 
@@ -167,9 +167,9 @@ class _HandleStub:
 
 
 def _get(stubs, monkeypatch, name="probe"):
-    monkeypatch.setattr(grid_rbd, "RobotHandle", _HandleStub)
-    monkeypatch.setattr(grid_rbd, "detect_cuda_arch", lambda: ARCH)
-    h = grid_rbd.get_robot(name, cache_dir=stubs.cache_dir)
+    monkeypatch.setattr(grim, "RobotHandle", _HandleStub)
+    monkeypatch.setattr(grim, "detect_cuda_arch", lambda: ARCH)
+    h = grim.get_robot(name, cache_dir=stubs.cache_dir)
     return h
 
 
@@ -185,12 +185,12 @@ def test_get_robot_loads_a_registered_entry_and_refuses_an_incompatible_one(stub
     sidecar.write_text(json.dumps(dict(rec, nvcc="/old/nvcc:11.0")))
     assert _get(stubs, monkeypatch).so_path == str(so), "provenance is not a load blocker"
     sidecar.write_text(json.dumps(dict(rec, wrapper_template="deadbeef")))
-    with pytest.raises(grid_rbd.StaleRobotError) as ei:
+    with pytest.raises(grim.StaleRobotError) as ei:
         _get(stubs, monkeypatch)
     assert ei.value.reasons == [f"wrapper_template: recorded 'deadbeef' != current {rec['wrapper_template']!r}"]
     assert "register_robot" in str(ei.value)
     sidecar.unlink()
-    with pytest.raises(grid_rbd.StaleRobotError, match="predates"):
+    with pytest.raises(grim.StaleRobotError, match="predates"):
         _get(stubs, monkeypatch)
     assert stubs.generate_calls == 1, "get_robot never builds"
 
@@ -236,7 +236,7 @@ def test_material_options_rotate_key(stubs):
 
 
 def test_key_is_stable_across_processes():
-    code = ("import json,sys; from grid_rbd import _cache as c; "
+    code = ("import json,sys; from grim import _cache as c; "
             "print(c.compute_cache_key(b'<robot/>', {'floating_base': False, "
             "'max_batch': 256, 'ee_joint_names': []}, 120))")
     env = {k: v for k, v in os.environ.items() if k not in _cache.GENERATION_ENV_KNOBS}
@@ -271,7 +271,7 @@ def test_dead_staging_dirs_are_swept_live_ones_kept(stubs):
     store = stubs.cache_dir / "store"
     store.mkdir(parents=True)
     dead = store / ".gen_999999999_deadbeef"; dead.mkdir()
-    (dead / "grid.cuh").write_text("// orphan\n")
+    (dead / "grim.cuh").write_text("// orphan\n")
     live = store / f".gen_{os.getpid()}_cafebabe"; live.mkdir()
     _warm(stubs)
     assert not dead.exists(), "orphaned staging dir from a dead pid survived"
@@ -281,19 +281,19 @@ def test_dead_staging_dirs_are_swept_live_ones_kept(stubs):
 # ─── W10: build_plan resolves everything and touches nothing ────────────────
 
 def test_build_plan_is_read_only_and_tracks_the_cache(stubs):
-    plan = grid_rbd.build_plan("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH)
+    plan = grim.build_plan("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH)
     assert plan["cached"] is False and plan["content_key"] is None and plan["would"].startswith("generate")
     assert plan["build_identity"]["cuda_arch"] == ARCH and len(plan["input_key"]) == 64
     assert (stubs.generate_calls, stubs.compile_calls) == (0, 0), "a plan must not build"
     assert not (stubs.cache_dir / "bykey").exists(), "a plan must not record a pointer"
     key, so, _ = _warm(stubs)
-    plan = grid_rbd.build_plan("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH)
+    plan = grim.build_plan("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH)
     assert plan["cached"] is True and plan["content_key"] == key and plan["would"] == "load"
     assert plan["input_key"] == _bykey_entries(stubs.cache_dir)[0]
     # a stale pointer is reported with its reasons, not silently reused
     rec = json.loads((so.parent / _cache.BUILD_INPUTS_FILE).read_text()); rec["nvcc"] = "/old/nvcc:11.0"
     (so.parent / _cache.BUILD_INPUTS_FILE).write_text(json.dumps(rec))
-    plan = grid_rbd.build_plan("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH)
+    plan = grim.build_plan("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH)
     assert plan["cached"] is False and plan["stale_reasons"] and plan["stale_reasons"][0].startswith("nvcc:")
     assert (stubs.generate_calls, stubs.compile_calls) == (1, 1)
 
@@ -301,8 +301,8 @@ def test_build_plan_is_read_only_and_tracks_the_cache(stubs):
 def test_precompile_numpy_builds_without_a_handle(stubs, monkeypatch):
     def _no_handle(*a, **k):
         raise AssertionError("precompile(backends=['numpy']) must not construct a RobotHandle")
-    monkeypatch.setattr(grid_rbd, "RobotHandle", _no_handle)
-    out = grid_rbd.precompile("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH,
+    monkeypatch.setattr(grim, "RobotHandle", _no_handle)
+    out = grim.precompile("probe", urdf_string=URDF, cache_dir=stubs.cache_dir, cuda_arch=ARCH,
                               backends=["numpy"])
     assert (stubs.generate_calls, stubs.compile_calls) == (1, 1)
     assert out and out[0]["name"] == "probe" and out[0]["backend"] == "numpy" and "cache_key" in out[0]
@@ -348,7 +348,7 @@ def test_toolchain_path_change_in_the_same_process_refreshes_the_tags(tmp_path, 
 def test_build_plan_does_not_create_the_cache_root(stubs, tmp_path):
     root = tmp_path / "never_created"
     assert not root.exists()
-    plan = grid_rbd.build_plan("probe", urdf_string=URDF, cache_dir=root, cuda_arch=ARCH)
+    plan = grim.build_plan("probe", urdf_string=URDF, cache_dir=root, cuda_arch=ARCH)
     assert plan["cached"] is False and not root.exists(), "build_plan created the cache root"
     _warm(stubs)  # a build still creates its own root
     assert stubs.cache_dir.exists()

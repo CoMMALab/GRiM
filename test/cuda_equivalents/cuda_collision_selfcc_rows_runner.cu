@@ -11,16 +11,16 @@
 //       normal and the position-gradient difference flip sign, so the product is unchanged.)
 //   (4) The baked pair set is non-empty and every pair references valid sphere indices.
 // T=double for clean FD (production is fp32).
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = double;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 constexpr int NS = gc::NUM_COLLISION_SPHERES;
 constexpr int NP = gc::NUM_SELF_COLLISION_PAIRS;
 
@@ -28,7 +28,7 @@ constexpr int NP = gc::NUM_SELF_COLLISION_PAIRS;
 
 __device__ T d_eps;
 
-__global__ void analytic_kernel(const T *q0, const grid::robotModel<T> *m,
+__global__ void analytic_kernel(const T *q0, const grim::robotModel<T> *m,
                                 T *d_dist, T *d_norm, int *d_partner, T *d_ddist,
                                 T *d_pdist, T *d_pnorm, T *d_pddist) {
     __shared__ T s_pos[3*NS], s_r[NS], s_pg[3*NV*NS];
@@ -50,7 +50,7 @@ __global__ void analytic_kernel(const T *q0, const grid::robotModel<T> *m,
 }
 
 // FD: perturb q[vi] += sign*eps, emit the per-pair clearances.
-__global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, int vi, int sign, T *d_pdist) {
+__global__ void fd_kernel(const T *q0, const grim::robotModel<T> *m, int vi, int sign, T *d_pdist) {
     __shared__ T s_q[NQ], s_pos[3*NS], s_r[NS], s_pdist[NP], s_pnorm[3*NP];
     for (int i = threadIdx.x; i < NQ; i += blockDim.x) s_q[i] = q0[i];
     __syncthreads();
@@ -63,9 +63,9 @@ __global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, int vi, int
 
 int main(){
     static_assert(NP > 0, "iiwa14 must bake a non-empty self-collision pair set");
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t s1 = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t s2 = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t s1 = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t s2 = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t smem = s1 > s2 ? s1 : s2;
     cudaFuncSetAttribute(analytic_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
     cudaFuncSetAttribute(fd_kernel,       cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);

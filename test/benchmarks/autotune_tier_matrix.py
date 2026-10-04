@@ -13,12 +13,12 @@ it, and records the per-(base, algo, tier) results in the E5 matrix schema
 
 HOW THE PER-TIER PROBE .so IS BUILT (no changes to any existing file):
 The wrapper instantiates every kernel/host launcher at
-`grid::launch_cfg<GRID_ALGO_*>::TIER` (bindings/grid_rbd/wrapper_template.cu),
+`grim::launch_cfg<GRIM_ALGO_*>::TIER` (bindings/grim/wrapper_template.cu),
 and that table is baked by gen_add_launch_config_helpers from
 `config/launch_configs/<resolved-robot>/<DEFAULT_GPU>.json`
-(grid_codegen/_launch_config.py:load_launch_config). The robot is resolved from
+(grim_codegen/_launch_config.py:load_launch_config). The robot is resolved from
 the URDF FILENAME STEM, exact-directory-match first
-(bindings/grid_rbd/_compile.py:_resolve_launch_config_robot). So per tier we:
+(bindings/grim/_compile.py:_resolve_launch_config_robot). So per tier we:
   1. write a TEMPORARY probe config dir
      config/launch_configs/tierprobe_<robot>_<tier>/<DEFAULT_GPU>.json whose
      host `bases` force EVERY launch-config algo to that tier (both bases);
@@ -28,7 +28,7 @@ the URDF FILENAME STEM, exact-directory-match first
   3. run autotune_ffi.autotune_base on the probe name (its module-level
      get_urdf_path is redirected to the probe URDF for the probe name only).
 warm_robot folds the RESOLVED launch config into the .so cache key
-(bindings/grid_rbd/__init__.py, code_options["launch_config"]), so the three
+(bindings/grim/__init__.py, code_options["launch_config"]), so the three
 tier builds land in three distinct content-keyed cache entries and are REUSED
 on rerun (3 builds/robot/base total). Probe config dirs are deleted afterwards
 (--keep-probes to inspect them); recreating them identically cache-hits.
@@ -80,13 +80,13 @@ sys.path.insert(0, str(REPO_ROOT))
 # Reuse autotune_ffi's measurement machinery wholesale (module import so the
 # probe URDF redirect below can patch ITS get_urdf_path binding, not ours).
 from test.benchmarks import autotune_ffi as af  # noqa: E402
-from grid_codegen.launch_config import (  # noqa: E402
+from grim_codegen.launch_config import (  # noqa: E402
     LAUNCH_CONFIG_DEFAULT_GPU,
     LAUNCH_CONFIG_TIER_SYMBOL,
     _launch_configs_dir,
     load_launch_config,
 )
-from grid_codegen.algo_registry import build_launch_config_algo_to_symbol  # noqa: E402
+from grim_codegen.algo_registry import build_launch_config_algo_to_symbol  # noqa: E402
 
 TIERS = ("shared", "lite", "minimal")
 PROBE_PREFIX = "tierprobe_"
@@ -130,13 +130,13 @@ def _probe_environment(robot, tier, keep=False):
 
     The probe file MUST be named <LAUNCH_CONFIG_DEFAULT_GPU>.json: the codegen
     bake calls load_launch_config without a gpu argument
-    (grid_codegen/_launch_config.py, gen_add_launch_config_helpers)."""
+    (grim_codegen/_launch_config.py, gen_add_launch_config_helpers)."""
     stem = f"{PROBE_PREFIX}{robot}_{tier}"
     probe_dir = Path(_launch_configs_dir()) / stem
     probe_dir.mkdir(parents=True, exist_ok=True)
     (probe_dir / f"{LAUNCH_CONFIG_DEFAULT_GPU}.json").write_text(
         json.dumps(_probe_config_doc(tier), indent=2, sort_keys=True) + "\n")
-    tmpdir = tempfile.mkdtemp(prefix="grid_tierprobe_")
+    tmpdir = tempfile.mkdtemp(prefix="grim_tierprobe_")
     try:
         urdf_src = af.get_urdf_path(robot)   # real resolver (patch not active here)
         probe_urdf = Path(tmpdir) / f"{stem}.urdf"
@@ -168,7 +168,7 @@ def _preflight(stem, probe_urdf, tier, bases):
     """Prove (never assume) the loader resolves the probe: the stem must map to
     the probe dir, and load_launch_config must return EVERY algo at the forced
     tier for each requested base. Raises RuntimeError before any build."""
-    from grid_rbd._compile import _resolve_launch_config_robot
+    from grim._compile import _resolve_launch_config_robot
     resolved = _resolve_launch_config_robot(str(probe_urdf))
     if resolved != stem:
         raise RuntimeError(

@@ -1,9 +1,9 @@
 Library Overview
 =================
 
-GRiD combines its own robot-specific CUDA generator and Python bindings with
+GRiM combines its own robot-specific CUDA generator and Python bindings with
 three peer libraries. URDFParser, RBDReference and GLASS are Git submodules
-under ``external/``. GRiD's code generator is in ``grid_codegen/`` in this
+under ``external/``. GRiM's code generator is in ``grim_codegen/`` in this
 repository, not a separate submodule; the bindings are in ``bindings/``.
 
 .. contents::
@@ -47,20 +47,20 @@ getters and errors.
 
 .. _id3:
 
-III. GRiD's code generator and bindings
+III. GRiM's code generator and bindings
 ------------------------------------------
 
-The generator emits ``grid.cuh`` and derives wrapper entry points from a
+The generator emits ``grim.cuh`` and derives wrapper entry points from a
 shared ABI specification. It specializes algorithms to a robot's topology
 and provides resource tiers for shared-memory and global-workspace use.
 
-``grid_rbd`` exposes the generated computations through NumPy, JAX and
+``grim`` exposes the generated computations through NumPy, JAX and
 PyTorch. Robot registration selects algorithms, compiles an architecture-specific
 artifact and caches it. Runtime contexts hold model parameters, buffers and
 streams; supported model updates do not require regenerating the robot.
 
 * :doc:`Generate CUDA <../tutorials/codegen>` or
-  :doc:`call GRiD from Python <../tutorials/python_wrappers>`.
+  :doc:`call GRiM from Python <../tutorials/python_wrappers>`.
 * :doc:`Explore algorithms <../concepts/algorithms/index>` for dynamics,
   kinematics, centroidal quantities and plant costs.
 * :doc:`Check backend coverage <../tutorials/backend_coverage>` and
@@ -73,7 +73,7 @@ IV. GLASS
 
 `GLASS <https://a2r-lab.org/GLASS/>`_ supplies device-side linear and spatial
 algebra, including dot products, matrix-vector products and matrix-matrix
-products. GRiD builds its robot-specific CUDA algorithms on these primitives.
+products. GRiM builds its robot-specific CUDA algorithms on these primitives.
 Generated headers embed GLASS by default; CUDA applications can instead use
 an external ``glass.cuh`` via ``vendor_glass=False``.
 
@@ -84,5 +84,5 @@ V. Validation tooling
 
 `pytest-GPU-proof <https://a2r-lab.org/pytest-gpu-proof/>`_ records signed
 GPU-test results and source fingerprints for verification by CPU-only CI.
-It is a development dependency, not a GRiD submodule or a runtime dependency
+It is a development dependency, not a GRiM submodule or a runtime dependency
 of generated kernels. See :doc:`../tutorials/cuda_validation` for the workflow.

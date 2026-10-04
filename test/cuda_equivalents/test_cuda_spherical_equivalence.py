@@ -39,7 +39,7 @@ import pytest
 
 from URDFParser import URDFParser
 from RBDReference import RBDReference
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -75,7 +75,7 @@ _SPHERICAL_ALL_ALGOS = [
 # five value algos it cross-checks; the gradient/second-order tests isolate to one. Groups
 # include the inner deps the kernel calls (FD → minv+id; gradients → crba+id; parity with
 # the flagship split's probe-confirmed dependency groups). run_tokens=None (thread-invariance)
-# builds the full all-block runner (GRID_RUN_DEFAULT=1) since it reads every output block.
+# builds the full all-block runner (GRIM_RUN_DEFAULT=1) since it reads every output block.
 _SPHERICAL_VALUE_ALGOS = ["inverse_dynamics", "crba", "minv", "forward_dynamics", "aba"]
 _SPHERICAL_VALUE_TOKENS = frozenset({
     "RUN_INVERSE_DYNAMICS", "RUN_CRBA", "RUN_MINV", "RUN_FORWARD_DYNAMICS", "RUN_ABA",
@@ -89,8 +89,8 @@ _SPHERICAL_FDSVA_ALGOS = _SPHERICAL_ALL_ALGOS
 
 
 def _generate_header(robot, build_dir, algos=None):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -102,9 +102,9 @@ def _generate_header(robot, build_dir, algos=None):
     return header
 
 
-# Shared per-algorithm COMPILE selector (see grid_runner_select.cuh). The runner
+# Shared per-algorithm COMPILE selector (see grim_runner_select.cuh). The runner
 # #includes it; copy it next to the runner so the isolated-dir compile resolves it.
-_SELECT_HEADER = Path(__file__).with_name("grid_runner_select.cuh")
+_SELECT_HEADER = Path(__file__).with_name("grim_runner_select.cuh")
 
 
 def _compile_runner(build_dir, run_tokens=None):
@@ -121,12 +121,12 @@ def _compile_runner(build_dir, run_tokens=None):
     # every block (back-compat all-in-one, used by the thread-invariance test).
     split_defines = []
     if run_tokens:
-        split_defines.append("-DGRID_RUN_SPLIT")
+        split_defines.append("-DGRIM_RUN_SPLIT")
         split_defines.extend(f"-D{tok}=1" for tok in sorted(run_tokens))
     cmd = [
         nvcc, "-std=c++17", "-O0",
-        "-DGRID_CUDA_FLOATING_BASE=0",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        "-DGRIM_CUDA_FLOATING_BASE=0",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         *split_defines,
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
@@ -146,7 +146,7 @@ def _run(exe, q, qd, u, threads=32, dtype="float"):
         return " ".join(f"{x:.9g}" for x in np.asarray(v, dtype=np.float64))
     stdin = "\n".join([row(q), row(qd), row(u)]) + "\n"
     env = dict(os.environ)
-    env["GRID_EQUIV_T"] = dtype  # "float" (fp32) or "double" (fp64)
+    env["GRIM_EQUIV_T"] = dtype  # "float" (fp32) or "double" (fp64)
     result = subprocess.run(
         [str(exe), str(threads)], input=stdin, cwd=exe.parent,
         capture_output=True, text=True, env=env
@@ -332,7 +332,7 @@ def test_cuda_spherical_thread_invariant(tmp_path, fixture):
     robot = _parse(fixture)
     assert robot is not None
     # Thread-invariance reads EVERY output block, so it needs the full all-algo runner
-    # (run_tokens=None → GRID_RUN_DEFAULT builds all blocks) against the full header.
+    # (run_tokens=None → GRIM_RUN_DEFAULT builds all blocks) against the full header.
     exe = _compile_runner(tmp_path) if _generate_header(robot, tmp_path) else None
 
     rng = np.random.default_rng(11)
@@ -584,7 +584,7 @@ def test_cuda_spherical_forward_dynamics_gradient_matches_reference(tmp_path, fi
 
 
 # Per-(fixture, precision) tolerance buckets for the fdsva_so cell. fdsva_so is the
-# 2nd derivative of GRiD's OWN forward_dynamics surface (-Minv contractions over the
+# 2nd derivative of GRiM's OWN forward_dynamics surface (-Minv contractions over the
 # idsva_so tensors + the dM_dq*fd_grad cross terms); the CUDA kernel and the numpy
 # oracle do the SAME einsum chain in a different fma/accumulation order. fp64 is
 # near machine-exact; fp32 carries the SO accumulation round-off, amplified by the

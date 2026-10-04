@@ -8,7 +8,7 @@ Overview
 ``inverse_dynamics`` computes the inverse dynamics of a robot using the
 Recursive Newton-Euler Algorithm (RNEA) — given joint positions,
 velocities, and accelerations, it returns the joint torques required to
-produce them. GRiD also exposes the per-pass helpers
+produce them. GRiM also exposes the per-pass helpers
 (``inverse_dynamics_fpass`` / ``inverse_dynamics_bpass``) for downstream
 accelerator pieces that need access to the spatial velocity /
 acceleration / force intermediates.
@@ -38,10 +38,10 @@ Implementation
 The Python reference is ``RBDReference.inverse_dynamics`` in
 `RBDReference/RBDReference.py
 <https://github.com/A2R-Lab/RBDReference>`__. CUDA codegen lives in
-`grid_codegen/algorithms/_inverse_dynamics.py
+`grim_codegen/algorithms/_inverse_dynamics.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__.
 
-In GRiD
+In GRiM
 -------
 On every handle, ``tau = h.inverse_dynamics(q, qd, qdd)`` takes ``q`` at
 ``(B, h.nq)`` and ``qd``, ``qdd`` at ``(B, h.nv)``, and returns the torques at
@@ -61,7 +61,7 @@ regressor ``Y(q, qd, qdd)`` with ``tau = Y·π`` (``h.inverse_dynamics_regressor
 and a generated CUDA regressor-gradient operation. The latter is not a
 method on the NumPy ``RobotHandle``.
 
-The CUDA host entries are ``grid::inverse_dynamics`` and
+The CUDA host entries are ``grim::inverse_dynamics`` and
 ``inverse_dynamics_compute_only``. RNEA is a short-running operation in the
 release collection, so dispatch and transfers can be substantial relative
 to compute time. The choice of C++ host call, NumPy, PyTorch or JAX surface

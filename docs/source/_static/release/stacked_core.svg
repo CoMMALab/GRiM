@@ -8592,7 +8592,7 @@ z
 " style="fill: #00693e; stroke: #00693e; stroke-linejoin: miter"/>
    </g>
    <g id="text_157">
-    <!-- GRiD CUDA Device - GPU -->
+    <!-- GRiM CUDA Device - GPU -->
     <g transform="translate(281.472891 657.615656) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-47" d="M 3809 666 
@@ -9118,7 +9118,7 @@ z
 " style="fill: url(#hc1f4d17f7b); stroke: #707070; stroke-linejoin: miter"/>
    </g>
    <g id="text_167">
-    <!-- GRiD Jax Wrapper Overhead -->
+    <!-- GRiM Jax Wrapper Overhead -->
     <g transform="translate(761.455547 670.825969) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-78" d="M 3513 3500 

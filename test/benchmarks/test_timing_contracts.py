@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from test.benchmarks.timing_parser import _single_stats, _stats, parse_grid_output
+from test.benchmarks.timing_parser import _single_stats, _stats, parse_grim_output
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,7 +23,7 @@ class TimingContracts(unittest.TestCase):
         self.assertEqual(_single_stats(2.5, "median"), {"median": 2.5})
 
     def test_python_single_median_is_not_a_mean(self):
-        out = parse_grid_output("Single Call INVERSE_DYNAMICS 2.5us\n",
+        out = parse_grim_output("Single Call INVERSE_DYNAMICS 2.5us\n",
                                 single_statistic="median")
         self.assertEqual(out["inverse_dynamics"]["single_us"], {"median": 2.5})
 
@@ -37,7 +37,7 @@ class TimingContracts(unittest.TestCase):
             self.assertTrue(np.isnan(_overhead(1.0, 2.0)))
 
     def test_text_parser_preserves_average_without_median(self):
-        out = parse_grid_output(
+        out = parse_grim_output(
             "[N:16]: INVERSE_DYNAMICS COMPUTE ONLY: Average[7.0us] Std Dev [2.0us] Min [1.0us] Max [11.0us]\n")
         cell = out["inverse_dynamics"]["batch_16_compute_only_us"]
         self.assertEqual(cell["mean"], 7.0)

@@ -2,25 +2,25 @@
 """Deterministic per-(robot, base, algo, tier) kernel-limit collector (A1a Phase 1).
 
 MEASUREMENT-ONLY / READ-ONLY. This script does NOT modify any codegen, kernel,
-binding, or grid.cuh emit. It only READS values that GRiD already emits or that
+binding, or grim.cuh emit. It only READS values that GRiM already emits or that
 the CUDA driver already reports:
 
   * ``max_threads`` — the register/launch-bounds-limited maxThreadsPerBlock for
     that (algo, tier) kernel. This is the SAME quantity the production runtime
     clamp reads via ``cudaFuncGetAttributes(kernel).maxThreadsPerBlock``
-    (bindings/grid_rbd/wrapper_template.cu :: grid_clamp_threads_for). Every
+    (bindings/grim/wrapper_template.cu :: grim_clamp_threads_for). Every
     benchmarked kernel carries ``__launch_bounds__(tier_max_threads<TIER>())``,
     so ptxas guarantees
         maxThreadsPerBlock == min(tier_max_threads<TIER>(), register_cap)
     where register_cap = floor(65536 / num_regs) rounded DOWN to a warp (32).
     We mirror exactly that: the per-tier launch-bounds cap comes from run.py's
-    ``_tier_thread_cap`` (which mirrors grid.cuh's ``tier_max_threads<TIER>()``),
+    ``_tier_thread_cap`` (which mirrors grim.cuh's ``tier_max_threads<TIER>()``),
     and ``num_regs`` comes from cuobjdump of the already-compiled bench binary.
 
   * ``min_smem`` — the dynamic shared-memory bytes the tier's kernel requires,
     read straight from the EXISTING emitted ``constexpr ...
     <ALGO>_DYNAMIC_SHARED_MEM_BYTES<float, TIER>()`` macros (we compile a tiny
-    host TU that #includes the robot's generated grid.cuh and prints each macro).
+    host TU that #includes the robot's generated grim.cuh and prints each macro).
     We only READ these macros — they already exist.
 
   * ``num_regs`` — cross-check, from ``cuobjdump -elf`` of the bench binary (the
@@ -67,16 +67,16 @@ from test.benchmarks.baselines.grid.run import (  # noqa: E402
     robot_is_mimic,
 )
 # per_algo_bench builds a self-contained solo exe per (algo, tier). Each solo exe LINKS ALL kernels
-# (via init_grid_kernel_attrs in run_all_tests), so cuobjdump -res-usage on ONE solo exe per tier yields
+# (via init_grim_kernel_attrs in run_all_tests), so cuobjdump -res-usage on ONE solo exe per tier yields
 # every algo's register count -- exactly what collect_regs_and_max_threads needs. This replaces the old
 # run.py per-algo-tus dispatcher (build_tier_binaries), deleted in the per-exe bench cutover.
 from test.benchmarks import per_algo_bench as pab  # noqa: E402
 
-# Tier name -> grid.cuh enum int (grid::TIER_SHARED=0, TIER_LITE=1, TIER_MINIMAL=2).
+# Tier name -> grim.cuh enum int (grim::TIER_SHARED=0, TIER_LITE=1, TIER_MINIMAL=2).
 TIER_ENUM: dict[str, str] = {
-    "shared": "grid::TIER_SHARED",
-    "lite": "grid::TIER_LITE",
-    "minimal": "grid::TIER_MINIMAL",
+    "shared": "grim::TIER_SHARED",
+    "lite": "grim::TIER_LITE",
+    "minimal": "grim::TIER_MINIMAL",
 }
 
 RESULTS_DIR = REPO_ROOT / "test" / "benchmarks" / "results"
@@ -152,9 +152,9 @@ def collect_min_smem(
                 continue
             seen.add(key)
             if takes_tier:
-                call = f"grid::{macro}<float, {TIER_ENUM[tier]}>()"
+                call = f"grim::{macro}<float, {TIER_ENUM[tier]}>()"
             else:
-                call = f"grid::{macro}<float>()"
+                call = f"grim::{macro}<float>()"
             lines.append(
                 f'    printf("SMEM {macro} {tier} %zu\\n", (size_t){call});'
             )
@@ -365,7 +365,7 @@ def main() -> None:
     #    single cuobjdump per tier reads all algos' registers (content-stamp cache -> hits the sweep's
     #    exes if per_algo_bench already built them for this robot/base/tier).
     print("[limits] building/cache-hitting one per-tier solo exe (all kernels linked) ...")
-    ram_gb = float(os.environ.get("GRID_RAM_PER_COMPILE_GB", "8"))
+    ram_gb = float(os.environ.get("GRIM_RAM_PER_COMPILE_GB", "8"))
     rep_algo = algos[0]   # any in-scope algo: its solo exe links the full kernel set regardless
     tier_binaries: dict[str, Path] = {}
     for tier in tiers:

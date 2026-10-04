@@ -2,7 +2,7 @@ Adding a New Algorithm
 ======================
 
 This is a practical, end-to-end guide for adding a new rigid-body
-dynamics algorithm to GRiD. It walks through the canonical pattern using
+dynamics algorithm to GRiM. It walks through the canonical pattern using
 ``fdsva_so`` (second-order forward dynamics) as the worked example.
 Pair it with the conceptual docs:
 
@@ -23,7 +23,7 @@ The shape of the work
 ---------------------
 
 Every algorithm ``X`` ships as one Python file at
-``grid_codegen/algorithms/_X.py`` exposing a set of ``gen_*``
+``grim_codegen/algorithms/_X.py`` exposing a set of ``gen_*``
 emitter functions. The functions are:
 
 .. list-table::
@@ -61,23 +61,23 @@ emitter functions. The functions are:
        with H↔D copies for inputs and outputs.
    * - ``gen_X``
      - Runs all of the above generators in the right order. The
-       top-level driver ``GRiDCodeGenerator.gen_all_code`` calls this
+       top-level driver ``GRiMCodeGenerator.gen_all_code`` calls this
        for every registered algorithm.
 
 Plus, you'll add one ``AlgoDescriptor`` row to ``algo_registry.py`` — the
 descriptor table is the single source of truth for per-algo metadata, and
-that one row drives the ``GridAlgo`` enum, the launch-config symbol map, and
+that one row drives the ``GrimAlgo`` enum, the launch-config symbol map, and
 the ``KERNEL_ATTR_MANIFEST`` / mjx manifest heads (previously these were
 scattered hand-maintained dicts). If the algorithm gets a Python binding you
-ALSO add one ``AbiSpec`` row to ``grid_codegen/abi_specs.py`` and regenerate
+ALSO add one ``AbiSpec`` row to ``grim_codegen/abi_specs.py`` and regenerate
 the wrapper's generated regions (``.venv/bin/python -m
-grid_codegen.wrapper_body_gen``) — the C-ABI bodies, the kernel_max_threads
+grim_codegen.wrapper_body_gen``) — the C-ABI bodies, the kernel_max_threads
 branch table, and the mjx twins are all EMITTED from that table between
 ``BEGIN/END GENERATED`` markers in ``wrapper_template.cu``; never hand-edit
 inside them (the ``--check`` drift gate in
 ``test/test_wrapper_generated_block.py`` fails CI if you do). The arena/tier
-math lives in ``grid_codegen/_constants_arena.py`` (the 2026-08-27 monolith
-split moved it out of ``GRiDCodeGenerator.py``). See
+math lives in ``grim_codegen/_constants_arena.py`` (the 2026-08-27 monolith
+split moved it out of ``GRiMCodeGenerator.py``). See
 :doc:`../concepts/codegen_architecture` for both tables.
 
 Step-by-step recipe (worked example: ``fdsva_so``)
@@ -112,7 +112,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
 
    ``gen_fdsva_so_contract`` (the rank-3 contraction sub-step) emits a
    block-cooperative loop over the ``nv²`` output positions, using
-   ``glass::gemv`` / ``dot_prod`` via the ``grid_linalg_*`` wrappers and
+   ``glass::gemv`` / ``dot_prod`` via the ``grim_linalg_*`` wrappers and
    the codegen's parallel-loop helper:
 
    .. code:: python
@@ -132,7 +132,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
               " else { (void)d_workspace; }"
           )
           # ... emit the actual loop using gen_add_parallel_loop /
-          # grid_linalg_gemv / dot_prod / etc.
+          # grim_linalg_gemv / dot_prod / etc.
           self.gen_add_end_function()
 
    The conventions:
@@ -145,7 +145,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
    - Use the existing block-cooperative GLASS primitives
      (``glass::gemv``, ``glass::gemm``, ``glass::invertMatrix_dense``,
      ``glass::cholDecomp_InPlace``, ``glass::trsm``) rather than rolling
-     your own. The codegen helpers (``grid_linalg_gemm`` etc.) wrap
+     your own. The codegen helpers (``grim_linalg_gemm`` etc.) wrap
      them with a consistent signature.
 
 #. **Write the orchestrator** (``gen_X_device``)
@@ -185,7 +185,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
 
    .. code:: cuda
 
-      template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+      template <typename T, int RESOURCE_TIER = GRIM_DEFAULT_RESOURCE_TIER>
       __global__ void fdsva_so_kernel(/*...*/) {
           __shared__ T s_temp[fdsva_so_DYNAMIC_SHARED_MEM_BYTES<T, RESOURCE_TIER>() / sizeof(T)];
           // ... allocate s_inputs, s_outputs ...
@@ -202,7 +202,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
 
 #. **Register the tier picks**
 
-   Tell ``GRiDCodeGenerator.py`` how to choose a spill rung per tier
+   Tell ``GRiMCodeGenerator.py`` how to choose a spill rung per tier
    for THIS robot:
 
    .. code:: python
@@ -223,9 +223,9 @@ Step-by-step recipe (worked example: ``fdsva_so``)
 
    ``gen_X_host`` mirrors any other host wrapper. Add one
    ``AlgoDescriptor`` row (and its ``ALGO_REGISTRY`` entry) in
-   ``grid_codegen/algo_registry.py``: the descriptor row carries the
+   ``grim_codegen/algo_registry.py``: the descriptor row carries the
    algorithm's irregular metadata (autotune keys, ``gate_attr``,
-   ``bytes_macro`` overrides) and drives the ``GridAlgo`` enum, the
+   ``bytes_macro`` overrides) and drives the ``GrimAlgo`` enum, the
    launch-config symbol map, and the kernel-attr / mjx manifests from a
    single source, while the registry wires the algorithm into the bench,
    equivalence runner, and per-algo TUs. The
@@ -240,7 +240,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
    .. code:: shell
 
       PATH="/usr/local/cuda/bin:.../bin:$PATH" \
-      GRID_CUDA_RANDOM_SAMPLES=2 \
+      GRIM_CUDA_RANDOM_SAMPLES=2 \
       pytest -x -q \
         test/cuda_equivalents/test_cuda_executable_equivalence.py \
         -k iiwa14-fixed
@@ -253,7 +253,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
 
    .. code:: shell
 
-      GRID_CUDA_TARGET_SHARED_MEM_BYTES=30000 pytest ...
+      GRIM_CUDA_TARGET_SHARED_MEM_BYTES=30000 pytest ...
 
    SHARED validates the math; a forced deep spill validates that the
    spilled rung is byte-identical (only the pointer moves) — otherwise
@@ -261,7 +261,7 @@ Step-by-step recipe (worked example: ``fdsva_so``)
 
 #. **Cross-check shape conventions**
 
-   GRiD outputs are typically column-major (Fortran-order) on
+   GRiM outputs are typically column-major (Fortran-order) on
    ``s_temp`` / ``s_M`` / ``s_d2eePos`` etc. The CUDA equivalence
    runner has shape-aware comparators in
    ``test/cuda_equivalents/test_cuda_executable_equivalence.py``; if
@@ -282,7 +282,7 @@ Common pitfalls
   load helper dereferences it for sincos scratch. Always repoint
   ``s_temp`` to ``d_workspace`` BEFORE the first helper call.
 * **Single-valued SHARED-pick macro as a per-rung flag.** Macros like
-  ``GRID_X_USES_SPILL`` equal the *SHARED* pick. Using one as the inner's
+  ``GRIM_X_USES_SPILL`` equal the *SHARED* pick. Using one as the inner's
   template arg under ``if constexpr (RESOURCE_TIER == ...)`` gives the
   non-SHARED tier the wrong flag → it tries to write the full band into a
   selective-sized arena → smem OOB on big robots. Pass the actual
@@ -303,7 +303,7 @@ Common pitfalls
 Code-generation helpers (cheat sheet)
 -------------------------------------
 
-Most useful helpers (in ``grid_codegen/helpers/``):
+Most useful helpers (in ``grim_codegen/helpers/``):
 
 * ``gen_add_code_line(line)`` / ``gen_add_code_lines([...])`` — emit
   text into the current function.
@@ -320,7 +320,7 @@ Most useful helpers (in ``grid_codegen/helpers/``):
 * ``gen_kernel_load_inputs(name, stride, amount, ...)`` and
   ``gen_kernel_save_result(name, stride, amount, ...)`` — boilerplate
   for global ↔ shared memory transfer in the kernel.
-* ``grid_linalg_gemm<T, M, N, K>`` / ``grid_linalg_gemv<T, M, N>`` —
+* ``grim_linalg_gemm<T, M, N, K>`` / ``grim_linalg_gemv<T, M, N>`` —
   thin wrappers around ``glass::gemm`` / ``glass::gemv``. Always
   prefer these over rolling your own loops.
 
@@ -331,10 +331,10 @@ Open a PR against the codegen submodule with:
 
 #. The new ``_X.py`` algorithm file.
 #. The ``algo_registry.py`` entry.
-#. Any top-level ``GRiDCodeGenerator.py`` / ``_constants_arena.py`` edits
+#. Any top-level ``GRiMCodeGenerator.py`` / ``_constants_arena.py`` edits
    (imports, tier selection).
 #. The ``abi_specs.py`` row + regenerated wrapper regions (if the algorithm
-   is bound to Python) — ``python -m grid_codegen.wrapper_body_gen --check``
+   is bound to Python) — ``python -m grim_codegen.wrapper_body_gen --check``
    must pass.
 #. A CUDA equivalence test that exercises iiwa14 fixed and floating at
    SHARED and at a forced spilled tier.

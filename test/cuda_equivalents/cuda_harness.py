@@ -13,8 +13,8 @@ from typing import NamedTuple
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.env_knobs import generation_env
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.env_knobs import generation_env
 from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import (
     iter_robot_cases,
@@ -32,7 +32,7 @@ from RBDReference.tests.state_sampling import (
 RUNNER_SOURCE = Path(__file__).with_name("cuda_equivalence_runner.cu")
 # Per-algorithm compile-selection header the runner #includes; must be copied
 # alongside the runner into the (isolated) compile dir and hashed into the cache key.
-SELECT_HEADER = Path(__file__).with_name("grid_runner_select.cuh")
+SELECT_HEADER = Path(__file__).with_name("grim_runner_select.cuh")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CACHE_SCHEMA_VERSION = 1
 DEFAULT_RANDOM_SAMPLE_COUNT = 3
@@ -87,7 +87,7 @@ class SplitCell(NamedTuple):
     Each cell (a) codegens a SUBSET header (`codegen_algorithm_list` — the algo plus
     the inner deps its kernel calls, so the header is small: ~0.6-1.1 MB vs the 2.4 MB
     all-algo header) and (b) compiles the runner gated to only `run_tokens`
-    (`-DGRID_RUN_SPLIT -D<token>=1`). The result is a ~2-50 s TU that references ONLY
+    (`-DGRIM_RUN_SPLIT -D<token>=1`). The result is a ~2-50 s TU that references ONLY
     this algo, so a build break in ANY other algorithm can never void this cell's
     validation (the Bug-A coverage void). `compare_algorithms` is what the harness
     validates vs the oracle for the cell — the q/qd gradient halves share one codegen
@@ -108,7 +108,7 @@ class SplitCell(NamedTuple):
 
 # The flagship runner's algorithms, one SPLIT cell each. FIXED base emits all ten;
 # FLOATING emits the subset selected by _floating_algorithm_selection() (ee_pose
-# gradient/hessian only when GRID_CUDA_FLOATING_ALGORITHMS requests them) — the same
+# gradient/hessian only when GRIM_CUDA_FLOATING_ALGORITHMS requests them) — the same
 # gate the monolith used. See SplitCell for the codegen-group rationale.
 FLAGSHIP_SPLIT_CELLS = (
     SplitCell("inverse_dynamics", ("inverse_dynamics",),
@@ -358,9 +358,9 @@ def _env_enabled(name: str, default: bool = True) -> bool:
 
 
 def _progress(config, message: str, *, verbose: bool = False) -> None:
-    if not _env_enabled("GRID_CUDA_PROGRESS", default=True):
+    if not _env_enabled("GRIM_CUDA_PROGRESS", default=True):
         return
-    if verbose and not _env_enabled("GRID_CUDA_VERBOSE_PROGRESS", default=False):
+    if verbose and not _env_enabled("GRIM_CUDA_VERBOSE_PROGRESS", default=False):
         return
     prefix = "[cuda-equivalence] "
     reporter = None
@@ -376,16 +376,16 @@ def _progress(config, message: str, *, verbose: bool = False) -> None:
 
 
 def _cache_verbose(config, message: str) -> None:
-    if _env_enabled("GRID_CUDA_VERBOSE_CACHE", default=False):
+    if _env_enabled("GRIM_CUDA_VERBOSE_CACHE", default=False):
         _progress(config, message)
 
 
 def _cache_enabled() -> bool:
-    return not _env_enabled("GRID_CUDA_DISABLE_CACHE", default=False)
+    return not _env_enabled("GRIM_CUDA_DISABLE_CACHE", default=False)
 
 
 def _cache_root() -> Path:
-    return Path(os.environ.get("GRID_CUDA_CACHE_DIR", ".grid_build_cache/cuda")).resolve()
+    return Path(os.environ.get("GRIM_CUDA_CACHE_DIR", ".grim_build_cache/cuda")).resolve()
 
 
 @contextlib.contextmanager
@@ -439,9 +439,9 @@ def _stable_json_hash(payload: dict) -> str:
 def _glass_commit() -> str:
     """HEAD commit of the vendored GLASS submodule.
 
-    GLASS is vendored into every generated grid.cuh at codegen time
-    (``grid_codegen/helpers/_lin_alg_helpers.py``), so its content is a
-    codegen INPUT every bit as much as the GRiDCodeGenerator .py tree. The
+    GLASS is vendored into every generated grim.cuh at codegen time
+    (``grim_codegen/helpers/_lin_alg_helpers.py``), so its content is a
+    codegen INPUT every bit as much as the GRiMCodeGenerator .py tree. The
     header cache key must fold it in, otherwise a GLASS bump leaves the cache
     falsely hitting headers vendored from the OLD GLASS. Fall back to a hash of
     the vendored base sources if git is unavailable (e.g. an exported tree)."""
@@ -468,7 +468,7 @@ def _nvcc_version_text() -> str:
 
 
 def _detect_cuda_arch() -> str:
-    env_arch = os.environ.get("GRID_CUDA_ARCH")
+    env_arch = os.environ.get("GRIM_CUDA_ARCH")
     if env_arch:
         return env_arch.replace(".", "")
 
@@ -497,7 +497,7 @@ def _linalg_backend_compile_flags(arch: str) -> tuple[str, list[str], str]:
     function keeps the (cxx_standard, flags, note) tuple shape so callers
     don't need updating."""
     del arch  # unused; sm/arch is handled by the outer compile harness
-    return "-std=c++11", ["-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS"], "glass"
+    return "-std=c++11", ["-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS"], "glass"
 
 
 def _parse_const_ints(header_path: Path) -> dict[str, int]:
@@ -511,16 +511,16 @@ def _parse_const_ints(header_path: Path) -> dict[str, int]:
 def _fallback_summary(header_path: Path) -> str:
     constants = _parse_const_ints(header_path)
     interesting = [
-        "GRID_INVERSE_DYNAMICS_GRADIENT_SHARED_TIER_VALUE",
-        "GRID_FORWARD_DYNAMICS_GRADIENT_SHARED_TIER_VALUE",
-        "GRID_INVERSE_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP",
-        "GRID_FORWARD_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP",
-        "GRID_INVERSE_DYNAMICS_GRADIENT_USES_DA_DF_SPILL",
-        "GRID_FORWARD_DYNAMICS_GRADIENT_USES_DA_DF_SPILL",
-        "GRID_GENERATES_D2EE",
-        "GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP",
-        "GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_D2XHOM",
-        "GRID_END_EFFECTOR_POSE_HESSIAN_SHARED_TIER_VALUE",
+        "GRIM_INVERSE_DYNAMICS_GRADIENT_SHARED_TIER_VALUE",
+        "GRIM_FORWARD_DYNAMICS_GRADIENT_SHARED_TIER_VALUE",
+        "GRIM_INVERSE_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP",
+        "GRIM_FORWARD_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP",
+        "GRIM_INVERSE_DYNAMICS_GRADIENT_USES_DA_DF_SPILL",
+        "GRIM_FORWARD_DYNAMICS_GRADIENT_USES_DA_DF_SPILL",
+        "GRIM_GENERATES_D2EE",
+        "GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP",
+        "GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_D2XHOM",
+        "GRIM_END_EFFECTOR_POSE_HESSIAN_SHARED_TIER_VALUE",
     ]
     parts = [
         f"{name}={constants[name]}"
@@ -575,7 +575,7 @@ def _header_cache_key(
     urdf_path = Path(resolved_model.urdf_path)
     payload = {
         "schema": CACHE_SCHEMA_VERSION,
-        "kind": "grid_header",
+        "kind": "grim_header",
         "robot_id": project_model.spec.robot_id,
         "base_mode": project_model.base_mode,
         "nq": project_model.nq,
@@ -583,20 +583,20 @@ def _header_cache_key(
         "urdf_path": str(urdf_path),
         "urdf_hash": _hash_file(urdf_path) if urdf_path.exists() else "missing",
         "robot_description_revision": resolved_model.revision,
-        "codegen_hash": _hash_tree(REPO_ROOT / "grid_codegen", (".py",)),
+        "codegen_hash": _hash_tree(REPO_ROOT / "grim_codegen", (".py",)),
         # GLASS is vendored into the header at codegen time, so its commit is a
         # codegen input — fold it in so a GLASS bump invalidates stale headers.
         "glass_commit": _glass_commit(),
-        "target_shared_mem_bytes": os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES", "default"),
-        "shared_mem_type_size_bytes": os.environ.get("GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES", "default"),
-        "codegen_profile": os.environ.get("GRID_CODEGEN_PROFILE", "all"),
+        "target_shared_mem_bytes": os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", "default"),
+        "shared_mem_type_size_bytes": os.environ.get("GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES", "default"),
+        "codegen_profile": os.environ.get("GRIM_CODEGEN_PROFILE", "all"),
         # 2026-09-16: the mjx toggle changes a floating non-mimic robot's
         # emission wholesale, but was MISSING from this key — the pin-only and
         # with-mjx flavors collided under one cache entry (whichever context
         # populated first poisoned the other; exposed when header-key replay
         # records failed to round-trip on an unchanged tree, guide §7.z14).
-        "enable_mujoco_kernels": os.environ.get("GRID_ENABLE_MUJOCO_KERNELS", "default"),
-        # every generation-time env knob (grid_codegen/env_knobs.py), 2026-09-24
+        "enable_mujoco_kernels": os.environ.get("GRIM_ENABLE_MUJOCO_KERNELS", "default"),
+        # every generation-time env knob (grim_codegen/env_knobs.py), 2026-09-24
         "generation_env": generation_env(),
         # Mimic robots codegen a reduced algorithm list (fixed vs floating differ
         # in which gradients are emitted); fold the ACTUAL list into the key so
@@ -655,10 +655,10 @@ def _run_gen_all_code(
     codegen.gen_all_code(**kwargs)
 
 
-def _generate_grid_header(
+def _generate_grim_header(
     project_model, resolved_model, build_dir: Path, config, codegen_algorithm_list=None
 ) -> tuple[Path, str]:
-    header_path = build_dir / "grid.cuh"
+    header_path = build_dir / "grim.cuh"
     include_homogenous_transforms = True
     header_key = _header_cache_key(
         project_model,
@@ -668,7 +668,7 @@ def _generate_grid_header(
     )
     if not _cache_enabled():
         _progress(config, f"generating header for {project_model.spec.robot_id}-{project_model.base_mode}")
-        codegen = GRiDCodeGenerator(
+        codegen = GRiMCodeGenerator(
             project_model.robot,
             DEBUG_MODE=False,
             NEED_PRINT_MAT=True,
@@ -682,7 +682,7 @@ def _generate_grid_header(
         return header_path, header_key
 
     cached_dir = _cache_root() / "headers" / header_key
-    cached_header = cached_dir / "grid.cuh"
+    cached_header = cached_dir / "grim.cuh"
     with _cache_key_lock("headers", header_key):
         if cached_header.exists():
             shutil.copyfile(cached_header, header_path)
@@ -691,7 +691,7 @@ def _generate_grid_header(
 
         _progress(config, f"generating header for {project_model.spec.robot_id}-{project_model.base_mode} cache miss key={header_key[:12]}")
         cached_dir.mkdir(parents=True, exist_ok=True)
-        codegen = GRiDCodeGenerator(
+        codegen = GRiMCodeGenerator(
             project_model.robot,
             DEBUG_MODE=False,
             NEED_PRINT_MAT=True,
@@ -708,8 +708,8 @@ def _generate_grid_header(
                     "schema": CACHE_SCHEMA_VERSION,
                     "robot_id": project_model.spec.robot_id,
                     "base_mode": project_model.base_mode,
-                    "target_shared_mem_bytes": os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES", "default"),
-                    "shared_mem_type_size_bytes": os.environ.get("GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES", "default"),
+                    "target_shared_mem_bytes": os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", "default"),
+                    "shared_mem_type_size_bytes": os.environ.get("GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES", "default"),
                 },
                 indent=2,
                 sort_keys=True,
@@ -738,9 +738,9 @@ def _compile_runner(
     _cache_verbose(config, "nvcc version: " + nvcc_version.splitlines()[-1])
     cxx_standard, linalg_flags, linalg_backend_note = _linalg_backend_compile_flags(arch)
     compile_flags = [cxx_standard, "-O0", *linalg_flags]
-    l2_persisting = os.environ.get("GRID_CUDA_ENABLE_L2_PERSISTING")
+    l2_persisting = os.environ.get("GRIM_CUDA_ENABLE_L2_PERSISTING")
     l2_define = int(l2_persisting) if l2_persisting is not None else 0
-    floating_algorithms = os.environ.get("GRID_CUDA_FLOATING_ALGORITHMS", "")
+    floating_algorithms = os.environ.get("GRIM_CUDA_FLOATING_ALGORITHMS", "")
     enable_floating_eepose_hessian = int(
         floating_base
         and (
@@ -756,12 +756,12 @@ def _compile_runner(
             "kind": "cuda_equivalence_runner",
             # CONTENT-keyed on the exact header bytes the exe embeds (2026-08-19,
             # user-ratified): the input-side header cache key folds the whole
-            # grid_codegen tree hash, so keying the exe on it forced a full exe
+            # grim_codegen tree hash, so keying the exe on it forced a full exe
             # recompile for EVERY codegen edit — even byte-identical-output ones
             # (a comment fix cost a ~15h cold pass). The header cache stays
             # input-keyed (regeneration is the cheap CPU half); the exe — the
             # expensive nvcc half — re-keys only when its actual input bytes do.
-            "header_content_hash": _hash_file(build_dir / "grid.cuh"),
+            "header_content_hash": _hash_file(build_dir / "grim.cuh"),
             "runner_source_hash": _hash_file(RUNNER_SOURCE),
             "select_header_hash": _hash_file(SELECT_HEADER),
             "cuda_arch": arch,
@@ -790,38 +790,38 @@ def _compile_runner(
                 cmd = [str(executable)]
                 return executable, cmd
             compile_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(build_dir / "grid.cuh", compile_dir / "grid.cuh")
+            shutil.copyfile(build_dir / "grim.cuh", compile_dir / "grim.cuh")
         else:
             compile_dir = build_dir
             executable = compile_dir / "cuda_equivalence_runner.exe"
 
         runner_copy = compile_dir / RUNNER_SOURCE.name
         shutil.copyfile(RUNNER_SOURCE, runner_copy)
-        # The runner #includes "grid_runner_select.cuh"; copy it next to the runner so
+        # The runner #includes "grim_runner_select.cuh"; copy it next to the runner so
         # the isolated-dir compile (cwd=compile_dir) resolves it.
         shutil.copyfile(SELECT_HEADER, compile_dir / SELECT_HEADER.name)
 
-        defines = [f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}"]
+        defines = [f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}"]
         if l2_persisting is not None:
-            defines.append(f"-DGRID_CUDA_ENABLE_L2_PERSISTING={l2_define}")
+            defines.append(f"-DGRIM_CUDA_ENABLE_L2_PERSISTING={l2_define}")
         # Mimic robots emit no gradient algorithms (G0 guard); compile the runner
         # without its gradient calls so it links against the gradient-free header.
         if skip_gradients:
-            defines.append("-DGRID_RUNNER_SKIP_GRADIENTS=1")
+            defines.append("-DGRIM_RUNNER_SKIP_GRADIENTS=1")
         # ee_pose gradient/hessian (kinematic) land in a later mimic phase (P4) than
         # the dynamics gradients id_du/fd_du (P3). Fixed-base mimic skips ONLY the
         # ee_pose gradients (keeps id_du/fd_du); floating mimic skips all gradients.
         if skip_eepose_gradients and not skip_gradients:
-            defines.append("-DGRID_RUNNER_SKIP_EEPOSE_GRADIENTS=1")
+            defines.append("-DGRIM_RUNNER_SKIP_EEPOSE_GRADIENTS=1")
         # Split mode: gate the runner to a single algorithm (or tight group). The RUN
         # tokens fully control which per-algo blocks compile (every unlisted RUN_<X>
-        # defaults to 0 under GRID_RUN_SPLIT), so a broken/absent kernel in another algo
+        # defaults to 0 under GRIM_RUN_SPLIT), so a broken/absent kernel in another algo
         # can't void this cell (Bug-A isolation). Pairs with a subset header
         # (codegen_algorithm_list) so the TU is tiny + fast (~2s vs >6m for the full
         # header). Split gating supersedes the coarse SKIP_GRADIENTS flags, so those stay
         # off (False) whenever run_tokens is set.
         if run_tokens:
-            defines.append("-DGRID_RUN_SPLIT")
+            defines.append("-DGRIM_RUN_SPLIT")
             for token in sorted(run_tokens):
                 defines.append(f"-D{token}=1")
 
@@ -862,7 +862,7 @@ def _compile_runner(
                 json.dumps(
                     {
                         "schema": CACHE_SCHEMA_VERSION,
-                        "header_content_hash": _hash_file(compile_dir / "grid.cuh"),
+                        "header_content_hash": _hash_file(compile_dir / "grim.cuh"),
                         "arch": arch,
                         "floating_base": bool(floating_base),
                         "l2_persisting": l2_define,
@@ -949,16 +949,16 @@ def _thread_counts() -> tuple[int, ...]:
 
     Defaults to a single warp (32), a non-multiple of 32 (96) to exercise partial
     trailing warps, the sentinel 0 = the robot's MAX_PERF_LEVEL_THREADS (the count real
-    GRiD usage launches at, resolved DYNAMICALLY in the runner from the generated
+    GRiM usage launches at, resolved DYNAMICALLY in the runner from the generated
     header — never hardcoded, since it varies per robot: iiwa14=352, go2=288,
     g1/h1_2=512), and one session-random multi-warp count. The runner clamps every
     requested count to MAX_PERF_LEVEL_THREADS (the kernels' __launch_bounds__ cap).
     Sweeping thread counts catches thread-count-dependent races (missing
     __syncthreads between a write phase and a read/accumulate phase that happens
     to be correct only within a single warp) that a fixed 32-thread launch hides.
-    Override via GRID_CUDA_THREAD_COUNTS (comma-separated ints, "suggested" for the
+    Override via GRIM_CUDA_THREAD_COUNTS (comma-separated ints, "suggested" for the
     MAX_PERF_LEVEL_THREADS sentinel, or "random" for a fresh multi-warp value)."""
-    raw = os.environ.get("GRID_CUDA_THREAD_COUNTS")
+    raw = os.environ.get("GRIM_CUDA_THREAD_COUNTS")
     if raw:
         counts = []
         for part in raw.split(","):
@@ -978,7 +978,7 @@ def _thread_counts() -> tuple[int, ...]:
     # be deterministic across processes — pytest-xdist workers each call this and
     # any per-process randomness makes them collect different test ids ("Different
     # tests were collected between gw0 and gwN"). Time-varying partial-warp fuzzing
-    # stays available as the explicit opt-in GRID_CUDA_THREAD_COUNTS=...,random.
+    # stays available as the explicit opt-in GRIM_CUDA_THREAD_COUNTS=...,random.
     return (32, 96, 100, 0)
 
 
@@ -993,17 +993,17 @@ def _random_thread_count() -> int:
 
 
 def _random_sample_count() -> int:
-    raw_count = os.environ.get("GRID_CUDA_RANDOM_SAMPLES")
+    raw_count = os.environ.get("GRIM_CUDA_RANDOM_SAMPLES")
     if raw_count is None:
         return DEFAULT_RANDOM_SAMPLE_COUNT
     try:
         return max(0, int(raw_count))
     except ValueError as exc:
-        raise ValueError("GRID_CUDA_RANDOM_SAMPLES must be an integer.") from exc
+        raise ValueError("GRIM_CUDA_RANDOM_SAMPLES must be an integer.") from exc
 
 
 def _floating_algorithm_selection() -> tuple[str, ...]:
-    raw = os.environ.get("GRID_CUDA_FLOATING_ALGORITHMS")
+    raw = os.environ.get("GRIM_CUDA_FLOATING_ALGORITHMS")
     if not raw:
         return FLOATING_CUDA_ALGORITHMS
     if raw.strip().lower() == "all":
@@ -1012,7 +1012,7 @@ def _floating_algorithm_selection() -> tuple[str, ...]:
     unknown = sorted(set(requested) - set(FLOATING_CUDA_CANDIDATE_ALGORITHMS))
     if unknown:
         raise ValueError(
-            "GRID_CUDA_FLOATING_ALGORITHMS contained unsupported names: "
+            "GRIM_CUDA_FLOATING_ALGORITHMS contained unsupported names: "
             + ", ".join(unknown)
         )
     return requested
@@ -1020,13 +1020,13 @@ def _floating_algorithm_selection() -> tuple[str, ...]:
 
 # Value-only subset (no gradients, no second-order kernels). Used to NUMERICALLY
 # validate a spilled VALUE-algo rung (e.g. crba's s_M output-spill) under a forced
-# low GRID_CUDA_TARGET_SHARED_MEM_BYTES WITHOUT also deep-spilling idsva_so/fdsva_so
+# low GRIM_CUDA_TARGET_SHARED_MEM_BYTES WITHOUT also deep-spilling idsva_so/fdsva_so
 # — a low global target makes the SO kernels' 4*NV^3 contract spill pathologically
 # (nvcc cicc stalls for >1h). Emitting only the value block keeps the SO kernels out
 # of the header entirely, so the forced-spill rung of crba/minv/fd/aba/ee_pose can be
-# exercised cheaply. Opt in via GRID_CUDA_CODEGEN_SUBSET=value (or a comma list of
+# exercised cheaply. Opt in via GRIM_CUDA_CODEGEN_SUBSET=value (or a comma list of
 # codegen algorithm keys). These are exactly the kernels cuda_equivalence_runner.cu
-# launches unconditionally with GRID_RUNNER_SKIP_GRADIENTS=1.
+# launches unconditionally with GRIM_RUNNER_SKIP_GRADIENTS=1.
 _VALUE_ONLY_CODEGEN = [
     "inverse_dynamics", "minv", "forward_dynamics", "aba", "crba", "end_effector_pose",
 ]
@@ -1036,13 +1036,13 @@ _VALUE_ONLY_COMPARE = (
 
 
 def _codegen_subset_from_env():
-    """Optional value-only SUBSET header request (GRID_CUDA_CODEGEN_SUBSET).
+    """Optional value-only SUBSET header request (GRIM_CUDA_CODEGEN_SUBSET).
 
     Returns (codegen_algorithm_list, compare_algorithms) or (None, None) when unset.
     `value`/`value-only` -> the gradient-free value block; otherwise a comma list of
     codegen keys (the compare set is then the intersection with the value block, since
     the runner only emits the value kernels under the derived SKIP_GRADIENTS)."""
-    raw = os.environ.get("GRID_CUDA_CODEGEN_SUBSET")
+    raw = os.environ.get("GRIM_CUDA_CODEGEN_SUBSET")
     if not raw:
         return None, None
     if raw.strip().lower() in ("value", "value-only", "value_only"):
@@ -1059,11 +1059,11 @@ def _parse_sample_names(raw: str) -> set[str] | None:
 
 
 def _sample_name_selection(base_mode: str) -> SampleSelection:
-    raw = os.environ.get("GRID_CUDA_SAMPLE_NAMES")
+    raw = os.environ.get("GRIM_CUDA_SAMPLE_NAMES")
     if raw:
         return SampleSelection(_parse_sample_names(raw), True, True)
     if base_mode == "floating":
-        raw = os.environ.get("GRID_CUDA_FLOATING_SAMPLE_NAMES")
+        raw = os.environ.get("GRIM_CUDA_FLOATING_SAMPLE_NAMES")
         if not raw:
             # zero-ONLY coverage hid a real runner bug for weeks (the floating
             # q_qd_u pack sheared qd/u by one slot — invisible at the zero
@@ -1357,7 +1357,7 @@ def _model_inertia_is_degenerate(reference_model, nv):
     matrix). Indicates a broken URDF asset (e.g. rizon4's upstream flexiv xacro
     emits bare mass/inertia tags NOT wrapped in <inertial>, so every link parses
     massless) — the dynamics are physically undefined and the float32 CUDA path
-    divides by the zero-mass structure (-> NaN). Not a GRiD bug; skip honestly.
+    divides by the zero-mass structure (-> NaN). Not a GRiM bug; skip honestly.
     Self-heals if a corrected asset later resolves with real inertias."""
     try:
         mass = np.asarray(reference_model.crba(np.zeros(nv)), dtype=np.float64)
@@ -1655,7 +1655,7 @@ def _assert_close(
 def _flagship_selected_algorithms(base_mode) -> set:
     """The algorithm set the flagship validates for this base (monolith parity):
     fixed = FIXED_CUDA_ALGORITHMS; floating = _floating_algorithm_selection().
-    GRID_CUDA_CODEGEN_SUBSET (spill-debug opt-in) narrows it to the requested algos."""
+    GRIM_CUDA_CODEGEN_SUBSET (spill-debug opt-in) narrows it to the requested algos."""
     _, compare_subset = _codegen_subset_from_env()
     if compare_subset is not None:
         return set(compare_subset)
@@ -1668,7 +1668,7 @@ def _run_flagship_split_cell(spec, base_mode, cell, num_threads, tmp_path, reque
     """Validate ONE flagship split cell: codegen its subset header + compile the runner
     gated to its RUN token(s), then compare only this cell's algorithm(s) vs the oracle.
     A cell not in this base's selection is skipped (e.g. floating ee_pose gradient/hessian
-    unless GRID_CUDA_FLOATING_ALGORITHMS requests them). This REPLACES the monolithic
+    unless GRIM_CUDA_FLOATING_ALGORITHMS requests them). This REPLACES the monolithic
     all-algorithm runner: a build break in any other algorithm can no longer void this
     cell (the Bug-A coverage void), and each cell is a tiny, fast, independently-reported TU."""
     selected = _flagship_selected_algorithms(base_mode)
@@ -1679,15 +1679,15 @@ def _run_flagship_split_cell(spec, base_mode, cell, num_threads, tmp_path, reque
     selection = _sample_name_selection(base_mode)
     if base_mode == "floating":
         random_count = None
-        if os.environ.get("GRID_CUDA_RANDOM_SAMPLES") is None and (
+        if os.environ.get("GRIM_CUDA_RANDOM_SAMPLES") is None and (
             selection.explicit or selection.names == {"zero"}
         ):
             random_count = 0
     else:
-        random_count = 0 if selection.explicit and os.environ.get("GRID_CUDA_RANDOM_SAMPLES") is None else None
+        random_count = 0 if selection.explicit and os.environ.get("GRIM_CUDA_RANDOM_SAMPLES") is None else None
 
     # Non-mimic robots codegen this cell's tight dependency group (small, fast header).
-    # GRID_CUDA_CODEGEN_SUBSET (spill-debug) unions its requested algos in so all cells
+    # GRIM_CUDA_CODEGEN_SUBSET (spill-debug) unions its requested algos in so all cells
     # share one multi-algo header (forced-low smem spills the value rung together) while
     # the RUN token still isolates each compile. Mimic robots ignore the list entirely
     # (nulled inside _run_cuda_equivalence_case → one shared forced-mimic header).
@@ -1726,8 +1726,8 @@ def _run_cuda_equivalence_case(
     if sample_selection is None:
         sample_selection = SampleSelection(None, False, False)
     sample_names = sample_selection.names
-    target_shared = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES", "default")
-    l2_mode = os.environ.get("GRID_CUDA_ENABLE_L2_PERSISTING", "0")
+    target_shared = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", "default")
+    l2_mode = os.environ.get("GRIM_CUDA_ENABLE_L2_PERSISTING", "0")
     _progress(
         config,
         (
@@ -1752,14 +1752,14 @@ def _run_cuda_equivalence_case(
     #    happened with d2ee).
     #  - reference_model is the independent ORACLE for EVERY algorithm (incl. d2ee).
     #    It defaults to the EXACT pinocchio backend (the C++ authority) and can be
-    #    forced to the pure-Python reference via GRID_REFERENCE_BACKEND=reference (a
+    #    forced to the pure-Python reference via GRIM_REFERENCE_BACKEND=reference (a
     #    debug fallback that re-enables buggy-vs-buggy masking, so avoid it for CI).
     #    d2ee is now a HARD requirement (A2 resolved 2026-05-31): the pinocchio
     #    backend's d2ee uses the analytic getJointKinematicHessian(LOCAL_WORLD_ALIGNED)
     #    -- a valid d/dv oracle that agrees with the project analytic chain-composition
     #    d2(pose)/dv2 fleet-wide -- so it is no longer in KNOWN_FAILING_ALGORITHMS.
     project_model = build_project_adapter(spec, resolved, base_mode=base_mode)
-    oracle_backend = resolve_backend(os.environ.get("GRID_REFERENCE_BACKEND", "pinocchio"))
+    oracle_backend = resolve_backend(os.environ.get("GRIM_REFERENCE_BACKEND", "pinocchio"))
     reference_model = (
         project_model
         if oracle_backend == "reference"
@@ -1770,7 +1770,7 @@ def _run_cuda_equivalence_case(
     if _model_inertia_is_degenerate(reference_model, project_model.nv):
         pytest.skip(
             f"{spec.robot_id}-{base_mode} resolves to a zero-inertia model (all-zero mass "
-            "matrix) — a broken upstream URDF asset, not a GRiD defect. Dynamics are "
+            "matrix) — a broken upstream URDF asset, not a GRiM defect. Dynamics are "
             "physically undefined; skip until a corrected asset resolves. "
             "(rizon4: flexiv xacro emits bare mass/inertia tags not wrapped in <inertial>.)"
         )
@@ -1785,7 +1785,7 @@ def _run_cuda_equivalence_case(
 
     build_dir = tmp_path / f"cuda_{spec.robot_id}_{base_mode}"
     build_dir.mkdir()
-    header_path, header_key = _generate_grid_header(
+    header_path, header_key = _generate_grim_header(
         project_model, resolved, build_dir, config,
         codegen_algorithm_list=codegen_algorithm_list,
     )
@@ -1844,7 +1844,7 @@ def _run_cuda_equivalence_case(
         matched_samples += 1
         _progress(config, f"{spec.robot_id}-{base_mode}/{sample.name}: running CUDA runner (threads={num_threads or 32})")
         stdout = _run_runner(executable, _sample_to_stdin(sample), compile_cmd, num_threads=num_threads)
-        # Run-to-run determinism gate (Inc6). Single-block GRiD kernels must be
+        # Run-to-run determinism gate (Inc6). Single-block GRiM kernels must be
         # bit-deterministic run-to-run, not merely oracle-close: a warp-scheduling-
         # dependent shared-memory reduction (e.g. the floating-base shared-parent
         # atomicAdd folds fixed in GCG bc6c75a) drifts by 1-2 ULP between launches

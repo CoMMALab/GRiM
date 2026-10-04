@@ -1,10 +1,10 @@
-"""Subset-build tests for the torch op surface of ``grid-rbd``.
+"""Subset-build tests for the torch op surface of ``grim``.
 
 Mirrors ``test_subset_build.py`` (the numpy subset suite) for the torch backend.
-``grid_rbd.torch.register_robot(algorithm_list=[...])`` now builds only a SUBSET of
+``grim.torch.register_robot(algorithm_list=[...])`` now builds only a SUBSET of
 algorithms into the per-robot ``.so`` AND into the torch op surface: each
 ``torch_<algo>`` impl + its ``m.def`` / ``m.impl`` (and ``_mujoco`` twins) sits
-inside ``#if GRID_HAS_<ALGO>``, mirroring the numpy C-ABI bodies. So a reduced
+inside ``#if GRIM_HAS_<ALGO>``, mirroring the numpy C-ABI bodies. So a reduced
 profile compiles cleanly, the requested cores + their transitive deps run (forward
 + autograd VJP), and an un-requested core's op is simply not registered — the
 Python wrapper maps the resulting ``getattr`` ``AttributeError`` to the same clean
@@ -43,9 +43,9 @@ from config import robot_urdf
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd       = pytest.importorskip("grid_rbd",       reason="grid-rbd not installed (pip install bindings/)")
-_torch          = pytest.importorskip("torch",          reason="torch not installed (pip install grid-rbd[torch])")
-_grid_rbd_torch = pytest.importorskip("grid_rbd.torch", reason="grid_rbd.torch import failed")
+_grim       = pytest.importorskip("grim",       reason="grim not installed (pip install bindings/)")
+_torch          = pytest.importorskip("torch",          reason="torch not installed (pip install grim[torch])")
+_grim_torch = pytest.importorskip("grim.torch", reason="grim.torch import failed")
 
 if not _torch.cuda.is_available():
     pytest.skip("CUDA not available for torch", allow_module_level=True)
@@ -56,7 +56,7 @@ if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF fixture not present at {_URDF}", allow_module_level=True)
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid_rbd.torch register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim.torch register_robot requires it", allow_module_level=True)
 
 
 pytestmark = pytest.mark.python_wrappers
@@ -70,7 +70,7 @@ _TOL = 5e-3  # float32 vs float64 cross-precision
 @pytest.fixture(scope="module")
 def cache_dir(tmp_path_factory):
     # Isolated cache so these (force_rebuild) builds never collide with the shared
-    # ~/.cache/grid-rbd/ entries used by the other suites.
+    # ~/.cache/grim/ entries used by the other suites.
     return tmp_path_factory.mktemp("subset_build_torch_cache")
 
 
@@ -78,7 +78,7 @@ def cache_dir(tmp_path_factory):
 def default_handle(cache_dir):
     """The full default profile (algorithm_list=None) — must stay fully working on
     the torch surface. force_rebuild to exercise the real codegen+nvcc path."""
-    return _grid_rbd_torch.register_robot(
+    return _grim_torch.register_robot(
         name="iiwa14_subset_torch_default",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -96,7 +96,7 @@ def subset_handle(cache_dir):
     and the gradients are available WITHOUT being named — proving dep expansion.
     crba / idsva_so / fdsva_so / end_effector_pose / integrator are NOT pulled in,
     so their torch ops are gated out → the wrapper raises the clean subset error."""
-    return _grid_rbd_torch.register_robot(
+    return _grim_torch.register_robot(
         name="iiwa14_subset_torch_reduced",
         urdf_path=str(_URDF),
         floating_base=False,
@@ -204,9 +204,9 @@ def test_subset_unrequested_raises_clean_error(subset_handle, samples, method, c
     assert "not built into this robot .so" in msg, f"unclear error for {method}: {msg}"
     assert "algorithm_list" in msg, f"error for {method} doesn't point at the fix: {msg}"
     # Must be the dedicated SUBSET message, not the whole-surface-missing fallthrough
-    # ("compiled with GRID_RBD_WITH_TORCH?") and not a generic "failed: rc=" path.
+    # ("compiled with GRIM_WITH_TORCH?") and not a generic "failed: rc=" path.
     assert "failed: rc=" not in msg, f"generic rc error leaked for {method}: {msg}"
-    assert "GRID_RBD_WITH_TORCH" not in msg, f"whole-surface error leaked for {method}: {msg}"
+    assert "GRIM_WITH_TORCH" not in msg, f"whole-surface error leaked for {method}: {msg}"
 
 
 def test_default_built_algos_run(default_handle, ref, samples):
@@ -229,8 +229,8 @@ def test_subset_so_is_smaller_than_default(default_handle, subset_handle, cache_
     """The reduced .so is meaningfully smaller than the full build (the
     un-requested heavy second-order / integrator inner kernels — and their torch
     ops — are simply not emitted)."""
-    from grid_rbd._cache import store_dir
-    entries = {e["name"]: e for e in _grid_rbd.list_registered(str(cache_dir))}
+    from grim._cache import store_dir
+    entries = {e["name"]: e for e in _grim.list_registered(str(cache_dir))}
     d = store_dir(Path(cache_dir), entries["iiwa14_subset_torch_default"]["cache_key"]) / "robot.so"
     s = store_dir(Path(cache_dir), entries["iiwa14_subset_torch_reduced"]["cache_key"]) / "robot.so"
     if not d.exists() or not s.exists():
@@ -248,7 +248,7 @@ def test_subset_does_not_rekey_default(cache_dir):
     the subset plumbing is inject-only-when-set."""
     import time
     t0 = time.time()
-    h = _grid_rbd_torch.register_robot(
+    h = _grim_torch.register_robot(
         name="iiwa14_subset_torch_default",
         urdf_path=str(_URDF),
         floating_base=False,

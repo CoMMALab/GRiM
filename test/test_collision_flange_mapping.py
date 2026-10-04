@@ -1,7 +1,7 @@
-"""Unit gate for the W3 Component D FLANGE mapping (`grid_codegen/algorithms/_collision.py`).
+"""Unit gate for the W3 Component D FLANGE mapping (`grim_codegen/algorithms/_collision.py`).
 
 The FLANGE mapping is the #1 silent-wrong-frame hazard in the collision pipeline: every foam
-sphere must bind to ITS OWN GRiD `s_Xworld` frame slot. This test certifies that mapping WITHOUT
+sphere must bind to ITS OWN GRiM `s_Xworld` frame slot. This test certifies that mapping WITHOUT
 the (heavy, optional) foam toolchain, on:
 
   1. REAL iiwa14 (`config/robot_assets/iiwa14.urdf`): movable links `iiwa_link_1..7` -> joint ids 0..6
@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from URDFParser import URDFParser
-from grid_codegen.algorithms._collision import (
+from grim_codegen.algorithms._collision import (
     build_self_cc_ranges,
     build_sphere_tiers,
     parse_spherized_urdf,
@@ -53,7 +53,7 @@ def test_flange_mapping_iiwa_welded_ee_folds_to_movable_parent():
     robot = _parse(IIWA)
     # Two welded frames off iiwa_link_7 (movable jid 6): iiwa_link_ee via tool0_joint,
     # iiwa_link_ee_kuka via iiwa_joint_ee. Each must anchor to jid 6 carrying ITS OWN
-    # (name-bridged) fixed transform -- proving the foam-link -> URDF-joint -> GRiD-fixed-joint
+    # (name-bridged) fixed transform -- proving the foam-link -> URDF-joint -> GRiM-fixed-joint
     # bridge picks the correct joint even when several fixed frames share a movable parent.
     welded = {"iiwa_link_ee": "tool0_joint", "iiwa_link_ee_kuka": "iiwa_joint_ee"}
     frames = sphere_anchor_frames(robot, list(welded), str(IIWA))
@@ -165,7 +165,7 @@ def _T_from_origin(xyz, rpy):
 
 def test_multihop_welded_chain_composes_full_transform(tmp_path):
     """A sphere two fixed joints deep (tip <-fixed- mid <-fixed- l2 <-movable- j2) must anchor
-    to the MOVABLE parent (j2 = jid 1) with its offset composed through BOTH fixed joints. GRiD
+    to the MOVABLE parent (j2 = jid 1) with its offset composed through BOTH fixed joints. GRiM
     pre-collapses fixed chains onto the nearest movable joint, so the one-hop lookup suffices --
     this locks that in against an independent two-link-chain oracle."""
     p = tmp_path / "mini2_spherized.urdf"

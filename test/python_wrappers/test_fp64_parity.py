@@ -1,6 +1,6 @@
-"""fp64 (double-precision) tight-tolerance parity for the grid_rbd handle.
+"""fp64 (double-precision) tight-tolerance parity for the grim handle.
 
-The fp64 tier (`register_robot(..., dtype="float64")`, -DGRID_WRAPPER_T_DOUBLE)
+The fp64 tier (`register_robot(..., dtype="float64")`, -DGRIM_WRAPPER_T_DOUBLE)
 exists to deliver materially tighter numerics than fp32. This guards that:
   (1) an fp64 handle round-trips float64 and matches the float64 RBDReference
       oracle to ~machine precision (~1e-16, vs fp32's ~1e-7) across the value +
@@ -10,7 +10,7 @@ exists to deliver materially tighter numerics than fp32. This guards that:
       that proves the tier earns its keep (a regression that silently degraded
       fp64 to fp32-quality would otherwise pass unnoticed).
 
-Skips if grid_rbd / nvcc / the URDF fixture are unavailable.
+Skips if grim / nvcc / the URDF fixture are unavailable.
 
 Run with:  pytest test/python_wrappers/test_fp64_parity.py -m python_wrappers -v
 """
@@ -28,12 +28,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 _URDF = robot_urdf("iiwa14")
 if not _URDF.exists():
     pytest.skip(f"iiwa14 URDF not present at {_URDF}", allow_module_level=True)
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 pytestmark = pytest.mark.python_wrappers
 
@@ -42,14 +42,14 @@ _FP64_TOL = 1e-12   # fp64 vs float64 oracle: value + first-order surfaces on ii
 
 @pytest.fixture(scope="module")
 def h64():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_fp64_pytest", urdf_path=str(_URDF),
         floating_base=False, dtype="float64", max_batch_size=8)
 
 
 @pytest.fixture(scope="module")
 def h32():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_fp32_pytest", urdf_path=str(_URDF),
         floating_base=False, dtype="float32", max_batch_size=8)
 
@@ -157,8 +157,8 @@ def test_fp64_materially_tighter_than_fp32(h64, h32, ref, samples64):
 
 
 # ─── Wave 2a: fp64 on the torch / jax surfaces ──────────────────────────────
-# The fp64 .so now carries fp64 jax (GRID_FFI_T=F64, .Attr<T> gravity/dt) and
-# torch (GRID_TORCH_DTYPE=kFloat64, data_ptr<T>) surfaces. Gate BOTH the same
+# The fp64 .so now carries fp64 jax (GRIM_FFI_T=F64, .Attr<T> gravity/dt) and
+# torch (GRIM_TORCH_DTYPE=kFloat64, data_ptr<T>) surfaces. Gate BOTH the same
 # way the numpy tier is gated: tight vs the float64 oracle AND materially
 # tighter than fp32 — the jax contrast test specifically catches the
 # fp32-attr gravity rounding cap (_core.cpp:49-57 class of bug).
@@ -169,8 +169,8 @@ def h64_torch():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("torch reports no CUDA device")
-    import grid_rbd
-    return grid_rbd.register_robot(
+    import grim
+    return grim.register_robot(
         name="iiwa14_fp64_torch_pytest", urdf_path=str(_URDF),
         floating_base=False, dtype="float64", max_batch_size=8, backend="torch")
 
@@ -179,8 +179,8 @@ def h64_torch():
 def h64_jax():
     jax = pytest.importorskip("jax")
     jax.config.update("jax_enable_x64", True)
-    import grid_rbd
-    return grid_rbd.register_robot(
+    import grim
+    return grim.register_robot(
         name="iiwa14_fp64_jax_pytest", urdf_path=str(_URDF),
         floating_base=False, dtype="float64", max_batch_size=8, backend="jax")
 
