@@ -41,7 +41,9 @@ __global__ void kinematics_kernel(
     for (int k = 0; k < n_frames * 7; ++k) out_T[(size_t)b * n_frames * 7 + k] = T[k];
 
     if constexpr (n_ee > 0) {
-        float r[6 * n_ee], J[6 * n_ee * (n_solved > 0 ? n_solved : 1)];
+        // Sized >= 1: outside a template, if constexpr does not discard the declarations.
+        constexpr int ne = n_ee > 0 ? n_ee : 1, ns = n_solved > 0 ? n_solved : 1;
+        float r[6 * ne], J[6 * ne * ns];
         residual_and_jacobian(cfg, frz, targets + (size_t)b * n_ee * 7, r, J);
         for (int k = 0; k < 6 * n_ee; ++k) out_r[(size_t)b * 6 * n_ee + k] = r[k];
         for (int k = 0; k < 6 * n_ee * n_solved; ++k)

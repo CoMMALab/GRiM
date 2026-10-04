@@ -69,6 +69,22 @@ def test_kinematics_match_reference(name, chain_only, traced):
             assert_close_scaled(J[b], J_ref, RTOL, f"{name} b={b} jacobian")
 
 
+@pytest.mark.parametrize("traced", [False, True])
+def test_frame_poses_without_end_effectors(traced):
+    """FK alone (no end-effector): pyroffi's use_cuda FK path. Once failed to compile
+    (zero-sized residual arrays)."""
+    if traced and not cricket_available():
+        pytest.skip("cricket not installed")
+    robot = load_robot("iiwa14")
+    q = config_samples(robot)
+    from grim.motion.kinematics import kinematics
+    T, r, J = (np.asarray(x) for x in kinematics(robot, q, None, (), traced=traced))
+    assert r.shape == (len(q), 0) and J.shape[:2] == (len(q), 0)
+    for b in range(len(q)):
+        assert_close_scaled(T[b, :, 4:], K.frame_poses(robot, q[b])[:, 4:], RTOL,
+                            f"b={b} positions")
+
+
 @pytest.mark.parametrize("name", ["fr3", "iiwa14"])
 def test_chain_only_solves_fewer_columns(name):
     from grim.motion.kinematics import solved_columns
