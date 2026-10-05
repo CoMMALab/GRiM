@@ -3,7 +3,7 @@
 
 Every Runner dlopens the robot .so; the .so owns ONE runtime (g_data / g_robot /
 streams / the runtime parameter tables). Two handles on the same artifact share
-it. Before the fix each Runner's destructor called grid_rbd_close()
+it. Before the fix each Runner's destructor called grim_close()
 unconditionally, so closing handle B freed the runtime handle A was using: A's
 next call silently re-initialized (baked defaults back, live inertia updates
 lost). The runtime is now reference-counted per .so path inside the extension:
@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
     pytest.skip("nvcc not on PATH", allow_module_level=True)
 _IIWA = robot_urdf("iiwa14")
@@ -35,7 +35,7 @@ _KW = dict(floating_base=False, runtime_inertia=True, algorithm_list=["inverse_d
 
 
 def _register(name):
-    return grid_rbd.register_robot(name, str(_IIWA), **_KW)
+    return grim.register_robot(name, str(_IIWA), **_KW)
 
 
 def _tau(h, q, qd):
@@ -91,7 +91,7 @@ def test_framework_pool_owner_survives_installer_gc(backend):
     registered.close()
     # The suite's module fixture retains register_robot results. get_robot is
     # not retained there, so this handle really can be collected in this test.
-    a = grid_rbd.get_robot(name)
+    a = grim.get_robot(name)
     installer_ref = weakref.ref(a)
     refs = []
     def alloc(n):
@@ -108,7 +108,7 @@ def test_framework_pool_owner_survives_installer_gc(backend):
     try:
         assert a.install_device_pool(alloc) > 0
         # Creating another view before first use must not replace the uncarved pool.
-        b = grid_rbd.get_robot("w04_pool_installer_" + backend, backend=backend)
+        b = grim.get_robot("w04_pool_installer_" + backend, backend=backend)
         q = np.full((2, a.num_joints), .2, np.float32)
         ref = _tau(a, q, np.zeros_like(q))
         assert a._runner.device_pool_used() > 0
@@ -147,7 +147,7 @@ def test_late_framework_view_preserves_live_inertia(backend):
         a.set_inertia_params(params)
         changed = _tau(a, q, qd)
         assert np.abs(changed - original).max() > 1e-3
-        b = grid_rbd.get_robot("w04_late_" + backend, backend=backend)
+        b = grim.get_robot("w04_late_" + backend, backend=backend)
         np.testing.assert_allclose(_tau(a, q, qd), changed)
         with pytest.raises(RuntimeError, match="shared"):
             b._base._runner.close_arena()

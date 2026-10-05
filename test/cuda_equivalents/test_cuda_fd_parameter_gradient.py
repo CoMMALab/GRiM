@@ -5,12 +5,12 @@ Validates `gen_forward_dynamics_parameter_gradient` (CUDA) against
 
     dqdd/dpi = -Minv . Y(q, qd, qdd_actual)   with qdd_actual = FD(q, qd, u)
 
-`pi_i = [m, m*c(3), I_O(6)=[Ixx,Ixy,Ixz,Iyy,Iyz,Izz]]` per link (GRiD/URDF basis).
+`pi_i = [m, m*c(3), I_O(6)=[Ixx,Ixy,Ixz,Iyy,Iyz,Izz]]` per link (GRiM/URDF basis).
 The CUDA kernel composes minv (Minv), the regressor (Y) at the actual
 acceleration, and the symmetric-upper -Minv . Y apply.
 
 The runner streams q|qd|u (the sample's third vector is used as the torque u).
-Output is nv x 10*NUM_BODIES and is NOT a gridData field, so the runner allocates
+Output is nv x 10*NUM_BODIES and is NOT a grimData field, so the runner allocates
 the output buffer itself. iiwa14 (fixed) gated first, then g1 (floating).
 """
 
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -65,8 +65,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir: Path) -> Path:
-    header_path = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header_path = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -94,9 +94,9 @@ def _compile_runner(build_dir: Path, floating_base: bool):
     thread_count = _random_thread_count()
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
-        f"-DGRID_CUDA_FPG_TEST_THREADS={thread_count}",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
+        f"-DGRIM_CUDA_FPG_TEST_THREADS={thread_count}",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(executable), str(runner_copy),

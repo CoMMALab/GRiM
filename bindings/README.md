@@ -1,14 +1,14 @@
-# grid-rbd
+# grim
 
 Python wrappers for GPU-accelerated rigid body dynamics on top of
-[GRiD](https://github.com/A2R-Lab/GRiD). Two-tier UX:
+[GRiM](https://github.com/A2R-Lab/GRiD). Two-tier UX:
 
 ```python
-import grid_rbd
+import grim
 
-# One-time per (robot, options, GRiD version, CUDA arch): ~30s-15min.
-# Generates grid.cuh, compiles to .so, caches under ~/.cache/grid-rbd/.
-handle = grid_rbd.register_robot(
+# One-time per (robot, options, GRiM version, CUDA arch): ~30s-15min.
+# Generates grim.cuh, compiles to .so, caches under ~/.cache/grim/.
+handle = grim.register_robot(
     name="iiwa14",
     urdf_path="iiwa.urdf",      # or urdf_string="<inline URDF text>"
     floating_base=False,
@@ -72,11 +72,11 @@ cross-checked against the ABI specification by a CPU test.
 > CRBA kernel used to return inconsistent mass matrices across `batch > 1` slots for
 > an identical-`q` batch (a warp-scheduling-order shared-parent `atomicAdd` in the
 > composite-inertia fold). Fixed in codegen by a deterministic parent-major
-> fixed-order reduction (`grid_codegen/algorithms/_crba.py`, ~L571). Verified
+> fixed-order reduction (`grim_codegen/algorithms/_crba.py`, ~L571). Verified
 > 2026-07-24 on go2-floating: a 64-wide identical-`q` batch returns bit-identical `M`
 > across all slots (`max |M[b]−M[0]| = 0`) and is bit-identical run-to-run.
 
-## JAX FFI (`grid_rbd[jax]`)
+## JAX FFI (`grim[jax]`)
 
 The `[jax]` extra (see the [install matrix](#install-editable-from-a-grid-checkout))
 enables the JAX-side bridge, which shares the same per-robot `.so` cache.
@@ -85,8 +85,8 @@ JAX-supplied CUDA streams — no host round-trip — so they slot directly into
 `jax.jit` graphs:
 
 ```python
-import grid_rbd.jax as grid_jax, jax
-handle = grid_jax.register_robot(name="iiwa14", urdf_path="iiwa.urdf")
+import grim.jax as grim_jax, jax
+handle = grim_jax.register_robot(name="iiwa14", urdf_path="iiwa.urdf")
 
 @jax.jit
 def step(q, qd, u):
@@ -107,9 +107,9 @@ passes), and CUDA-Graphs capture is available via `h.capture(...)`. The `.so`
 is shared with the numpy/JAX surfaces (same content-addressed cache):
 
 ```python
-import grid_rbd, torch
+import grim, torch
 
-h = grid_rbd.register_robot("iiwa14", urdf_path="iiwa.urdf", backend="torch")
+h = grim.register_robot("iiwa14", urdf_path="iiwa.urdf", backend="torch")
 
 q  = torch.randn(64, h.num_joints, device="cuda", requires_grad=True)
 qd = torch.randn(64, h.num_joints, device="cuda", requires_grad=True)
@@ -123,7 +123,7 @@ qdd.sum().backward()                 # gradients flow to q, qd, u
 > own CUDA kernels, so the installed torch build must support the GPU's
 > compute capability. On an RTX 5090 (sm_120) you need a torch **cu128**
 > (or newer) build — a cu124 wheel (max sm_90) cannot launch on sm_120.
-> The `grid` / `grid_plant` kernels themselves are always nvcc-built for
+> The `grid` / `grim_plant` kernels themselves are always nvcc-built for
 > the detected arch and are unaffected.
 
 ## Everything else — see the docs
@@ -139,7 +139,7 @@ The full reference for the rest of the surface lives in the
   `forward_dynamics_parameter_gradient`),
 * welded tools (`attach_tool` / `tool_fext`, via `enable_tool=True`) and
   multi-contact (`contact_fext`, via `register_robot(contact_frames=...)`),
-* the `grid_plant` cost / barrier / plant-step methods,
+* the `grim_plant` cost / barrier / plant-step methods,
 * per-body external forces (`f_ext=`),
 * build cost on big floating-base robots and the `enable_mujoco_kernels`
   flag (pin-only builds; the flag enters the `.so` cache key only when
@@ -150,19 +150,19 @@ The full reference for the rest of the surface lives in the
 
 * Python ≥ 3.10
 * CUDA Toolkit (`nvcc` on PATH) at `register_robot` time. Not needed
-  for `pip install grid-rbd` itself.
+  for `pip install grim` itself.
 * numpy ≥ 1.23
 
-## Install (editable, from a GRiD checkout)
+## Install (editable, from a GRiM checkout)
 
-`grid_rbd` ships as part of the single repo distribution, so `pip install -e .`
+`grim` ships as part of the single repo distribution, so `pip install -e .`
 installs the codegen toolkit and the wrapper together; each GPU backend is an
 opt-in extra on top of the numpy base. Pick the row for the wrapper surface you want:
 
 ```bash
-cd path/to/GRiD
+cd path/to/GRiM
 pip install -e "."          # base: numpy backend only
-pip install -e ".[jax]"     # + JAX FFI surface (grid_rbd.jax)
+pip install -e ".[jax]"     # + JAX FFI surface (grim.jax)
 pip install -e ".[torch]"   # + torch backend (backend="torch")
 pip install -e ".[all]"     # jax + torch (both backends)
 pip install -e ".[dev]"     # all backends + pytest (run the bindings' tests)
@@ -170,8 +170,8 @@ pip install -e ".[dev]"     # all backends + pytest (run the bindings' tests)
 
 | Extra | Pulls in | Unlocks |
 |---|---|---|
-| *(base)* | numpy, platformdirs | numpy handle (`register_robot(..., backend="numpy")`) + `grid_plant` |
-| `[jax]` | + jax | JAX FFI surface — `import grid_rbd.jax` (device-resident, `jax.jit`-able) |
+| *(base)* | numpy, platformdirs | numpy handle (`register_robot(..., backend="numpy")`) + `grim_plant` |
+| `[jax]` | + jax | JAX FFI surface — `import grim.jax` (device-resident, `jax.jit`-able) |
 | `[torch]` | + torch | torch backend — `register_robot(..., backend="torch")`, autograd + CUDA-Graphs |
 | `[all]` | jax + torch | both backend surfaces (recursive self-extra; no dev/bench weight) |
 | `[dev]` | jax + torch + pytest | run the bindings' own test suite (which exercises both backends; the real-MuJoCo cross-check is optional/skipped if `mujoco` is absent) |
@@ -197,14 +197,14 @@ A PyPI release will follow once the surface is feature-complete.
 `register_robot()` compiles the per-robot `.so` on first use; subsequent runs
 are instant cache hits. To do that build offline — e.g. in a Docker image build
 or CI step, so production never pays the one-time nvcc cost — call
-`grid_rbd.precompile()`:
+`grim.precompile()`:
 
 ```python
-import grid_rbd
+import grim
 
 # Build + cache one or more tiers ahead of time. Each tier dict overrides the
 # codegen-affecting options; warm whichever backend surfaces you ship.
-grid_rbd.precompile(
+grim.precompile(
     name="iiwa14",
     urdf_path="iiwa.urdf",
     tiers=[{}, {"floating_base": True}],   # fixed- and floating-base .so
@@ -219,7 +219,7 @@ context), so a build box with `nvcc` but no usable GPU can populate the cache �
 pass `cuda_arch=` (e.g. `120`) since there is no `nvidia-smi` to ask; only the
 `jax` / `torch` backends need the device at warm time. To see what a
 registration would key on and whether the cache already holds it, without
-building anything, call `grid_rbd.build_plan(name, urdf_path, cuda_arch=...)`.
+building anything, call `grim.build_plan(name, urdf_path, cuda_arch=...)`.
 Build the cache offline, ship/keep the cache dir, and every later
 `register_robot` / `get_robot` / `jax.jit` starts in well under a second.
 

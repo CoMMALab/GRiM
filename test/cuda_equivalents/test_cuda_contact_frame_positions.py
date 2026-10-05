@@ -4,8 +4,8 @@
 contact set; this family exposes the world positions of the contact ORIGINS (the
 same points f_ext_body takes the wrench about) and their 3 x NV tangent Jacobians
 (`[3*NV*f + 3*vi + row]`, tangent `[v_lin; omega; joints]` in the pin LOCAL chart),
-as `grid::contact_frame_positions[_gradient]_device` + the caller-scratch
-`grid_plant::contact_frame_positions[_gradient]` wrappers, all riding the
+as `grim::contact_frame_positions[_gradient]_device` + the caller-scratch
+`grim_plant::contact_frame_positions[_gradient]` wrappers, all riding the
 multi-target emitters with the contact spec as the batch.
 
 Gates: positions vs the RBDReference world-FK oracle (Xw[jid] @ [offset, 1]);
@@ -26,8 +26,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
 from RBDReference import RBDReference
 from URDFParser import URDFParser
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
@@ -92,10 +92,10 @@ def _oracle_positions(robot, contacts, q):
 
 
 def _build(robot, contacts, build_dir):
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     with contextlib.redirect_stdout(io.StringIO()):
         gen.gen_all_code(algorithm_list=["inverse_dynamics", "forward_dynamics"],   # NO kinematics algorithm
-                         contact_frames=contacts, output_path=str(build_dir / "grid.cuh"),
+                         contact_frames=contacts, output_path=str(build_dir / "grim.cuh"),
                          enable_mujoco_kernels=False)
     runner = build_dir / RUNNER_SOURCE.name
     shutil.copyfile(RUNNER_SOURCE, runner)

@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
     pytest.skip("nvcc not on PATH", allow_module_level=True)
 _IIWA = robot_urdf("iiwa14")
@@ -37,8 +37,8 @@ _ALGOS = ["inverse_dynamics", "forward_dynamics"]
 @pytest.fixture(scope="module")
 def pair():
     jax = pytest.importorskip("jax")
-    np_h = grid_rbd.register_robot("w04b_race_np", str(_IIWA), algorithm_list=_ALGOS)
-    jx_h = grid_rbd.register_robot("w04b_race_jax", str(_IIWA), backend="jax", algorithm_list=_ALGOS)
+    np_h = grim.register_robot("w04b_race_np", str(_IIWA), algorithm_list=_ALGOS)
+    jx_h = grim.register_robot("w04b_race_jax", str(_IIWA), backend="jax", algorithm_list=_ALGOS)
     yield np_h, jx_h
     jx_h.close(); np_h.close()
 

@@ -24,9 +24,9 @@ from pathlib import Path
 import pytest
 
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen._algo_profiles import normalize_codegen_algorithms
-from grid_codegen.algo_registry import ALGO_DESCRIPTORS
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen._algo_profiles import normalize_codegen_algorithms
+from grim_codegen.algo_registry import ALGO_DESCRIPTORS
 
 REPO = Path(__file__).resolve().parent.parent
 URDF = REPO / "config" / "robot_assets" / "iiwa14.urdf"
@@ -35,7 +35,7 @@ URDF = REPO / "config" / "robot_assets" / "iiwa14.urdf"
 def _gen():
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         robot = URDFParser().parse(str(URDF), floating_base=False)
-        return GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+        return GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
 
 
 def _closure(gen, algorithm_list=None, codegen_profile="all"):
@@ -94,7 +94,7 @@ def _undefined_inners(header_text: str) -> set[str]:
 # Registry keys that are NOT requestable through algorithm_list: they are opt-in
 # through their own gen_all_code input (multi_target_batch=, collision_spec=,
 # contact_frames=) or are a composite host layer (plant). Requesting one by
-# name must raise the "Unknown GRiD algorithm selection" ValueError — pinned
+# name must raise the "Unknown GRiM algorithm selection" ValueError — pinned
 # below so a key that becomes requestable is moved into the closure net.
 NOT_REQUESTABLE = {
     "collision", "f_ext_contact", "multi_target_position",
@@ -114,7 +114,7 @@ def test_singleton_header_defines_every_inner_it_calls(key, tmp_path):
     out = tmp_path / f"{key}.cuh"
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         if key in NOT_REQUESTABLE:
-            with pytest.raises(ValueError, match="Unknown GRiD algorithm selection"):
+            with pytest.raises(ValueError, match="Unknown GRiM algorithm selection"):
                 gen.gen_all_code(algorithm_list=[key], output_path=str(out), enable_mujoco_kernels=False)
             return
         gen.gen_all_code(algorithm_list=[key], output_path=str(out), enable_mujoco_kernels=False)
@@ -128,7 +128,7 @@ def test_contact_frames_subset_without_kinematics_is_self_contained(tmp_path):
     AND every helper it composes (audit W07/W08 2026-09-19: it used to sit
     inside the kinematics block and silently vanished; once hoisted it still
     referenced the kinematics-only XmatsHom loader)."""
-    from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+    from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
     gen = _gen()
     frames = contact_frames_from_urdf(gen.robot, ["iiwa_joint_ee", "tool0_joint"])
     out = tmp_path / "contact_subset.cuh"
@@ -136,7 +136,7 @@ def test_contact_frames_subset_without_kinematics_is_self_contained(tmp_path):
         gen.gen_all_code(algorithm_list=["inverse_dynamics", "forward_dynamics"], contact_frames=frames,
                          output_path=str(out), enable_mujoco_kernels=False)
     text = out.read_text()
-    assert "#define GRID_HAS_CONTACT_FRAMES 1" in text
+    assert "#define GRIM_HAS_CONTACT_FRAMES 1" in text
     assert "const int NUM_CONTACT_FRAMES = 2;" in text
     assert not _undefined_inners(text), sorted(_undefined_inners(text))
 
@@ -146,7 +146,7 @@ def test_contact_frames_subset_without_kinematics_is_self_contained(tmp_path):
 # twinned kernel). The twins compose extra inners of their own (the ID-gradient
 # twin's epilogue rebuilds M via crba_inner), so the closure must hold with the
 # twins ON as well — found 2026-09-19 by a go2 subset build that failed in ptxas
-# with "Unresolved extern function grid::crba_inner".
+# with "Unresolved extern function grim::crba_inner".
 # --------------------------------------------------------------------------
 GO2 = REPO / "config" / "robot_assets" / "go2.urdf"
 
@@ -154,11 +154,11 @@ GO2 = REPO / "config" / "robot_assets" / "go2.urdf"
 def _gen_go2_floating():
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         robot = URDFParser().parse(str(GO2), floating_base=True)
-        return GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+        return GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
 
 
 def _twinned_keys():
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
     return sorted(k for k, s in ABI_SPECS.items()
                   if getattr(s, "sig_mjx_macro", None) and k not in NOT_REQUESTABLE
                   and any(d.key == k for d in ALGO_DESCRIPTORS))

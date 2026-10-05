@@ -20,7 +20,7 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO))
-grid_rbd = pytest.importorskip("grid_rbd")
+grim = pytest.importorskip("grim")
 from ._subset_artifacts import register_subset, cache_key as _cache_key, random_state as _state  # noqa: E402
 
 pytestmark = pytest.mark.python_wrappers
@@ -162,13 +162,13 @@ def test_torch_and_jax_views_dispatch_to_an_explicit_context(iiwa):
     ctx = iiwa.context()
     try:
         torch = pytest.importorskip("torch")
-        import grid_rbd.torch as gt
+        import grim.torch as gt
         tv = gt.TorchRobotHandle(ctx, gt._cache_key_of(iiwa) if hasattr(gt, "_cache_key_of") else _cache_key(iiwa), ctx._so_path)
         tq, tqd, tu = (torch.as_tensor(x, device="cuda") for x in (q, qd, u))
         out = tv.forward_dynamics(tq, tqd, tu).cpu().numpy()
         assert tv.ctx_id == ctx.ctx_id and np.allclose(out, ref, atol=1e-5)
         jax = pytest.importorskip("jax")
-        import jax.numpy as jnp, grid_rbd.jax as gj
+        import jax.numpy as jnp, grim.jax as gj
         jv = gj.JaxRobotHandle(ctx, _cache_key(iiwa), ctx._so_path)
         jout = np.asarray(jax.block_until_ready(jv.forward_dynamics(jnp.asarray(q), jnp.asarray(qd), jnp.asarray(u))))
         assert jv.ctx_id == ctx.ctx_id and np.allclose(jout, ref, atol=1e-5)
@@ -250,7 +250,7 @@ def test_default_context_reset_invalidates_a_deferred_backward(iiwa):
     """codex R6: a backward whose forward ran on a since-recreated default context
     is refused even when the per-context mutation counts coincide."""
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     tv = gt.TorchRobotHandle(iiwa, _cache_key(iiwa), iiwa._so_path)
     q, qd, u = _state(iiwa)
     base = np.asarray(iiwa.inertia_params, dtype=np.float32)
@@ -297,7 +297,7 @@ def test_graph_replay_is_refused_after_mutation_or_close(iiwa):
     model epoch: mutation → refused until recapture; close → refused, never a
     launch into freed memory."""
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     base = np.asarray(iiwa.inertia_params, dtype=np.float32)
     q, qd, u = (torch.as_tensor(x, device="cuda") for x in _state(iiwa))
     tv = gt.TorchRobotHandle(iiwa, _cache_key(iiwa), iiwa._so_path)
@@ -323,7 +323,7 @@ def test_graph_replay_is_refused_after_mutation_or_close(iiwa):
 
 def test_torch_backward_rejects_a_mutated_model_and_fresh_forward_recovers(iiwa):
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     tv = gt.TorchRobotHandle(iiwa, _cache_key(iiwa), iiwa._so_path)
     q, qd, u = _state(iiwa)
     base = np.asarray(iiwa.inertia_params, dtype=np.float32)
@@ -344,7 +344,7 @@ def test_torch_backward_rejects_a_mutated_model_and_fresh_forward_recovers(iiwa)
 
 def test_jax_vjp_rejects_a_mutated_model_and_a_jitted_grad_follows_it(iiwa):
     jax = pytest.importorskip("jax")
-    import jax.numpy as jnp, grid_rbd.jax as gj
+    import jax.numpy as jnp, grim.jax as gj
     jv = gj.JaxRobotHandle(iiwa, _cache_key(iiwa), iiwa._so_path)
     q, qd, u = _state(iiwa)
     base = np.asarray(iiwa.inertia_params, dtype=np.float32)
@@ -374,8 +374,8 @@ def test_jax_vjp_rejects_a_mutated_model_and_a_jitted_grad_follows_it(iiwa):
 
 _RACE_CHILD = r'''
 import sys, time, threading
-import numpy as np, grid_rbd
-h = grid_rbd.get_robot("ctx_pytest_iiwa14")
+import numpy as np, grim
+h = grim.get_robot("ctx_pytest_iiwa14")
 r = h._runner
 q = np.zeros((2, h.nq), np.float32)
 h.forward_dynamics(q, q, q)                       # default context exists
@@ -402,8 +402,8 @@ t0 = time.time(); r.close_arena(); dt3 = time.time() - t0; t.join()
 h.forward_dynamics(q, q, q)                       # default re-created lazily
 
 # 4. the real GraphCallable bracket: a replay loop racing a mutation ends REFUSED, never hung
-import torch, grid_rbd.torch as gt
-key = grid_rbd.manifest_lookup(grid_rbd.default_cache_dir(), h._name)["cache_key"]
+import torch, grim.torch as gt
+key = grim.manifest_lookup(grim.default_cache_dir(), h._name)["cache_key"]
 tv = gt.TorchRobotHandle(h, key, h._so_path)
 tq = torch.zeros(2, h.nq, device="cuda")
 g = tv.capture("forward_dynamics", tq, tq, tq)
@@ -445,9 +445,9 @@ def test_construction_does_not_create_the_default_context_and_a_slab_still_insta
     context 0 and CREATED the default context, after which a device slab could never
     be installed. Overlays set before any context exists are pending and seeded at
     creation; the first kernel call is what creates the default context."""
-    import grid_rbd
+    import grim
     n0 = iiwa._runner.ctx_count()
-    h = grid_rbd.get_robot("ctx_pytest_iiwa14")          # fresh handle over the same .so
+    h = grim.get_robot("ctx_pytest_iiwa14")          # fresh handle over the same .so
     try:
         assert h._runner.ctx_count() == n0                  # construction created nothing
         h.set_threads_per_block(64)                         # pending when no default exists

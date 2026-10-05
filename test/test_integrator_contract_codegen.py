@@ -1,7 +1,7 @@
 """CPU-only guards for the shared integrator dispatch and stage contract."""
-from grid_codegen.algorithms._integrator import _INTEGRATOR_TYPES, _STAGE_COUNT
-from grid_codegen.algorithms._integrator_gradient import _INTEGRATOR_BUTCHER
-from grid_codegen.kernel_attrs import KERNEL_OVERLOADS
+from grim_codegen.algorithms._integrator import _INTEGRATOR_TYPES, _STAGE_COUNT
+from grim_codegen.algorithms._integrator_gradient import _INTEGRATOR_BUTCHER
+from grim_codegen.kernel_attrs import KERNEL_OVERLOADS
 
 
 def test_enum_order_and_stage_counts():

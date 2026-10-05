@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble the GRiD cover, /docs reference, and old documentation redirects.
+"""Assemble the GRiM cover, /docs reference, and old documentation redirects.
 
 No GPU is used. Requires a Sphinx HTML build and a fresh output directory.
 """
@@ -13,7 +13,7 @@ from urllib.parse import quote
 # Pages on the old public site whose source paths changed before this redesign.
 LEGACY_ROUTES = {
     "user_guide/landing_page.html": "index.html",
-    "user_guide/concepts/grid_methedology.html": "user_guide/concepts/codegen_architecture.html",
+    "user_guide/concepts/grim_methedology.html": "user_guide/concepts/codegen_architecture.html",
     "user_guide/concepts/algorithms/rnea.html": "user_guide/concepts/algorithms/inverse_dynamics.html",
     "faq.html": "how_do_i.html",
     "todo_list.html": "contribution_guidelines.html",
@@ -24,9 +24,9 @@ def redirect_page(target):
     escaped = html.escape(target, quote=True)
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GRiD documentation has moved</title>
+<title>GRiM documentation has moved</title>
 <script>location.replace({json.dumps(target)} + location.search + location.hash);</script>
-</head><body><p>GRiD documentation has moved. <a href="{escaped}">Continue to the documentation</a>.</p></body></html>
+</head><body><p>GRiM documentation has moved. <a href="{escaped}">Continue to the documentation</a>.</p></body></html>
 '''
 
 

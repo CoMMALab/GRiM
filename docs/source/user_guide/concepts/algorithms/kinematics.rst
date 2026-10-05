@@ -8,7 +8,7 @@ Overview
 The kinematics family maps a configuration to the pose of one or more
 end-effector frames and to the first and second derivatives of that pose. The
 end effectors are chosen at generation time (the ``-t`` option of
-``grid-generate`` or the ``ee_joint_names`` argument of ``register_robot``); a
+``grim-generate`` or the ``ee_joint_names`` argument of ``register_robot``); a
 runtime-target variant takes the target joint and an offset as call
 arguments instead.
 
@@ -41,20 +41,20 @@ Implementation
 The Python references are ``RBDReference.end_effector_pose``,
 ``end_effector_pose_gradient`` and ``end_effector_pose_hessian_analytic``
 (`RBDReference <https://github.com/A2R-Lab/RBDReference>`__). The CUDA
-generators are ``grid_codegen/algorithms/_eepose_gradient_hessian.py`` (pose
+generators are ``grim_codegen/algorithms/_eepose_gradient_hessian.py`` (pose
 value, gradient, Hessian and batched FK) and ``_eepose_runtime.py`` (runtime
 targets). The pose-coordinate derivatives are not direct substitutes for
 Pinocchio's spatial frame derivatives.
 
-In GRiD
+In GRiM
 -------
 Dispatch can be a substantial part of short pose evaluations. The release
 collection includes floating-base pose losses against MuJoCo Warp; consult
 :doc:`../../../release_measurements` for the measured API boundary and batch
 size rather than inferring pure device-kernel speed from resident API timings.
 
-The CUDA host entries are ``grid::end_effector_pose``,
-``grid::end_effector_pose_gradient`` and ``grid::end_effector_pose_hessian``,
+The CUDA host entries are ``grim::end_effector_pose``,
+``grim::end_effector_pose_gradient`` and ``grim::end_effector_pose_hessian``,
 each with a ``_compute_only`` variant. With ``output_convention="mujoco"`` the
 input configuration is MuJoCo-convention; the pose itself is frame-invariant,
 the Jacobian's base columns are reframed, and the Hessian is the symmetric
@@ -81,9 +81,9 @@ Building and selecting targets
 
 Load a model with the operations you need before calling the examples above::
 
-   import grid_rbd
+   import grim
 
-   h = grid_rbd.load_robot(
+   h = grim.load_robot(
        "config/robot_assets/iiwa14.urdf",
        algorithm_list=["end_effector_pose", "end_effector_pose_gradient",
                        "end_effector_pose_hessian"],

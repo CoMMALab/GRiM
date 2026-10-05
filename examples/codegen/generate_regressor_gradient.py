@@ -11,7 +11,7 @@ i.e. the mixed second derivative d(inverse_dynamics_gradient)/dpi — the
 missing block for differentiable system identification (how the TORQUE
 GRADIENTS an optimizer consumes change with the inertial parameters).
 
-The emitted surface (all in grid.cuh):
+The emitted surface (all in grim.cuh):
     inverse_dynamics_regressor_gradient_inner / _device      (composable)
     inverse_dynamics_regressor_gradient_kernel[_single_timing]
     inverse_dynamics_regressor_gradient(hd_data, ...)        (host launcher)
@@ -27,7 +27,7 @@ end-to-end usage reference (numpy-oracle comparison + the pi-identity gate).
 Requires: pip install robot_descriptions  (included in dev dependencies)
 
 Run:
-    python examples/codegen/generate_regressor_gradient.py --output /tmp/grid_dydx.cuh
+    python examples/codegen/generate_regressor_gradient.py --output /tmp/grim_dydx.cuh
 """
 from __future__ import annotations
 
@@ -37,14 +37,14 @@ from pathlib import Path
 from robot_descriptions import iiwa14_description
 
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 
 URDF_PATH = iiwa14_description.URDF_PATH
 
 
 def main():
-    parser_args = argparse.ArgumentParser(description="Generate the dY/dx (regressor state-derivative) GRiD CUDA code.")
-    parser_args.add_argument("--output", default="grid.cuh", help="Path for the generated CUDA header.")
+    parser_args = argparse.ArgumentParser(description="Generate the dY/dx (regressor state-derivative) GRiM CUDA code.")
+    parser_args.add_argument("--output", default="grim.cuh", help="Path for the generated CUDA header.")
     args = parser_args.parse_args()
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,7 +58,7 @@ def main():
     # The subset request pulls the transitive deps automatically
     # (inverse_dynamics + inverse_dynamics_gradient, whose dv/da staging the
     # dY/dx walk reads). Use "all" instead to get the whole library.
-    codegen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    codegen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     codegen.gen_all_code(
         include_homogenous_transforms=True,
         output_path=str(output_path),
@@ -68,7 +68,7 @@ def main():
     print(f"Done: {output_path} written.")
     print()
     print("Next steps:")
-    print("  1. Call grid::inverse_dynamics_regressor_gradient(hd_data, ...) and read hd_data->h_dY_dx")
+    print("  1. Call grim::inverse_dynamics_regressor_gradient(hd_data, ...) and read hd_data->h_dY_dx")
     print("  2. Check the identity: dY_dx[c] @ pi == d(tau)/dx[:, c] against inverse_dynamics_gradient")
     print("  3. See test/cuda_equivalents/test_cuda_regressor_gradient.py for the full oracle-checked flow")
 

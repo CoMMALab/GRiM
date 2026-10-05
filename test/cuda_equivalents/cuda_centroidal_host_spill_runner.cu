@@ -3,12 +3,12 @@
 // into a separate tier-routed buffer (smem tail at the J-in-smem tier, d_workspace at
 // the J-spilled tier). The existing centroidal smoke runner drives the *_device fns
 // (which keep J in smem, centroidal_inner<T,true>); this one drives the host wrappers
-// grid::com / grid::ccrba / grid::energy end-to-end so the previously-dead <T,false>
+// grim::com / grim::ccrba / grim::energy end-to-end so the previously-dead <T,false>
 // inner branch + the energy KE reach-back no-J offsets + the d_workspace repoint are
-// exercised. Build with a forced-low GRID_CUDA_TARGET_SHARED_MEM_BYTES at CODEGEN so
+// exercised. Build with a forced-low GRIM_CUDA_TARGET_SHARED_MEM_BYTES at CODEGEN so
 // the chosen rung is the J-spilled one even on a small robot.
 //
-// Input on stdin: GRID_BATCH consecutive [q (NUM_POS); qd (NUM_VEL)] vectors.
+// Input on stdin: GRIM_BATCH consecutive [q (NUM_POS); qd (NUM_VEL)] vectors.
 // Output: per-slot COM (3), JCOM (3 x NV col-major), CCRBA_A (6 x NV col-major),
 //         CCRBA_H (6), ENERGY (3 = [KE, PE, mechanical]).
 #include <cstdlib>
@@ -16,10 +16,10 @@
 #include <iostream>
 #include <string>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_BATCH
-#define GRID_BATCH 2
+#ifndef GRIM_BATCH
+#define GRIM_BATCH 2
 #endif
 
 template <typename T>
@@ -42,18 +42,18 @@ void print_vec(const std::string &name, int slot, const T *data, int n) {
 template <typename T>
 void run() {
     const dim3 block_dimms(1, 1, 1);
-    int nthreads = grid::MAX_PERF_LEVEL_THREADS;
-    if (const char *e = std::getenv("GRID_NTHREADS")) { int v = std::atoi(e); if (v > 0) nthreads = v; }
+    int nthreads = grim::MAX_PERF_LEVEL_THREADS;
+    if (const char *e = std::getenv("GRIM_NTHREADS")) { int v = std::atoi(e); if (v > 0) nthreads = v; }
     const dim3 thread_dimms(nthreads, 1, 1);
-    constexpr int NQ = grid::NUM_POS;
-    constexpr int NV = grid::NUM_VEL;
-    constexpr int NJ = grid::NUM_JOINTS;
-    constexpr int B  = GRID_BATCH;
+    constexpr int NQ = grim::NUM_POS;
+    constexpr int NV = grim::NUM_VEL;
+    constexpr int NJ = grim::NUM_JOINTS;
+    constexpr int B  = GRIM_BATCH;
     const T gravity = static_cast<T>(-9.81);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, B>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, B>();
 
     // Uncompressed host wrappers read [q;qd] from h_q_qd_u at stride 3*NUM_JOINTS;
     // the kernel loads 2*NQ floats then splits s_q=[0:NQ], s_qd=[NQ:NQ+NV].
@@ -67,7 +67,7 @@ void run() {
         for (int i = 0; i < NQ; ++i) hd_data->h_q[k * NJ + i] = slot[i];
     }
 
-    grid::com<T>(hd_data, d_robotModel, B, block_dimms, thread_dimms, streams);
+    grim::com<T>(hd_data, d_robotModel, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
         const T *c = &hd_data->h_com[k * (3 + 3 * NV)];
@@ -75,7 +75,7 @@ void run() {
         print_vec("JCOM", k, c + 3, 3 * NV);
     }
 
-    grid::ccrba<T>(hd_data, d_robotModel, B, block_dimms, thread_dimms, streams);
+    grim::ccrba<T>(hd_data, d_robotModel, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
         const T *a = &hd_data->h_ccrba[k * (6 * NV + 6)];
@@ -83,12 +83,12 @@ void run() {
         print_vec("CCRBA_H", k, a + 6 * NV, 6);
     }
 
-    grid::energy<T>(hd_data, d_robotModel, gravity, B, block_dimms, thread_dimms, streams);
+    grim::energy<T>(hd_data, d_robotModel, gravity, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k)
         print_vec("ENERGY", k, &hd_data->h_energy[k * 3], 3);
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main() {

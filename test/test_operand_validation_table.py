@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from grid_codegen.abi_specs import ABI_SPECS
+from grim_codegen.abi_specs import ABI_SPECS
 
 _REPO = Path(__file__).resolve().parents[1]
 _PAGE = _REPO / "docs/source/user_guide/concepts/operand_validation.rst"

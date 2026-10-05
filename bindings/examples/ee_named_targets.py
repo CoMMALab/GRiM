@@ -1,6 +1,6 @@
-"""grid-rbd named end-effector targets: pick the EE frame by NAME.
+"""grim named end-effector targets: pick the EE frame by NAME.
 
-By default GRiD's end_effector kernels target the robot's leaf link(s). When you want a
+By default GRiM's end_effector kernels target the robot's leaf link(s). When you want a
 SPECIFIC frame (a tool flange, a gripper TCP, a sensor mount), select it by joint name.
 Two routes:
 
@@ -52,7 +52,7 @@ def main() -> None:
     if not urdf.exists():
         sys.exit(f"URDF not found: {urdf} (pass --urdf)")
 
-    import grid_rbd
+    import grim
 
     B = args.batch
     ee_names = [args.ee_joint] if args.ee_joint else None
@@ -60,7 +60,7 @@ def main() -> None:
     # ── 1. BAKED named target: end_effector_pose/_gradient/_hessian see it ────
     # ee_joint_names is in the cache key; this compiles a .so whose EE kernels
     # target the named frame. (None => all leaf nodes, the default codegen.)
-    h = grid_rbd.register_robot(
+    h = grim.register_robot(
         "iiwa14_ee_named", str(urdf),
         ee_joint_names=ee_names, max_batch_size=max(B, 8))
     nq, nv = h.num_joints, h.num_vel

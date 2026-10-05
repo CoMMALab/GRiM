@@ -1,6 +1,6 @@
 // CUDA smoke runner for the generated general-frame geometric Jacobian family
-// (E2): J (grid::frame_jacobian_device), Jdot (grid::frame_jacobian_dot_device),
-// and the operational-space inertia Lambda (grid::osc_inertia_device, which is
+// (E2): J (grim::frame_jacobian_device), Jdot (grim::frame_jacobian_dot_device),
+// and the operational-space inertia Lambda (grim::osc_inertia_device, which is
 // SELF-CONTAINED — it composes Minv on device from q alone, no external feed).
 // Drives each from a single-block kernel for the three pinocchio reference frames and
 // prints the results in BEGIN/END framed blocks (column-major), to be
@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 template <typename T>
 void read_vector(T *dst, int count) {
@@ -49,8 +49,8 @@ void print_matrix_col_major(const std::string &name, const T *data, int rows, in
     std::cout << "END " << name << "\n";
 }
 
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 
 // Optional block thread count, set from argv[1] in main(). 0 => use the robot's
 // MAX_PERF_LEVEL_THREADS (the default the existing frame_jacobian test relies on
@@ -61,7 +61,7 @@ int g_num_threads = 0;
 // J kernel: emit J for the three reference frames.
 template <typename T>
 __global__ void frame_jac_kernel(const T *g_q, const int target_jid,
-                                 const grid::robotModel<T> *d_robotModel,
+                                 const grim::robotModel<T> *d_robotModel,
                                  T *o_local, T *o_world, T *o_lwa) {
     __shared__ T s_q[NQ];
     __shared__ T s_J[6 * NV];
@@ -71,17 +71,17 @@ __global__ void frame_jac_kernel(const T *g_q, const int target_jid,
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     __syncthreads();
 
-    grid::frame_jacobian_device<T>(s_J, target_jid, 0, s_q, d_robotModel);
+    grim::frame_jacobian_device<T>(s_J, target_jid, 0, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_local[i] = s_J[i];
     __syncthreads();
 
-    grid::frame_jacobian_device<T>(s_J, target_jid, 1, s_q, d_robotModel);
+    grim::frame_jacobian_device<T>(s_J, target_jid, 1, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_world[i] = s_J[i];
     __syncthreads();
 
-    grid::frame_jacobian_device<T>(s_J, target_jid, 2, s_q, d_robotModel);
+    grim::frame_jacobian_device<T>(s_J, target_jid, 2, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_lwa[i] = s_J[i];
     __syncthreads();
@@ -90,7 +90,7 @@ __global__ void frame_jac_kernel(const T *g_q, const int target_jid,
 // Jdot kernel: emit Jdot for the three reference frames.
 template <typename T>
 __global__ void frame_jac_dot_kernel(const T *g_q, const T *g_qd, const int target_jid,
-                                      const grid::robotModel<T> *d_robotModel,
+                                      const grim::robotModel<T> *d_robotModel,
                                       T *o_local, T *o_world, T *o_lwa) {
     __shared__ T s_q[NQ];
     __shared__ T s_qd[NV];
@@ -102,34 +102,34 @@ __global__ void frame_jac_dot_kernel(const T *g_q, const T *g_qd, const int targ
     for (int i = tid; i < NV; i += nth) s_qd[i] = g_qd[i];
     __syncthreads();
 
-    grid::frame_jacobian_dot_device<T>(s_Jd, target_jid, 0, s_q, s_qd, d_robotModel);
+    grim::frame_jacobian_dot_device<T>(s_Jd, target_jid, 0, s_q, s_qd, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_local[i] = s_Jd[i];
     __syncthreads();
 
-    grid::frame_jacobian_dot_device<T>(s_Jd, target_jid, 1, s_q, s_qd, d_robotModel);
+    grim::frame_jacobian_dot_device<T>(s_Jd, target_jid, 1, s_q, s_qd, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_world[i] = s_Jd[i];
     __syncthreads();
 
-    grid::frame_jacobian_dot_device<T>(s_Jd, target_jid, 2, s_q, s_qd, d_robotModel);
+    grim::frame_jacobian_dot_device<T>(s_Jd, target_jid, 2, s_q, s_qd, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_lwa[i] = s_Jd[i];
     __syncthreads();
 }
 
-// Lambda kernel: SELF-CONTAINED. grid::osc_inertia_device composes Minv on
+// Lambda kernel: SELF-CONTAINED. grim::osc_inertia_device composes Minv on
 // device (via minv_inner) from q alone — no external Minv feed — then
 // emits Lambda for the three reference frames.
 //
 // osc_inertia is currently ¬mimic in codegen (its on-device mimic-Minv route is
-// deferred), so mimic headers do NOT emit it and instead define GRID_FRAME_JAC_MIMIC.
+// deferred), so mimic headers do NOT emit it and instead define GRIM_FRAME_JAC_MIMIC.
 // Guard the whole Lambda path so the runner still builds for mimic robots (e.g.
 // fr3); the test detects the missing L_* blocks and skips the Lambda check.
-#ifndef GRID_FRAME_JAC_MIMIC
+#ifndef GRIM_FRAME_JAC_MIMIC
 template <typename T>
 __global__ void osc_kernel(const T *g_q, const int target_jid,
-                           const grid::robotModel<T> *d_robotModel,
+                           const grim::robotModel<T> *d_robotModel,
                            T *o_local, T *o_world, T *o_lwa) {
     __shared__ T s_q[NQ];
     __shared__ T s_L[36];
@@ -139,22 +139,22 @@ __global__ void osc_kernel(const T *g_q, const int target_jid,
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     __syncthreads();
 
-    grid::osc_inertia_device<T>(s_L, target_jid, 0, s_q, d_robotModel);
+    grim::osc_inertia_device<T>(s_L, target_jid, 0, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 36; i += nth) o_local[i] = s_L[i];
     __syncthreads();
 
-    grid::osc_inertia_device<T>(s_L, target_jid, 1, s_q, d_robotModel);
+    grim::osc_inertia_device<T>(s_L, target_jid, 1, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 36; i += nth) o_world[i] = s_L[i];
     __syncthreads();
 
-    grid::osc_inertia_device<T>(s_L, target_jid, 2, s_q, d_robotModel);
+    grim::osc_inertia_device<T>(s_L, target_jid, 2, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 36; i += nth) o_lwa[i] = s_L[i];
     __syncthreads();
 }
-#endif  // GRID_FRAME_JAC_MIMIC
+#endif  // GRIM_FRAME_JAC_MIMIC
 
 template <typename T>
 T *dmalloc(int count) { T *p; cudaMalloc(&p, count * sizeof(T)); return p; }
@@ -167,9 +167,9 @@ void dcopy_out(const std::string &name, T *dptr, int rows, int cols) {
 
 template <typename T>
 void run() {
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     int target_jid;
     if (!(std::cin >> target_jid)) { std::cerr << "read fail target_jid\n"; std::exit(2); }
@@ -186,7 +186,7 @@ void run() {
 
     T *o_jl = dmalloc<T>(6 * NV), *o_jw = dmalloc<T>(6 * NV), *o_jx = dmalloc<T>(6 * NV);
     T *o_dl = dmalloc<T>(6 * NV), *o_dw = dmalloc<T>(6 * NV), *o_dx = dmalloc<T>(6 * NV);
-#ifndef GRID_FRAME_JAC_MIMIC
+#ifndef GRIM_FRAME_JAC_MIMIC
     T *o_ll = dmalloc<T>(36), *o_lw = dmalloc<T>(36), *o_lx = dmalloc<T>(36);
 #endif
 
@@ -197,18 +197,18 @@ void run() {
     // produce identical results; a low-count divergence is a missing
     // __syncthreads, not a test artifact.
     int nthreads = g_num_threads;
-    if (nthreads <= 0 || nthreads > grid::MAX_PERF_LEVEL_THREADS) {
-        nthreads = grid::MAX_PERF_LEVEL_THREADS;
+    if (nthreads <= 0 || nthreads > grim::MAX_PERF_LEVEL_THREADS) {
+        nthreads = grim::MAX_PERF_LEVEL_THREADS;
     }
 
-    size_t dyn_j = grid::FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_j = grim::FRAME_JACOBIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(frame_jac_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_j);
     frame_jac_kernel<T><<<1, nthreads, dyn_j>>>(g_q, target_jid, d_robotModel, o_jl, o_jw, o_jx);
     // Fail loudly on a bad launch (an unchecked failure leaves zeroed outputs that
-    // masquerade as a real result). gpuErrchkKernel() (grid.cuh) peeks + syncs + aborts.
+    // masquerade as a real result). gpuErrchkKernel() (grim.cuh) peeks + syncs + aborts.
     gpuErrchkKernel();
 
-    size_t dyn_d = grid::FRAME_JACOBIAN_DOT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_d = grim::FRAME_JACOBIAN_DOT_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(frame_jac_dot_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_d);
     frame_jac_dot_kernel<T><<<1, nthreads, dyn_d>>>(g_q, g_qd, target_jid, d_robotModel, o_dl, o_dw, o_dx);
     gpuErrchkKernel();
@@ -217,10 +217,10 @@ void run() {
     // runner no longer pre-computes/densifies a Minv to feed in. This is emitted
     // for BOTH non-mimic and mimic robots (the mimic path composes Minv via
     // minv_inner -> crba_inner -> invert, which the fr3-fixed CUDA crba/minv
-    // tests already prove correct); GRID_FRAME_JAC_MIMIC is only defined when
+    // tests already prove correct); GRIM_FRAME_JAC_MIMIC is only defined when
     // osc_inertia was NOT selected at all.
-#ifndef GRID_FRAME_JAC_MIMIC
-    size_t dyn_o = grid::OSC_INERTIA_DYNAMIC_SHARED_MEM_BYTES<T>();
+#ifndef GRIM_FRAME_JAC_MIMIC
+    size_t dyn_o = grim::OSC_INERTIA_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(osc_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_o);
     // osc_kernel is NOT __launch_bounds__-annotated and inlines the heavy
     // minv_inner / crba_inner / invert_matrix routines (~100+ regs). At
@@ -251,13 +251,13 @@ void run() {
     dcopy_out("Jd_local", o_dl, 6, NV);
     dcopy_out("Jd_world", o_dw, 6, NV);
     dcopy_out("Jd_lwa", o_dx, 6, NV);
-#ifndef GRID_FRAME_JAC_MIMIC
+#ifndef GRIM_FRAME_JAC_MIMIC
     dcopy_out("L_local", o_ll, 6, 6);
     dcopy_out("L_world", o_lw, 6, 6);
     dcopy_out("L_lwa", o_lx, 6, 6);
 #endif
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main(int argc, char **argv) {

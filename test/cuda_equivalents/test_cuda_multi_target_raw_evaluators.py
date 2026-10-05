@@ -1,4 +1,4 @@
-"""GATO nit 2 (2026-09-24): grid_plant::multi_target_position[_gradient] — the
+"""GATO nit 2 (2026-09-24): grim_plant::multi_target_position[_gradient] — the
 caller-scratch RAW evaluators over the DEFAULT multi-target batch (the
 multi_target_batch option / collision spheres), emitted by the same emitter as
 the contact-frame pair. GATO's hand-carved `ee_carve` FK composed exactly this
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from URDFParser import URDFParser
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 from test.cuda_equivalents.test_cuda_contact_frame_positions import _q_for
@@ -40,11 +40,11 @@ def _robot(name, floating):
 
 
 def _build(robot, targets, build_dir):
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     with contextlib.redirect_stdout(io.StringIO()):
         gen.gen_all_code(algorithm_list=["end_effector_pose"], multi_target_batch=targets,
-                         output_path=str(build_dir / "grid.cuh"), enable_mujoco_kernels=False)
-    header = (build_dir / "grid.cuh").read_text()
+                         output_path=str(build_dir / "grim.cuh"), enable_mujoco_kernels=False)
+    header = (build_dir / "grim.cuh").read_text()
     assert "void multi_target_position(T *s_pos, const T *s_q, T *s_scratch, " in header
     assert "void multi_target_position_gradient(T *s_pos, T *s_dpos, const T *s_q, T *s_scratch, " in header
     runner = build_dir / RUNNER_SOURCE.name
@@ -68,7 +68,7 @@ def _checks(stdout):
 
 def test_header_without_a_multi_target_batch_emits_no_raw_evaluators(tmp_path):
     robot = _robot("iiwa14", False)
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+    gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
     with contextlib.redirect_stdout(io.StringIO()):
         gen.gen_all_code(algorithm_list=["end_effector_pose"], output_path=str(tmp_path / "g.cuh"),
                          enable_mujoco_kernels=False)

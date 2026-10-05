@@ -1,12 +1,12 @@
-# GRiD equivalence-testing strategy
+# GRiM equivalence-testing strategy
 
-This document explains **how** GRiD's correctness tests are built and, more
+This document explains **how** GRiM's correctness tests are built and, more
 importantly, **why** — so that future contributors (human or agent) who add
 tests for new kernels follow the same approach instead of writing checks that
 pass while real bugs hide. If you are adding a kernel or a test, read this
 first.
 
-GRiD generates CUDA rigid-body-dynamics kernels. We trust them only as far as we
+GRiM generates CUDA rigid-body-dynamics kernels. We trust them only as far as we
 can show they match an independent reference. There are two equivalence layers,
 and the order matters:
 
@@ -61,7 +61,7 @@ multi-thread `+=` into a shared destination — is **invisible at 32 threads**,
 because a single warp executes in lockstep (warp-synchronous) and "accidentally"
 behaves as if synchronized. The same kernel races at 2+ warps.
 
-GRiD launches real workloads at `MAX_PERF_LEVEL_THREADS` (e.g. 448), which is many
+GRiM launches real workloads at `MAX_PERF_LEVEL_THREADS` (e.g. 448), which is many
 warps. So a test that launches at a fixed 32 threads validates a configuration
 **nobody runs in production** and passes while production silently corrupts
 results.
@@ -74,7 +74,7 @@ Therefore the CUDA equivalence tests sweep block thread counts:
   in `cuda_harness.py`, the shared harness behind `test_cuda_executable_equivalence.py`), so a trailing partial warp is always
   present and, over many runs, many distinct counts are probed. The chosen value
   appears in the test id / error message for reproducibility; override with the
-  relevant `GRID_CUDA_*_THREAD(S)*` env var to reproduce a specific failure.
+  relevant `GRIM_CUDA_*_THREAD(S)*` env var to reproduce a specific failure.
 
 The runners take the thread count as `argv[1]` (or a `-D…_TEST_THREADS` macro for
 the second-order runners) so the sweep does not require recompiling per count

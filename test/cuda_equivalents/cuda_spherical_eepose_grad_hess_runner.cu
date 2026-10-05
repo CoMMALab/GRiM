@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 int g_num_threads = 32;
 
@@ -53,19 +53,19 @@ void print_vector(const std::string &name, const T *data, int count) {
 // NOT the device function's dynamic arena).
 template <typename T>
 __global__ void spherical_deepose_device_runner(
-    T *d_grad, const T *d_q, const grid::robotModel<T> *d_robot_model
+    T *d_grad, const T *d_q, const grim::robotModel<T> *d_robot_model
 ) {
-    __shared__ T s_grad[6 * grid::NUM_VEL * grid::NUM_EES];
-    __shared__ T s_q[grid::NUM_JOINTS];      // NUM_JOINTS == nq for this codegen
+    __shared__ T s_grad[6 * grim::NUM_VEL * grim::NUM_EES];
+    __shared__ T s_q[grim::NUM_JOINTS];      // NUM_JOINTS == nq for this codegen
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
         s_q[ind] = d_q[ind];
     }
     __syncthreads();
-    grid::end_effector_pose_gradient_device<T>(s_grad, s_q, d_robot_model);
+    grim::end_effector_pose_gradient_device<T>(s_grad, s_q, d_robot_model);
     __syncthreads();
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < 6 * grid::NUM_VEL * grid::NUM_EES; ind += blockDim.x * blockDim.y) {
+         ind < 6 * grim::NUM_VEL * grim::NUM_EES; ind += blockDim.x * blockDim.y) {
         d_grad[ind] = s_grad[ind];
     }
 }
@@ -74,37 +74,37 @@ __global__ void spherical_deepose_device_runner(
 // nv^2 output stays in shared memory; d_workspace unused -> nullptr).
 template <typename T>
 __global__ void spherical_d2eepose_device_runner(
-    T *d_hess, T *d_grad, const T *d_q, const grid::robotModel<T> *d_robot_model
+    T *d_hess, T *d_grad, const T *d_q, const grim::robotModel<T> *d_robot_model
 ) {
-    __shared__ T s_hess[6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES];
-    __shared__ T s_grad[6 * grid::NUM_VEL * grid::NUM_EES];
-    __shared__ T s_q[grid::NUM_JOINTS];
+    __shared__ T s_hess[6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES];
+    __shared__ T s_grad[6 * grim::NUM_VEL * grim::NUM_EES];
+    __shared__ T s_q[grim::NUM_JOINTS];
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < grid::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
+         ind < grim::NUM_JOINTS; ind += blockDim.x * blockDim.y) {
         s_q[ind] = d_q[ind];
     }
     __syncthreads();
-    grid::end_effector_pose_hessian_device<T>(s_hess, s_grad, s_q, d_robot_model);
+    grim::end_effector_pose_hessian_device<T>(s_hess, s_grad, s_q, d_robot_model);
     __syncthreads();
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < 6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES;
+         ind < 6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES;
          ind += blockDim.x * blockDim.y) {
         d_hess[ind] = s_hess[ind];
     }
     for (int ind = threadIdx.x + threadIdx.y * blockDim.x;
-         ind < 6 * grid::NUM_VEL * grid::NUM_EES; ind += blockDim.x * blockDim.y) {
+         ind < 6 * grim::NUM_VEL * grim::NUM_EES; ind += blockDim.x * blockDim.y) {
         d_grad[ind] = s_grad[ind];
     }
 }
 
 template <typename T>
 void run() {
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
 
-    const int nq = grid::NUM_JOINTS;
-    const int nv = grid::NUM_VEL;
-    const int nee = grid::NUM_EES;
+    const int nq = grim::NUM_JOINTS;
+    const int nv = grim::NUM_VEL;
+    const int nee = grim::NUM_EES;
     const int grad_count = 6 * nv * nee;
     const int hess_count = 6 * nv * nv * nee;
 
@@ -121,7 +121,7 @@ void run() {
     T *d_grad;
     gpuErrchk(cudaMalloc((void **)&d_grad, grad_count * sizeof(T)));
     std::vector<T> h_grad(grad_count);
-    const size_t dg_smem = grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const size_t dg_smem = grim::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
     gpuErrchk(cudaFuncSetAttribute(spherical_deepose_device_runner<T>,
                                    cudaFuncAttributeMaxDynamicSharedMemorySize,
                                    static_cast<int>(dg_smem)));
@@ -136,7 +136,7 @@ void run() {
     gpuErrchk(cudaMalloc((void **)&d_hess, hess_count * sizeof(T)));
     gpuErrchk(cudaMalloc((void **)&d_grad2, grad_count * sizeof(T)));
     std::vector<T> h_hess(hess_count), h_grad2(grad_count);
-    const size_t d2_smem = grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const size_t d2_smem = grim::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>();
     gpuErrchk(cudaFuncSetAttribute(spherical_d2eepose_device_runner<T>,
                                    cudaFuncAttributeMaxDynamicSharedMemorySize,
                                    static_cast<int>(d2_smem)));
@@ -150,7 +150,7 @@ void run() {
 
     // ----- (2) host batch wrappers over B IDENTICAL timesteps -----
     const int B = 4;
-    grid::gridData<T> *hd_data = grid::init_gridData<T, B>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, B>();
     for (int k = 0; k < B; ++k) {
         for (int i = 0; i < nq; ++i) {
             hd_data->h_q_qd_u[k * 3 * nq + i] = h_q[i];   // q slot [0, nq)
@@ -162,7 +162,7 @@ void run() {
     const dim3 block_dimms(1, 1, 1);
     const dim3 thread_dimms(g_num_threads, 1, 1);
 
-    grid::end_effector_pose_gradient<T, false>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
+    grim::end_effector_pose_gradient<T, false>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
         std::vector<T> row(grad_count);
@@ -170,7 +170,7 @@ void run() {
         print_vector("end_effector_pose_gradient_batch_" + std::to_string(k), row.data(), grad_count);
     }
 
-    grid::end_effector_pose_hessian<T, false>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
+    grim::end_effector_pose_hessian<T, false>(hd_data, d_robot_model, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
     for (int k = 0; k < B; ++k) {
         std::vector<T> blk(hess_count);
@@ -182,7 +182,7 @@ void run() {
     gpuErrchk(cudaFree(d_hess));
     gpuErrchk(cudaFree(d_grad));
     gpuErrchk(cudaFree(d_q));
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -190,10 +190,10 @@ int main(int argc, char **argv) {
         int requested = std::atoi(argv[1]);
         g_num_threads = requested > 0 ? requested : 0;
     }
-    if (g_num_threads <= 0 || g_num_threads > grid::MAX_PERF_LEVEL_THREADS) {
-        g_num_threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (g_num_threads <= 0 || g_num_threads > grim::MAX_PERF_LEVEL_THREADS) {
+        g_num_threads = grim::MAX_PERF_LEVEL_THREADS;
     }
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

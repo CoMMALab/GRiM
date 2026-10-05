@@ -12,7 +12,7 @@ the RNEA forward sweep (per-link spatial velocity v_i); PE reuses the ee_pose
 world-transform machinery (link-origin world R_i, p_i).
 
 Gated iiwa14 (fixed) first, then fr3 (mimic), then g1 (floating). The outputs are
-NOT a DoF sweep (no nv dimension); the runner reads the gridData host buffers
+NOT a DoF sweep (no nv dimension); the runner reads the grimData host buffers
 hd_data->h_ke_regressor / h_pe_regressor directly.
 """
 
@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -56,7 +56,7 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _project_pi(robot):
-    """Stack each body's 10 standard inertial params, GRiD/URDF basis
+    """Stack each body's 10 standard inertial params, GRiM/URDF basis
     [m, h(3), Ixx, Ixy, Ixz, Iyy, Iyz, Izz]. Mirrors test_cuda_regressor."""
     nb = robot.get_num_bodies()
     pi = np.zeros(10 * nb, dtype=np.float64)
@@ -74,8 +74,8 @@ def _project_pi(robot):
 
 
 def _generate_header(project_model, build_dir: Path) -> Path:
-    header_path = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header_path = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -101,9 +101,9 @@ def _compile_runner(build_dir: Path, floating_base: bool):
     thread_count = _random_thread_count()
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
-        f"-DGRID_CUDA_REGRESSOR_TEST_THREADS={thread_count}",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
+        f"-DGRIM_CUDA_REGRESSOR_TEST_THREADS={thread_count}",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(executable), str(runner_copy),

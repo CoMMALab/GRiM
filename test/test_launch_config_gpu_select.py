@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 
-from grid_codegen.launch_config import (LAUNCH_CONFIG_DEFAULT_GPU, _GPU_SELECT_WARNED,
+from grim_codegen.launch_config import (LAUNCH_CONFIG_DEFAULT_GPU, _GPU_SELECT_WARNED,
                                         load_launch_config, select_launch_config_gpu)
 
 
@@ -33,10 +33,10 @@ def test_unknown_robot_or_no_arch_uses_default_silently():
 
 
 def test_generator_bakes_the_selected_profile_name(tmp_path):
-    from grid_codegen import GRiDCodeGenerator
+    from grim_codegen import GRiMCodeGenerator
     from URDFParser import URDFParser
     robot = URDFParser().parse("config/robot_assets/iiwa14.urdf", floating_base=False)
-    gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid",
+    gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid",
                             LAUNCH_CONFIG_ROBOT="iiwa14", LAUNCH_CONFIG_GPU="rtx5090_sm120")
     gen.gen_all_code(algorithm_list=["inverse_dynamics"], output_path=str(tmp_path / "g.cuh"),
                      enable_mujoco_kernels=False)

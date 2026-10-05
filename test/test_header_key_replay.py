@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import header_key_replay as hkr  # noqa: E402
 
-_ENV = {"GRID_ENABLE_MUJOCO_KERNELS": "0", "GRID_CODEGEN_PROFILE": None,
-        "GRID_CUDA_TARGET_SHARED_MEM_BYTES": None,
-        "GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES": None}
+_ENV = {"GRIM_ENABLE_MUJOCO_KERNELS": "0", "GRIM_CODEGEN_PROFILE": None,
+        "GRIM_CUDA_TARGET_SHARED_MEM_BYTES": None,
+        "GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES": None}
 
 _CTOR = {"DEBUG_MODE": False, "gen_print_mat": False, "file_namespace": "grid",
          "USE_JOINT_DYNAMICS": False, "MUJOCO_OUTPUT": False,
@@ -34,14 +34,14 @@ def _make_direct_record(tmp_path) -> dict:
     and return the record the conftest wrapper would have emitted."""
     from config import robot_urdf
     from URDFParser import URDFParser
-    from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
+    from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
 
     urdf = Path(robot_urdf("iiwa14"))
-    out = tmp_path / "grid.cuh"
+    out = tmp_path / "grim.cuh"
     with hkr._apply_env(_ENV), open(os.devnull, "w") as devnull, \
             contextlib.redirect_stdout(devnull):
         robot = URDFParser().parse(str(urdf), floating_base=False)
-        GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+        GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
             algorithm_list=["inverse_dynamics"], output_path=str(out))
     return {
         "kind": "direct", "robot": "iiwa14", "floating": False,
@@ -161,11 +161,11 @@ def test_collision_spec_record_replays(tmp_path):
     `opaque` and this test's record would go conservative instead of green)."""
     from config import robot_urdf
     from URDFParser import URDFParser
-    from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
-    from grid_codegen.algorithms._collision import build_self_cc_ranges
+    from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
+    from grim_codegen.algorithms._collision import build_self_cc_ranges
 
     urdf = Path(robot_urdf("iiwa14"))
-    out = tmp_path / "grid.cuh"
+    out = tmp_path / "grim.cuh"
     with hkr._apply_env(_ENV), open(os.devnull, "w") as devnull, \
             contextlib.redirect_stdout(devnull):
         robot = URDFParser().parse(str(urdf), floating_base=False)
@@ -173,7 +173,7 @@ def test_collision_spec_record_replays(tmp_path):
                 "offset": [0.02, -0.01, 0.03, -0.02, 0.01, -0.03],
                 "radius": [0.5, 0.5],
                 "self_cc_ranges": build_self_cc_ranges(robot, [2, 4])}
-        GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+        GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
             codegen_profile="kinematics", output_path=str(out),
             collision_spec=spec)
     record = {

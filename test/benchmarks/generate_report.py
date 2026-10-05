@@ -25,9 +25,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # Algorithm display names, row ordering, and section grouping derive from
-# grid_codegen/algo_registry.py — that file is the single source of truth.
+# grim_codegen/algo_registry.py — that file is the single source of truth.
 # To add a new algo or rename a display label, edit the registry, not this module.
-from grid_codegen.algo_registry import (
+from grim_codegen.algo_registry import (
     build_display_map as _build_display,
     build_sections_map as _build_sections,
 )
@@ -41,7 +41,7 @@ BATCH_SIZES = [16, 32, 64, 128, 256, 1024]
 NOTE_SECOND_ORDER = (
     "> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU "
     "— expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). "
-    "The large GRiD speedup here is expected.\n\n"
+    "The large GRiM speedup here is expected.\n\n"
     "> **Note (FDSVA_SO)**: Pinocchio has no direct FDSVA_SO; the baseline is synthesized "
     "in-harness via the Singh/Carpentier chain rule (RNEA SO + ABA derivatives + Minv). "
     "This is what any downstream pinocchio user would write."
@@ -138,12 +138,12 @@ def _entry_tier_from_picks(picks: Optional[dict], algo: str, tier: str) -> Optio
     return _fmt(min(vals))
 
 
-def _speedup(grid_entry: Optional[dict], pin_entry: Optional[dict], n: int) -> str:
-    if grid_entry is None or pin_entry is None:
+def _speedup(grim_entry: Optional[dict], pin_entry: Optional[dict], n: int) -> str:
+    if grim_entry is None or pin_entry is None:
         return "—"
     gk = f"batch_{n}_compute_only_us"
     pk = f"batch_{n}_with_mem_us"
-    gv = (grid_entry.get(gk) or {}).get("median") or (grid_entry.get(gk) or {}).get("mean")
+    gv = (grim_entry.get(gk) or {}).get("median") or (grim_entry.get(gk) or {}).get("mean")
     pv = (pin_entry.get(pk) or {}).get("median") or (pin_entry.get(pk) or {}).get("mean")
     if gv is None or pv is None or gv == 0:
         return "—"
@@ -168,18 +168,18 @@ def _robot_rows(results: dict, algo: str, section_robots: list[str]) -> list[str
     rows = []
     for robot in section_robots:
         for base in BASES:
-            grid_e = (results.get(robot, {}).get(base, {}).get("grid") or {}).get(algo)
+            grim_e = (results.get(robot, {}).get(base, {}).get("grid") or {}).get(algo)
             pin_e  = (results.get(robot, {}).get(base, {}).get("pinocchio") or {}).get(algo)
             mjx_e  = (results.get(robot, {}).get(base, {}).get("mjx") or {}).get(algo)
 
-            single_g  = _entry_single(grid_e)
+            single_g  = _entry_single(grim_e)
             single_p  = _entry_single(pin_e) + _codegen_flag(pin_e)
             single_m  = _entry_single(mjx_e)
-            batch_g   = _entry_batch(grid_e, 256, "compute_only")
+            batch_g   = _entry_batch(grim_e, 256, "compute_only")
             batch_p   = _entry_batch(pin_e, 256)
             batch_m   = _entry_batch(mjx_e, 256, "compute_only")
-            spdup_p   = _speedup(grid_e, pin_e, 256)
-            spdup_m   = _speedup(grid_e, mjx_e, 256)
+            spdup_p   = _speedup(grim_e, pin_e, 256)
+            spdup_m   = _speedup(grim_e, mjx_e, 256)
 
             rows.append(
                 f"| {robot} | {base} | {single_g} | {single_p} | {single_m} "
@@ -192,7 +192,7 @@ def _robot_rows(results: dict, algo: str, section_robots: list[str]) -> list[str
 # Multi-version table generation (pre_glass / glass / pinocchio / mjx / frax)
 # ---------------------------------------------------------------------------
 
-MULTI_VERSION_KEYS = ("grid_pre_glass", "grid_glass",
+MULTI_VERSION_KEYS = ("grim_pre_glass", "grim_glass",
                       "pinocchio", "mjx", "mujoco_warp", "frax_cpu", "frax_gpu",
                       "bard_cpu", "bard_gpu")
 
@@ -220,10 +220,10 @@ def _multi_version_rows_for_metric(results: dict, algo: str,
     for robot in section_robots:
         for base in BASES:
             base_dict = results.get(robot, {}).get(base, {})
-            pg = (base_dict.get("grid_pre_glass") or {}).get(algo)
-            gl = (base_dict.get("grid_glass") or {}).get(algo)
-            gl_lite = (base_dict.get("grid_glass_tier_lite") or {}).get(algo)
-            gl_min  = (base_dict.get("grid_glass_tier_minimal") or {}).get(algo)
+            pg = (base_dict.get("grim_pre_glass") or {}).get(algo)
+            gl = (base_dict.get("grim_glass") or {}).get(algo)
+            gl_lite = (base_dict.get("grim_glass_tier_lite") or {}).get(algo)
+            gl_min  = (base_dict.get("grim_glass_tier_minimal") or {}).get(algo)
             pi = (base_dict.get("pinocchio") or {}).get(algo)
             mx = (base_dict.get("mjx") or {}).get(algo)
             mw = (base_dict.get("mujoco_warp") or {}).get(algo)
@@ -241,10 +241,10 @@ def _multi_version_rows_for_metric(results: dict, algo: str,
             # Per-tier (glass_lite / glass_min) column source. With --autotune-threads
             # a SINGLE collapsed run carries every tier's best-thread time inside
             # `algo_picks[algo]['sweep']` (at the N=256 compute-only target), so the
-            # legacy separate grid_glass_tier_lite/_tier_minimal JSON keys no longer
+            # legacy separate grim_glass_tier_lite/_tier_minimal JSON keys no longer
             # exist. Source the tier columns from the sweep when picks are present;
             # otherwise (autotune OFF) fall back to the per-tier timing blocks.
-            #   - shared tier ("glass" column): always the full grid_glass block.
+            #   - shared tier ("glass" column): always the full grim_glass block.
             #   - lite/minimal: sweep-min if autotuned, else the per-tier entry.
             # The sweep only holds the N=256 target metric, so for the single-call
             # and N=16 sub-tables the lite/minimal columns show `—` under autotune
@@ -252,7 +252,7 @@ def _multi_version_rows_for_metric(results: dict, algo: str,
             if metric == "single":
                 lite_autotuned = _entry_tier_from_picks(picks, algo, "lite")
                 min_autotuned  = _entry_tier_from_picks(picks, algo, "minimal")
-                # The collapsed-autotune run still measures the shared-tier grid_glass
+                # The collapsed-autotune run still measures the shared-tier grim_glass
                 # block in full (single/N16/N256), so the `glass` column stays real at
                 # every metric. Only lite/minimal lack non-N256 timings under autotune
                 # (the sweep holds the N=256 target only) → blank them when tuned.
@@ -261,7 +261,7 @@ def _multi_version_rows_for_metric(results: dict, algo: str,
                 vals = [
                     _entry_single(pg),
                     _entry_single(gl), gl_lite_cell, gl_min_cell,
-                    # grid_best is tuned on the N=256 compute-only path only.
+                    # grim_best is tuned on the N=256 compute-only path only.
                     "—",
                     _entry_single(pi) + _codegen_flag(pi),
                     _entry_single(mx),
@@ -285,7 +285,7 @@ def _multi_version_rows_for_metric(results: dict, algo: str,
                     _entry_batch(gl, n, "compute_only"),
                     gl_lite_cell,
                     gl_min_cell,
-                    # grid_best winner is from the N=256 autotune; show only there.
+                    # grim_best winner is from the N=256 autotune; show only there.
                     _entry_best(picks, algo) if n == 256 else "—",
                     _entry_batch(pi, n),
                     _entry_batch(mx, n, "compute_only"),
@@ -319,7 +319,7 @@ def _generate_multi_version_report(data: dict, output_path: Path) -> None:
     pg_ref = meta.get("pre_glass_ref", "d2c0d18")
 
     lines: list[str] = [
-        "# GRiD Multi-Version Benchmark Comparison",
+        "# GRiM Multi-Version Benchmark Comparison",
         "",
         f"**Machine**: {host}  ",
         f"**GPU**: {gpu} (cc {cc}, CUDA {cuda})  ",
@@ -331,20 +331,20 @@ def _generate_multi_version_report(data: dict, output_path: Path) -> None:
         "All times in **µs**.",
         "",
         "Columns:",
-        "- **pre_glass**: GRiD at the pre-GLASS reference. Fixed-base only "
+        "- **pre_glass**: GRiM at the pre-GLASS reference. Fixed-base only "
         "(pre_glass harness does not support floating-base).",
-        "- **glass**: GRiD HEAD with the pure-SIMT GLASS backend at the SHARED tier "
+        "- **glass**: GRiM HEAD with the pure-SIMT GLASS backend at the SHARED tier "
         "(formerly 'PERF'; max smem, lowest spill — full inner scratch in shared memory).",
-        "- **glass_lite**: GRiD HEAD at the LITE tier — partial spill of cold/large "
+        "- **glass_lite**: GRiM HEAD at the LITE tier — partial spill of cold/large "
         "buffers to L2-pinned d_workspace; trades some throughput for ~50% smem "
         "headroom so more blocks fit per SM. `—` if the algorithm has a single tier. "
         "Under `--autotune-threads` this is the best-thread N=256 time from the "
         "collapsed autotune sweep (a single run autotunes all tiers); `—` in the "
         "single-call / N=16 sub-tables (the sweep tunes only the N=256 path).",
-        "- **glass_min**: GRiD HEAD at the MINIMAL tier — most aggressive spill so "
+        "- **glass_min**: GRiM HEAD at the MINIMAL tier — most aggressive spill so "
         "the kernel fits on lower-spec GPUs / leaves smem free for the caller. `—` "
         "if the algorithm has a single tier. Same autotune sourcing as glass_lite.",
-        "- **grid_best**: the autotuned global winner over (tier × thread-count) at "
+        "- **grim_best**: the autotuned global winner over (tier × thread-count) at "
         "**batch N=256 compute-only**, formatted `µs (tier@threads)`. Populated only "
         "when the sweep ran with `--autotune-threads`; `—` otherwise and in the "
         "single-call / N=16 sub-tables (the autotune tunes the N=256 path).",
@@ -365,7 +365,7 @@ def _generate_multi_version_report(data: dict, output_path: Path) -> None:
         "",
         "Each algorithm gets three sub-tables: **single-call**, **batch N=16**, "
         "**batch N=256**. Same backend columns + ratio in each. Values are "
-        "median (or mean) µs. GRiD/MJX/Frax numbers are batch compute-only; "
+        "median (or mean) µs. GRiM/MJX/Frax numbers are batch compute-only; "
         "Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).",
         "",
         NOTE_SECOND_ORDER,
@@ -387,7 +387,7 @@ def _generate_multi_version_report(data: dict, output_path: Path) -> None:
                 "n256":   "batch N=256",
             }
             col_header = (
-                "| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best "
+                "| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best "
                 "| pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |"
             )
             col_align = (
@@ -420,7 +420,7 @@ def generate_report(data: dict, output_path: Path) -> None:
     host = meta.get("host", "?")
 
     lines += [
-        "# GRiD Performance Benchmarks",
+        "# GRiM Performance Benchmarks",
         "",
         f"**Machine**: {host}  ",
         f"**GPU**: {gpu} (cc {cc}, CUDA {cuda})  ",
@@ -429,11 +429,11 @@ def generate_report(data: dict, output_path: Path) -> None:
         f"**Pinocchio**: {meta.get('pinocchio_version', '?')}",
         "",
         "All times in **µs**.  "
-        "GRiD *single*: kernel loop internal repeats, one GPU launch.  "
-        "GRiD *N=256 compute*: compute-only (no cudaMemcpy).  "
+        "GRiM *single*: kernel loop internal repeats, one GPU launch.  "
+        "GRiM *N=256 compute*: compute-only (no cudaMemcpy).  "
         "Pinocchio *N=256*: multi-threaded CPU (codegen where available).  "
         "MJX *N=256*: vmapped JAX on GPU, compute-only.  "
-        "GRiD/Pin and GRiD/MJX speedup = baseline N=256 / GRiD N=256 compute-only.",
+        "GRiM/Pin and GRiM/MJX speedup = baseline N=256 / GRiM N=256 compute-only.",
         "",
     ]
 
@@ -447,8 +447,8 @@ def generate_report(data: dict, output_path: Path) -> None:
             display = ALGO_DISPLAY.get(algo, algo)
             lines += [f"### {display}", ""]
             lines += [
-                "| Robot | Base | GRiD single | Pin single | MJX single "
-                "| GRiD N=256 | Pin N=256 | MJX N=256 | GRiD/Pin | GRiD/MJX |"
+                "| Robot | Base | GRiM single | Pin single | MJX single "
+                "| GRiM N=256 | Pin N=256 | MJX N=256 | GRiM/Pin | GRiM/MJX |"
             ]
             lines += [
                 "|-------|------|:-----------:|:----------:|:---------:"
@@ -467,7 +467,7 @@ def generate_report(data: dict, output_path: Path) -> None:
         "(RNEA forward) and `inverse_dynamics_gradient` (RNEA backward via autograd); "
         "its other algorithms are not exposed standalone. "
         "Measured captures live in `test/benchmarks/results/competitive_*/g1_fixed_curobo.json` "
-        "and are scored by `analyze_competitive.py` (2026-07-12: GRiD 5.75x on id, "
+        "and are scored by `analyze_competitive.py` (2026-07-12: GRiM 5.75x on id, "
         "10.44x on id_du at N=256, g1-fixed, RTX 5090). See that competitive report "
         "for the head-to-head numbers; cuRobo is not a column in the multi-version "
         "table above (different capture path).",

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run a multi-version GRiD benchmark sweep against Pinocchio, MJX, Frax, and BARD.
+"""Run a multi-version GRiM benchmark sweep against Pinocchio, MJX, Frax, and BARD.
 
 Columns produced (per robot/base):
-  - grid_pre_glass:    GRiD at git ref d2c0d18 (last commit before the GLASS v2 work).
+  - grim_pre_glass:    GRiM at git ref d2c0d18 (last commit before the GLASS v2 work).
                        Fixed-base only — d2c0d18 harness doesn't support floating-base.
-  - grid_glass:        GRiD HEAD (pure-SIMT GLASS).
+  - grim_glass:        GRiM HEAD (pure-SIMT GLASS).
   - pinocchio:         CPU reference, HEAD harness with --algo parallel fan-out.
   - mjx:               MuJoCo MJX GPU reference (JAX). Requires mujoco-mjx + jax[cuda12].
   - frax:              Frax GPU reference (JAX, https://github.com/danielpmorton/frax).
@@ -19,12 +19,12 @@ Usage (single robot, fastest):
 Full sweep:
     python test/benchmarks/run_multi_version.py
 
-Worktree for the pre-glass column is created at $GRID_PRE_GLASS_WORKTREE
-(default: ../GRiD-A2R-pre-glass/ relative to this repo's root).
+Worktree for the pre-glass column is created at $GRIM_PRE_GLASS_WORKTREE
+(default: ../GRiM-A2R-pre-glass/ relative to this repo's root).
 
 Per-(robot, base, algo) JOINT (tier × thread-count) autotune (C.4 + T5):
     --autotune-threads opt-in flag (off by default; default behavior unchanged).
-    Forwarded to the GRiD glass column only. For each algo, sweeps a small grid
+    Forwarded to the GRiM glass column only. For each algo, sweeps a small grid
     of per-block thread counts on EACH per-tier batch binary (shared/lite/minimal,
     reused from the content-keyed binary cache — no new compiles), clipping the
     grid per tier to its launch_bounds cap, and picks the global min-µs/sample
@@ -32,9 +32,9 @@ Per-(robot, base, algo) JOINT (tier × thread-count) autotune (C.4 + T5):
     results[robot][base]["algo_picks"][algo] (schema 2) =
     {"tier_optimal", "threads_optimal", "us_at_optimal",
      "sweep": {tier: {threads: us}}, "sweep_us": {threads: us}}.
-    Implementation: the binaries' grid_timing_dimms() honors the
-    GRID_AUTOTUNE_THREAD_COUNT env var; the per-tier body is selected by the
-    -DGRID_DEFAULT_RESOURCE_TIER macro at compile time.
+    Implementation: the binaries' grim_timing_dimms() honors the
+    GRIM_AUTOTUNE_THREAD_COUNT env var; the per-tier body is selected by the
+    -DGRIM_DEFAULT_RESOURCE_TIER macro at compile time.
 """
 
 from __future__ import annotations
@@ -58,24 +58,24 @@ from test.benchmarks.timing_parser import build_metadata  # noqa: E402
 
 PRE_GLASS_REF = "d2c0d18"
 RESULTS_DIR   = THIS_DIR / "results" / "comparison"
-DEFAULT_WORKTREE_PATH = REPO_ROOT.parent / "GRiD-A2R-pre-glass"
+DEFAULT_WORKTREE_PATH = REPO_ROOT.parent / "GRiM-A2R-pre-glass"
 
 ROBOTS = ("iiwa14", "go2", "g1", "h2_plus", "baxter")
 BASES  = ("fixed", "floating")
 
-# Robots that exist ONLY inside GRiD: vendored URDF with no robot_descriptions
+# Robots that exist ONLY inside GRiM: vendored URDF with no robot_descriptions
 # module, no MuJoCo MJCF, and no cuRobo config. The competitor columns all
 # resolve their model from robot_descriptions (pinocchio/frax/bard) or an MJCF
 # (mjx/mujoco_warp), so they cannot load these robots — we SKIP those columns
 # gracefully instead of crashing. H2+ = Unitree H2+ (nv=75 fixed / 81 floating),
 # the large-robot SCALING target that retired the redundant h1_2.
-GRID_ONLY_ROBOTS = frozenset({"h2_plus", "baxter"})
-# Columns that need a non-GRiD model (robot_descriptions URDF or MuJoCo MJCF).
-# Skipped for any robot in GRID_ONLY_ROBOTS.
-NON_GRID_COLUMNS = frozenset({"pinocchio", "mjx", "mujoco_warp", "frax", "bard"})
+GRIM_ONLY_ROBOTS = frozenset({"h2_plus", "baxter"})
+# Columns that need a non-GRiM model (robot_descriptions URDF or MuJoCo MJCF).
+# Skipped for any robot in GRIM_ONLY_ROBOTS.
+NON_GRIM_COLUMNS = frozenset({"pinocchio", "mjx", "mujoco_warp", "frax", "bard"})
 # Columns the sweep knows how to run. cuBLASDx (glass_nvidia) was removed in
 # v2.0 — the 2026-05-18 sweep + per-host autotune showed it loses to SIMT at
-# every GEMM shape GRiD calls (notably 4×4×4 in end_effector_pose_hessian, where
+# every GEMM shape GRiM calls (notably 4×4×4 in end_effector_pose_hessian, where
 # SIMT wins by 2.6×). The historical data is preserved at the
 # `archive/last-cublasdx` git tag; see
 # docs/source/user_guide/concepts/cublasdx_removal_design.rst.
@@ -85,8 +85,8 @@ DEFAULT_COLUMNS = ("pre_glass", "glass", "pinocchio", "mjx", "mujoco_warp", "fra
 # Maps the column identifier to the baseline key used in the merged JSON
 # (so generate_report.py / generate_multi_version_report.py can find them).
 COLUMN_TO_BASELINE_KEY = {
-    "pre_glass":    "grid_pre_glass",
-    "glass":        "grid_glass",
+    "pre_glass":    "grim_pre_glass",
+    "glass":        "grim_glass",
     "pinocchio":    "pinocchio",
     "mjx":          "mjx",
     "mujoco_warp":  "mujoco_warp",
@@ -94,7 +94,7 @@ COLUMN_TO_BASELINE_KEY = {
     "bard":         "bard",
 }
 
-EE_FRAMES_GRID = {
+EE_FRAMES_GRIM = {
     "iiwa14": "iiwa_joint_ee",
     "go2":    "FR_foot_joint",
     "g1":     "right_hand_palm_joint",
@@ -102,7 +102,7 @@ EE_FRAMES_GRID = {
     "baxter":  "left_endpoint",          # fixed joint at left gripper (dual-arm; single-EE convention)
 }
 # Competitor frames: only robots with a robot_descriptions / MJCF model. h2_plus
-# and baxter are GRiD-internal (GRID_ONLY_ROBOTS) so they intentionally have no entry here.
+# and baxter are GRiM-internal (GRIM_ONLY_ROBOTS) so they intentionally have no entry here.
 EE_FRAMES_PIN = {
     "iiwa14": "iiwa_link_ee",
     "go2":    "FR_foot",
@@ -224,16 +224,16 @@ def setup_pre_glass_worktree(path: Path) -> Path:
         ["git", "-C", str(path), "submodule", "update", "--init", "--recursive"],
         check=True,
     )
-    grid_run_py = path / "test" / "benchmarks" / "baselines" / "grid" / "run.py"
-    if not grid_run_py.exists():
-        raise RuntimeError(f"Worktree set up but {grid_run_py} is missing")
+    grim_run_py = path / "test" / "benchmarks" / "baselines" / "grid" / "run.py"
+    if not grim_run_py.exists():
+        raise RuntimeError(f"Worktree set up but {grim_run_py} is missing")
     return path
 
 
 # ---------------------------------------------------------------------------
 # Per-column runners
 # ---------------------------------------------------------------------------
-def _grid_run_cmd(harness_repo_root: Path, robot: str, base: str,
+def _grim_run_cmd(harness_repo_root: Path, robot: str, base: str,
                   output: Path, ee_frame: str, no_recompile: bool,
                   tier: str | None = None,
                   build_dir: Path | None = None,
@@ -273,12 +273,12 @@ def _wrapper_run_cmd(robot: str, base: str, output: Path, *,
                      autotune_threads: bool = False,
                      autotune_thread_grid: str | None = None,
                      autotune_N: int | None = None) -> list[str]:
-    """per_algo_bench.py command for the GRiD 'glass' column (the per-exe cutover).
+    """per_algo_bench.py command for the GRiM 'glass' column (the per-exe cutover).
 
     Replaces the monolithic run.py path: RAM-safe (small per-algo TUs, no 24-36 GB monolith), crash-
     isolated (one algo's failure can't nuke the sweep), broader coverage (full registry vs the monolith's
     17). Downstream is UNCHANGED -- the wrapper emits results[robot][base]={'grid':...[,'algo_picks':...]},
-    which _rename_grid_key turns into grid_glass exactly as run.py's output does. run.py-only compile-tuning
+    which _rename_grim_key turns into grim_glass exactly as run.py's output does. run.py-only compile-tuning
     flags (--no-rdc / --ptxas-opt-level / --single-timing / --batch-iters / ...) are intentionally dropped:
     the wrapper owns its compile path + content-keyed cache (so the measure phase needs no --no-recompile)."""
     cmd = [sys.executable, "-u",
@@ -303,15 +303,15 @@ def _wrapper_run_cmd(robot: str, base: str, output: Path, *,
     return cmd
 
 
-def run_grid_column(column: str, robot: str, base: str, *,
+def run_grim_column(column: str, robot: str, base: str, *,
                     output_dir: Path, worktree_path: Path,
                     no_recompile: bool,
                     tier: str | None = None,
                     autotune_threads: bool = False,
                     autotune_thread_grid: str | None = None,
                     autotune_N: int | None = None) -> Path | None:
-    """Run the appropriate GRiD harness for `column`. Returns output JSON path or None."""
-    ee_frame = EE_FRAMES_GRID.get(robot, "")
+    """Run the appropriate GRiM harness for `column`. Returns output JSON path or None."""
+    ee_frame = EE_FRAMES_GRIM.get(robot, "")
     baseline_key = COLUMN_TO_BASELINE_KEY[column]
     # Tier-tagged output filename so SHARED/LITE/MINIMAL runs don't overwrite
     # each other. SHARED (and its deprecated alias "perf") keeps the legacy name
@@ -328,7 +328,7 @@ def run_grid_column(column: str, robot: str, base: str, *,
             print(f"  [{column}] skipping {robot}/{base}: pre-glass harness predates tier system")
             return None
         # pre_glass harness predates --no-rdc; don't pass it.
-        cmd = _grid_run_cmd(worktree_path, robot, base, output, ee_frame,
+        cmd = _grim_run_cmd(worktree_path, robot, base, output, ee_frame,
                             no_recompile=no_recompile)
     elif column == "glass":
         # Per-exe cutover: the glass column is driven by per_algo_bench (RAM-safe, crash-isolated,
@@ -348,12 +348,12 @@ def run_grid_column(column: str, robot: str, base: str, *,
         print(f"  [{column}] FAILED for {robot}/{base}{tier_label}", file=sys.stderr)
         return None
 
-    # Rewrite the JSON so the baseline key is column-specific (e.g. "grid_glass")
+    # Rewrite the JSON so the baseline key is column-specific (e.g. "grim_glass")
     # instead of the generic "grid" the inner harness emits. For tier sweeps,
     # also append the tier suffix so PERF/LITE/MINIMAL results live as distinct
     # keys in the merged output.
     keyed = baseline_key + (f"_tier_{tier}" if (tier is not None and tier not in ("shared", "perf")) else "")
-    _rename_grid_key(output, keyed)
+    _rename_grim_key(output, keyed)
 
     # The pre_glass worktree's grid/run.py (frozen at d2c0d18) predates the
     # single/N=16/N=256 batch-summary print added in HEAD. Re-emit it here from
@@ -396,7 +396,7 @@ def run_pinocchio_column(robot: str, base: str, *,
 def _reuse_competitor_json(robot: str, base: str, column: str,
                            output_dir: Path) -> Path | None:
     """Competitor adapters (mjx/mujoco_warp) time a FIXED algo set that does not
-    depend on GRID_BENCH_ALGORITHM_LIST, so within one phased sweep their output
+    depend on GRIM_BENCH_ALGORITHM_LIST, so within one phased sweep their output
     for (robot, base) is identical across cells. If a sibling cell dir (same
     sweep root = output_dir.parent) already produced the JSON, copy it instead
     of re-JITting/re-timing (saves ~10-60 min per big robot per cell)."""
@@ -505,7 +505,7 @@ def run_bard_column(robot: str, base: str, *,
     return output
 
 
-def _rename_grid_key(json_path: Path, new_key: str) -> None:
+def _rename_grim_key(json_path: Path, new_key: str) -> None:
     """Rewrite a grid run.py JSON output so the baseline key is `new_key` instead of 'grid'."""
     data = json.loads(json_path.read_text())
     results = data.get("results", {})
@@ -594,47 +594,47 @@ def _auto_build_jobs() -> int:
     return max(1, min(by_cores, by_ram, 8))
 
 
-def _build_grid_binaries(grid_columns, robots, bases, tiers, *, build_jobs,
+def _build_grim_binaries(grim_columns, robots, bases, tiers, *, build_jobs,
                          worktree_path, output_dir, skip_set) -> None:
-    """Parallel BUILD phase: compile + cache every GRiD (column,robot,base,tier)
+    """Parallel BUILD phase: compile + cache every GRiM (column,robot,base,tier)
     binary across `build_jobs` workers, WITHOUT timing. The serial measure phase
     re-runs each with --no-recompile (instant content-keyed cache hit), so timing
     stays isolated on the GPU. Each task gets its own --build-dir so working files
     don't collide; the binary cache is shared + content-keyed, so the keys (and
     thus the cache hits) match the measure phase as long as compile flags match."""
     tasks = []
-    for column in grid_columns:
+    for column in grim_columns:
         for robot in robots:
             for base in bases:
                 if f"{robot}_{base}" in skip_set:
                     continue
                 for tier in tiers:
-                    # mirror run_grid_column's pre_glass limitations
+                    # mirror run_grim_column's pre_glass limitations
                     if column == "pre_glass" and (base != "fixed" or (tier and tier not in ("shared", "perf"))):
                         continue
                     tasks.append((column, robot, base, tier))
     if not tasks:
         return
     cores = os.cpu_count() or 4
-    # GRID_COMPILE_WORKERS overrides the per-cell TU-compile parallelism. The big
+    # GRIM_COMPILE_WORKERS overrides the per-cell TU-compile parallelism. The big
     # monolithic single_main + batch_main TUs for large robots (g1/h2_plus SO) use
     # ~24-36 GB of cicc EACH; compiling them concurrently exhausts a 62 GB box.
-    # Set GRID_COMPILE_WORKERS=1 (with --build-jobs 1) to serialize to ONE big
+    # Set GRIM_COMPILE_WORKERS=1 (with --build-jobs 1) to serialize to ONE big
     # compile at a time (~36 GB peak = safe). See [[feedback_build_ram_so_compiles]].
-    _cw_env = os.environ.get("GRID_COMPILE_WORKERS", "")
+    _cw_env = os.environ.get("GRIM_COMPILE_WORKERS", "")
     per_task_workers = int(_cw_env) if _cw_env.strip() else max(1, cores // max(1, build_jobs))
-    print(f"[{ts()}] === BUILD phase: {len(tasks)} GRiD binaries, {build_jobs} parallel "
+    print(f"[{ts()}] === BUILD phase: {len(tasks)} GRiM binaries, {build_jobs} parallel "
           f"(compile-workers={per_task_workers} each); timing stays serial ===")
 
     def _one(task: tuple[str, str, str, str]) -> bool:
         column, robot, base, tier = task
-        ee_frame = EE_FRAMES_GRID.get(robot, "")
+        ee_frame = EE_FRAMES_GRIM.get(robot, "")
         harness_root = worktree_path if column == "pre_glass" else REPO_ROOT
         bdir = output_dir / "_build" / f"{column}_{robot}_{base}_{tier}"
         bdir.mkdir(parents=True, exist_ok=True)
         scratch = bdir / "scratch.json"
         if column == "pre_glass":
-            cmd = _grid_run_cmd(harness_root, robot, base, scratch, ee_frame,
+            cmd = _grim_run_cmd(harness_root, robot, base, scratch, ee_frame,
                                 no_recompile=False, build_dir=bdir, compile_only=True,
                                 compile_workers=per_task_workers)
         else:
@@ -670,7 +670,7 @@ def _build_grid_binaries(grid_columns, robots, bases, tiers, *, build_jobs,
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Multi-version GRiD benchmark sweep (pre-glass + glass vs pinocchio + mjx + frax + bard)",
+        description="Multi-version GRiM benchmark sweep (pre-glass + glass vs pinocchio + mjx + frax + bard)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -687,7 +687,7 @@ def main() -> None:
                              "'--skip iiwa14_floating g1_fixed'. Useful when one "
                              "combination hangs the compiler.")
     parser.add_argument("--worktree-path", type=Path,
-                        default=Path(os.environ.get("GRID_PRE_GLASS_WORKTREE", str(DEFAULT_WORKTREE_PATH))),
+                        default=Path(os.environ.get("GRIM_PRE_GLASS_WORKTREE", str(DEFAULT_WORKTREE_PATH))),
                         help=f"Pre-glass worktree path (default: {DEFAULT_WORKTREE_PATH})")
     parser.add_argument("--skip-setup", action="store_true",
                         help="Assume the pre-glass worktree already exists at --worktree-path")
@@ -696,10 +696,10 @@ def main() -> None:
     parser.add_argument("--no-recompile", action="store_true",
                         help="Forward --no-recompile to inner harnesses")
     parser.add_argument("--single-call-iters", type=int, default=None,
-                        help="Override SINGLE_CALL_ITERS_GLOBAL for GRiD/Pinocchio "
+                        help="Override SINGLE_CALL_ITERS_GLOBAL for GRiM/Pinocchio "
                              "(default 10000). Inner-kernel rep count for single-call timings.")
     parser.add_argument("--batch-iters", type=int, default=None,
-                        help="Override TEST_ITERS_GLOBAL for GRiD/Pinocchio (default 100) "
+                        help="Override TEST_ITERS_GLOBAL for GRiM/Pinocchio (default 100) "
                              "and BENCH_TEST_ITERS for MJX/Frax (default 500). Outer batch "
                              "rep count at each N. Bump for more stable medians.")
     parser.add_argument("--pin-num-threads", type=int, default=None,
@@ -708,24 +708,24 @@ def main() -> None:
                              "thread runs the same JIT'd code; HT hurts.")
     parser.add_argument("--tiers", nargs="+", default=["shared"],
                         choices=["shared", "perf", "lite", "minimal"],
-                        help="Resource tiers to sweep for the GRiD columns. Default: "
+                        help="Resource tiers to sweep for the GRiM columns. Default: "
                              "['shared'] (legacy single-tier behavior; 'perf' is a "
                              "deprecated alias for 'shared'). Pass "
                              "'--tiers shared lite minimal' for full Phase 4 sweep. WITHOUT "
-                             "--autotune-threads each GRiD column gets one full run per tier, "
-                             "tagged grid_glass / grid_glass_tier_lite / grid_glass_tier_minimal "
+                             "--autotune-threads each GRiM column gets one full run per tier, "
+                             "tagged grim_glass / grim_glass_tier_lite / grim_glass_tier_minimal "
                              "in the merged JSON. WITH --autotune-threads the measure phase "
                              "COLLAPSES to a SINGLE glass run per (robot, base): that one run "
                              "already builds every tier binary and autotunes across all tiers, "
                              "and the report sources its per-tier columns from the run's "
                              "'algo_picks' sweep (so --tiers only affects the non-autotune "
-                             "path here). Non-GRiD columns (pinocchio/mjx/frax) are tier-agnostic "
+                             "path here). Non-GRiM columns (pinocchio/mjx/frax) are tier-agnostic "
                              "and run only once.")
     parser.add_argument("--report", type=Path,
                         default=THIS_DIR / "benchmark_multi_version.md",
                         help="Markdown report output path")
     parser.add_argument("--build-jobs", type=int, default=None,
-                        help="Parallelism for the GRiD compile (BUILD) phase. The compile is "
+                        help="Parallelism for the GRiM compile (BUILD) phase. The compile is "
                              "CPU-bound (nvcc/cicc/ptxas), so it fans across cores; the timing "
                              "(MEASURE) phase always stays SERIAL on the isolated GPU, so this "
                              "never affects the numbers. Default: auto (from cores + free RAM, "
@@ -733,14 +733,14 @@ def main() -> None:
     parser.add_argument("--build-only", action="store_true",
                         help="PRE-BUILD only: run the parallel BUILD phase (warm the content-"
                              "addressed binary cache for every requested robot/base/tier of the "
-                             "GRiD columns) and STOP before the serial MEASURE phase. No timing, "
+                             "GRiM columns) and STOP before the serial MEASURE phase. No timing, "
                              "no report. Lets you compile all sweep versions ahead of time (e.g. "
                              "while the box is busy) so the later real sweep is pure cache-hit "
                              "timing on a quiet GPU. Cache keys match the timed run exactly because "
                              "it is the SAME build call. Forces the build phase even at "
                              "--build-jobs 1.")
     parser.add_argument("--autotune-threads", action="store_true",
-                        help="Forward --autotune-threads to the GRiD glass column. For each "
+                        help="Forward --autotune-threads to the GRiM glass column. For each "
                              "(robot, base, algo) tuple, do the JOINT (tier × thread-count) "
                              "autotune: sweep a per-tier-cap-clipped thread grid (default: "
                              "96,128,192,256,320,384 + one-level refinement) on each per-tier "
@@ -794,14 +794,14 @@ def main() -> None:
     #     keyed, so the serial measure phase below finds the same binaries. This
     #     collapses the dominant cost (e.g. iiwa14-fixed alone is a ~460s compile)
     #     from sequential to parallel without touching the (still-serial) timing.
-    grid_columns = [c for c in args.columns if c in ("glass", "pre_glass")]
+    grim_columns = [c for c in args.columns if c in ("glass", "pre_glass")]
     build_jobs = args.build_jobs if args.build_jobs is not None else _auto_build_jobs()
     measure_no_recompile = False
     # --build-only forces the build phase even at build_jobs==1 (the usual >1 guard
     # is a perf optimization for the timed path; here the build IS the deliverable).
-    if grid_columns and (build_jobs > 1 or args.build_only):
-        _build_grid_binaries(
-            grid_columns, args.robots, args.bases, args.tiers,
+    if grim_columns and (build_jobs > 1 or args.build_only):
+        _build_grim_binaries(
+            grim_columns, args.robots, args.bases, args.tiers,
             build_jobs=build_jobs, worktree_path=args.worktree_path,
             output_dir=args.output_dir, skip_set=skip_set,
         )
@@ -818,7 +818,7 @@ def main() -> None:
         return
 
     # 2) MEASURE phase: run all (column, robot, base) combinations sequentially.
-    #    The GPU is the shared serial resource; timing must not contend. GRiD
+    #    The GPU is the shared serial resource; timing must not contend. GRiM
     #    columns hit the cache built above (measure_no_recompile), so this loop
     #    is pure timing for them.
     produced: list[Path] = []
@@ -831,11 +831,11 @@ def main() -> None:
                     print(f"  [{column}] SKIP {robot}/{base}: excluded via --skip")
                     skipped.append((column, robot, base))
                     continue
-                # GRiD-internal-only robots (e.g. H2+) have no robot_descriptions
+                # GRiM-internal-only robots (e.g. H2+) have no robot_descriptions
                 # URDF / MJCF / cuRobo model, so the competitor columns can't load
-                # them. Skip those columns gracefully (the GRiD columns still run).
-                if robot in GRID_ONLY_ROBOTS and column in NON_GRID_COLUMNS:
-                    print(f"  [{column}] SKIP {robot}/{base}: GRiD-internal robot "
+                # them. Skip those columns gracefully (the GRiM columns still run).
+                if robot in GRIM_ONLY_ROBOTS and column in NON_GRIM_COLUMNS:
+                    print(f"  [{column}] SKIP {robot}/{base}: GRiM-internal robot "
                           f"(no {column} model)")
                     skipped.append((column, robot, base))
                     continue
@@ -868,7 +868,7 @@ def main() -> None:
                         batch_iters=args.batch_iters,
                     )
                 else:
-                    # GRiD columns. Two regimes:
+                    # GRiM columns. Two regimes:
                     #  * autotune ON (glass): a SINGLE run already builds every tier
                     #    binary and autotunes ACROSS all tiers, emitting per-algo
                     #    `algo_picks` whose `sweep` carries every tier's best-thread
@@ -878,12 +878,12 @@ def main() -> None:
                     #    the outputs differ only by measurement noise). The report
                     #    sources its per-tier columns from `algo_picks[...]['sweep']`.
                     #  * autotune OFF: per-tier runs are legitimate (each tier's
-                    #    binary cache is keyed by -DGRID_DEFAULT_RESOURCE_TIER and
-                    #    produces a distinct grid_glass[_tier_*] timing block).
+                    #    binary cache is keyed by -DGRIM_DEFAULT_RESOURCE_TIER and
+                    #    produces a distinct grim_glass[_tier_*] timing block).
                     do_autotune = (args.autotune_threads and column == "glass")
                     measure_tiers = [None] if do_autotune else args.tiers
                     for tier in measure_tiers:
-                        p = run_grid_column(
+                        p = run_grim_column(
                             column, robot, base,
                             output_dir=args.output_dir, worktree_path=args.worktree_path,
                             no_recompile=args.no_recompile or measure_no_recompile,

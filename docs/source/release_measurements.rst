@@ -8,7 +8,7 @@ Release measurements
    **Wrapper addendum, 2 October 2026:** 108 further worker processes and
    648 measurements under the same protocol, for the allocate-once calls
    in Figure 4. The published table now holds 300 workers and 1,800
-   measurements; every GRiD-versus-baseline comparison is unchanged.
+   measurements; every GRiM-versus-baseline comparison is unchanged.
 
 These measurements cover **iiwa14** (fixed base, 7 velocities), **go2** (floating
 base, 18 velocities), and **G1** (floating base, 35 velocities) on one NVIDIA
@@ -28,50 +28,50 @@ The wrapper addendum used commits ``53119f2d4c0b1297af19b9bd266879828001c566``
 and ``ab20188681334da365753b42da5f0021c4c70add`` (the latter for the JAX
 allocate-once cells). Between the two collections the bindings changed in the
 ways Figure 4 describes; the generated CUDA did not. A same-day drift check
-re-measured GRiD's native CUDA call on all 18 RNEA-gradient cells: both its
+re-measured GRiM's native CUDA call on all 18 RNEA-gradient cells: both its
 compute-only and its host call landed within 0.6% of the September values.
 
 What the measurements show
 --------------------------
 
-GRiD's strongest performance is available to solvers and libraries that keep
+GRiM's strongest performance is available to solvers and libraries that keep
 robot data on the GPU. The measurements also show that this advantage can
 survive transfers and framework dispatch, rather than being limited to the
 compute-only boundary.
 
-* **Fast robot-specific CUDA for GPU-resident applications.** GRiD's native
+* **Fast robot-specific CUDA for GPU-resident applications.** GRiM's native
   compute-only call has a lower median than every evaluated GPU baseline on
   its matched core RNEA/gradient cells. Against MuJoCo Warp and MJX, the
   ratios span 4.3–38.6×. These are resident-call comparisons, not isolated
-  kernel comparisons: GRiD includes native launch and synchronization;
+  kernel comparisons: GRiM includes native launch and synchronization;
   the competitors also include their framework dispatch.
-* **GRiD's JAX API is faster than MJX on all 36 matched RNEA/gradient cells.**
+* **GRiM's JAX API is faster than MJX on all 36 matched RNEA/gradient cells.**
   The ratios are 1.8–4.7× for complete host-to-host calls and 2.2–14.7× with
   inputs and outputs resident on the GPU. Every one of these comparisons
   remains above 1× across the observed ranges of the three process means.
   These are measured ranges, not statistical confidence intervals.
 * **Large-batch gradients show substantial compute and host-call gains.**
-  At batch 1024, GRiD's compute-only CUDA calls for RNEA gradients are
+  At batch 1024, GRiM's compute-only CUDA calls for RNEA gradients are
   11.7× faster on iiwa14 and 5.6× faster on go2 than Pinocchio codegen's
-  CPU calls. GRiD takes 30.8 µs and 116.6 µs, respectively, versus
+  CPU calls. GRiM takes 30.8 µs and 116.6 µs, respectively, versus
   361.3 µs and 657.8 µs for Pinocchio codegen. The compute-only comparison
-  excludes GRiD's transfers but includes native launch and synchronization.
-  Including transfers, GRiD's C++ host calls take 59.4 µs and 257.3 µs,
+  excludes GRiM's transfers but includes native launch and synchronization.
+  Including transfers, GRiM's C++ host calls take 59.4 µs and 257.3 µs,
   retaining 6.1× and 2.6× speedups at the matched host-to-host boundary.
   These host-call wins remain separated across the observed repeat ranges.
 * **Larger batches turn compute gains into host-call wins.** Including
-  transfers, GRiD's CUDA host call has a lower median than the Pinocchio
+  transfers, GRiM's CUDA host call has a lower median than the Pinocchio
   codegen-mode adapter in 14 of 45 core cells at batches 16–256; 13 of those
   wins remain separated across observed ranges. At batch 1024, it wins 8 of
   9 cells across those ranges; the remaining comparison overlaps. Both
   Pinocchio modes use the same standard analytical fp64 path for Hessians,
   not a code-generated Hessian. Pinocchio wins many small-batch comparisons,
-  particularly the lighter RNEA workload when GRiD's transfers are included.
+  particularly the lighter RNEA workload when GRiM's transfers are included.
   The batch-1024 wins include all three robots' Hessians. There are also
   selective wins with JAX overhead included: iiwa14's RNEA gradient at batch
-  1024 takes 303.6 µs through GRiD JAX versus 361.4 µs through Pinocchio
+  1024 takes 303.6 µs through GRiM JAX versus 361.4 µs through Pinocchio
   codegen, a 1.2× median speedup for complete host-to-host calls.
-* **Wrapper costs matter.** GRiD JAX resident calls beat MuJoCo Warp on all
+* **Wrapper costs matter.** GRiM JAX resident calls beat MuJoCo Warp on all
   18 matched RNEA cells across observed ranges, but the host-to-host results
   are mixed. On iiwa14 RNEA at batch 256, median full calls are 23.3 µs in
   CUDA, 24.7 µs through the C ABI, 26.8 µs through NumPy, 61.0 µs through
@@ -91,7 +91,7 @@ compute-only boundary.
 Figure 1 — Where the time goes
 ------------------------------
 
-Keeping data on the GPU makes the most of GRiD's compute performance.
+Keeping data on the GPU makes the most of GRiM's compute performance.
 Larger batches can amortize transfers, with host-call wins extending to
 analytical Hessians on all three robots at batch 1024. Full JAX calls can
 also win, as the iiwa14 gradient example above illustrates; the crossover
@@ -103,7 +103,7 @@ GPU execution is not the fastest choice for every workload.
    :alt: Clustered bars for RNEA, its gradient and Hessian on three robots, with separate Pinocchio API bars and gray hatched boundary increments.
    :target: _static/release/stacked_core.svg
 
-Absolute microseconds per complete batch, on a log axis. GRiD's JAX full-call
+Absolute microseconds per complete batch, on a log axis. GRiM's JAX full-call
 bar is decomposed into its native CUDA compute-only call, the CUDA transfer
 increment, and the additional JAX API increment. Green denotes the CUDA call,
 gray diagonal hatching the GPU–CPU I/O increment, and gray dots on white the
@@ -131,10 +131,10 @@ Figure 2 — Speedup against Pinocchio (CPU)
    :alt: Core-operation speedups against both Pinocchio modes, separately for CUDA compute-only and CUDA host calls including copies.
    :target: _static/release/speedup_pinocchio.svg
 
-Ratios are baseline time divided by GRiD time. Above 1× favors GRiD; below 1×
-favors the baseline. The top row excludes GRiD's host–device transfers and is
+Ratios are baseline time divided by GRiM time. Above 1× favors GRiM; below 1×
+favors the baseline. The top row excludes GRiM's host–device transfers and is
 therefore a different workload boundary from Pinocchio's host-array call.
-The bottom row includes GRiD's transfers and compares host arrays in and out
+The bottom row includes GRiM's transfers and compares host arrays in and out
 on both sides. Pinocchio uses a persistent C++ thread pool, choosing the best
 recorded candidate from ``{1, max(1, batch//16), 8}``, excluding counts above
 eight or the batch size. Eight is this study's configured worker ceiling,
@@ -144,8 +144,8 @@ the raw captures.
 
 Pinocchio's CPU paths are strong at small batches, particularly for RNEA.
 Transfers can reverse a compute-only advantage: for iiwa14's RNEA gradient
-at batch 32, GRiD's compute-only call takes 14.8 µs versus 15.8 µs for
-Pinocchio codegen, but GRiD's full C++ host call takes 24.6 µs.
+at batch 32, GRiM's compute-only call takes 14.8 µs versus 15.8 µs for
+Pinocchio codegen, but GRiM's full C++ host call takes 24.6 µs.
 
 Figure 3 — Speedup against the GPU libraries
 --------------------------------------------
@@ -155,11 +155,11 @@ Figure 3 — Speedup against the GPU libraries
    :target: _static/release/speedup_gpu_resident.svg
 
 .. image:: _static/release/speedup_gpu_jax_resident.svg
-   :alt: GRiD JAX resident calls against GPU-library resident calls, including each framework's dispatch and synchronization.
+   :alt: GRiM JAX resident calls against GPU-library resident calls, including each framework's dispatch and synchronization.
    :target: _static/release/speedup_gpu_jax_resident.svg
 
 .. image:: _static/release/speedup_gpu_full.svg
-   :alt: Complete host-array calls through GRiD JAX and each GPU baseline.
+   :alt: Complete host-array calls through GRiM JAX and each GPU baseline.
    :target: _static/release/speedup_gpu_full.svg
 
 **Top:** native CUDA compute-only calls against competitors' resident API
@@ -199,7 +199,7 @@ The allocate-once calls are, per surface: NumPy — ``out=`` with a page-locked
 buffer from ``handle.pinned_empty`` (the gradient and Hessian; RNEA has no
 ``out=``, so its bar is the default call); PyTorch — page-locked host tensors
 for inputs and outputs with non-blocking copies
-(``pinned_host_like`` / ``copy_to_host``); JAX — ``grid_rbd.jax.to_host``.
+(``pinned_host_like`` / ``copy_to_host``); JAX — ``grim.jax.to_host``.
 ``to_host`` uses its page-locked route only for arrays of at least 256 KiB and
 is otherwise the default download itself, so a JAX allocate-once bar is drawn
 only where that route was taken (23 of 54 cells). A short black tick marks the
@@ -312,7 +312,7 @@ Measurement scope
   these measurements do not establish a root cause.
 * Pinocchio's candidate thread counts are capped at eight. This is not a claim
   of optimal CPU threading. Its fp64 Hessians are a precision exception, not
-  an equal-precision comparison with GRiD's fp32 Hessians.
+  an equal-precision comparison with GRiM's fp32 Hessians.
 * Boundary increments do not separately identify framework dispatch, staging,
   or large-output costs.
 * This dataset does not measure collision performance.

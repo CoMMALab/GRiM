@@ -1175,7 +1175,7 @@ z
     </g>
    </g>
    <g id="text_50">
-    <!-- GRiD JAX full call (host in, host out) -->
+    <!-- GRiM JAX full call (host in, host out) -->
     <g transform="translate(94.961641 18.649688) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-47" d="M 3809 666 
@@ -1855,7 +1855,7 @@ z
     </g>
    </g>
    <g id="text_94">
-    <!-- GRiD JAX full call (host in, host out) -->
+    <!-- GRiM JAX full call (host in, host out) -->
     <g transform="translate(302.841641 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2374,7 +2374,7 @@ iVBORw0KGgoAAAANSUhEUgAAARIAAACaCAYAAABlo8ciAAABuklEQVR4nO3dwUkEQRRF0Z6eQVBURDBb
     </g>
    </g>
    <g id="text_138">
-    <!-- GRiD JAX full call (host in, host out) -->
+    <!-- GRiM JAX full call (host in, host out) -->
     <g transform="translate(510.721641 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2805,7 +2805,7 @@ iVBORw0KGgoAAAANSUhEUgAAARIAAACaCAYAAABlo8ciAAABF0lEQVR4nO3UwQ3CMBBFwQQh+m8XRcTU
     </g>
    </g>
    <g id="text_182">
-    <!-- GRiD JAX full call (host in, host out) -->
+    <!-- GRiM JAX full call (host in, host out) -->
     <g transform="translate(718.601641 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2889,7 +2889,7 @@ z
    </g>
   </g>
   <g id="text_183">
-   <!-- Baseline / GRiD. Blue: GRiD faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
+   <!-- Baseline / GRiM. Blue: GRiM faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
    <g transform="translate(283.847461 184.474716) scale(0.075 -0.075)">
     <defs>
      <path id="DejaVuSans-65" d="M 3597 1894 

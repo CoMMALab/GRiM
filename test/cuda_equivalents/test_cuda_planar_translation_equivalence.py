@@ -10,7 +10,7 @@ against pinocchio's native JointModelPlanar / JointModelTranslation in
 ``URDFParser/tests/test_planar_translation_decomposition.py``.
 
 This closes the CUDA gap for the decomposition: it proves the dummy-link chain
-emits and runs correctly through the full GRiD kernel pipeline.
+emits and runs correctly through the full GRiM kernel pipeline.
 """
 import contextlib
 import os
@@ -24,7 +24,7 @@ import pytest
 from URDFParser import URDFParser
 from RBDReference import RBDReference
 from RBDReference.equivalents.reference_backend import ProjectModelAdapter
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -41,8 +41,8 @@ def _parse(name):
 
 
 def _generate_header(robot, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -64,11 +64,11 @@ def _compile_runner(build_dir):
     exe = build_dir / "cuda_planar_translation_runner.exe"
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        "-DGRID_CUDA_FLOATING_BASE=0",
-        "-DGRID_RUNNER_SKIP_GRADIENTS=1",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
-        # runner support headers (grid_runner_select.cuh) live next to the
-        # runner SOURCE; the generated grid.cuh is found first in build_dir.
+        "-DGRIM_CUDA_FLOATING_BASE=0",
+        "-DGRIM_RUNNER_SKIP_GRADIENTS=1",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
+        # runner support headers (grim_runner_select.cuh) live next to the
+        # runner SOURCE; the generated grim.cuh is found first in build_dir.
         "-I", str(RUNNER_SOURCE.parent),
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",

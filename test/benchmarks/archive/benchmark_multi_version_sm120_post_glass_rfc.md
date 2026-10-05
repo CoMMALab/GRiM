@@ -1,4 +1,4 @@
-# GRiD Multi-Version Benchmark Comparison
+# GRiM Multi-Version Benchmark Comparison
 
 **Machine**: ?  
 **GPU**: NVIDIA GeForce RTX 5070 Ti Laptop GPU (cc 12.0, CUDA 12.9) (cc 12.0, CUDA ?)  
@@ -10,20 +10,20 @@
 All times in **µs**.
 
 Columns:
-- **pre_glass**: GRiD at the pre-GLASS reference. Fixed-base only (pre_glass harness does not support floating-base).
-- **glass**: GRiD HEAD with the pure-SIMT GLASS v2 backend.
-- **glass_nv**: GRiD HEAD with the cuBLASDx-backed GLASS v2 backend.
+- **pre_glass**: GRiM at the pre-GLASS reference. Fixed-base only (pre_glass harness does not support floating-base).
+- **glass**: GRiM HEAD with the pure-SIMT GLASS v2 backend.
+- **glass_nv**: GRiM HEAD with the cuBLASDx-backed GLASS v2 backend.
 - **pin**: Pinocchio CPU reference (codegen where available).
 - **mjx**: MuJoCo MJX (JAX) GPU reference. Subset of algos only (id / fd / ee_pose / id_du); others render `—`.
 - **frax**: Frax (JAX) GPU reference (https://github.com/danielpmorton/frax). Subset of algos only (id / fd / crba / minv); others render `—`.
 - **glass/pre**: N=256 compute-only ratio. **> 1.00× = HEAD is faster**; **< 1.00× = HEAD regressed**.
 - **glass_nv/glass**: N=256 compute-only ratio. **> 1.00× = cuBLASDx is faster**.
 
-Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N=256**. Same 6 backend columns + ratios in each. Values are median (or mean) µs. GRiD/MJX/Frax numbers are batch compute-only; Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).
+Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N=256**. Same 6 backend columns + ratios in each. Values are median (or mean) µs. GRiM/MJX/Frax numbers are batch compute-only; Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).
 
-> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU — expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). The large GRiD speedup here is expected.
+> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU — expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). The large GRiM speedup here is expected.
 
-> **Note (FDSVA_SO)**: No Pinocchio equivalent — GRiD numbers only.
+> **Note (FDSVA_SO)**: No Pinocchio equivalent — GRiM numbers only.
 
 ## Core Dynamics
 

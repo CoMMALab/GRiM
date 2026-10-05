@@ -1,5 +1,5 @@
 """CUDA equivalence test for the generated centroidal / energy device kernels
-(D1b) and the grid_plant CoM / centroidal-momentum costs (D1c).
+(D1b) and the grim_plant CoM / centroidal-momentum costs (D1c).
 
 D1b validates the 5 centroidal device functions:
   - generalized_gravity_device  vs RBDReference.generalized_gravity
@@ -11,22 +11,22 @@ The RBDReference numpy oracles match Pinocchio to ~1e-14, so they are the
 double-precision ground truth here (the CUDA path is float32, so the comparison
 uses a float32-scale tolerance, like the other CUDA smoke tests).
 
-D1c validates the grid_plant CoM / centroidal-momentum tracking costs.
+D1c validates the grim_plant CoM / centroidal-momentum tracking costs.
 CoM retains the padded NQ+NV layout; momentum uses the full 2NV tangent
 state [dq|dv], including configuration derivatives and mixed GN blocks.
 
-Gravity convention: unified at -9.81. The runner passes gravity = -9.81 to GRiD,
+Gravity convention: unified at -9.81. The runner passes gravity = -9.81 to GRiM,
 matching the RBDReference oracles' default GRAVITY = -9.81 — both sides now use
 one convention (the same pairing the main inverse_dynamics CUDA-equivalence test uses).
 
 Robots: iiwa14-fixed (cheap, gate first) + a floating robot (default go2, an
 18-DoF quadruped that compiles quickly; g1/h1_2 also work but their large
 all-profile headers take many minutes to nvcc-compile). NOTE: this runner is
-NON-MIMIC ONLY — it drives grid_plant com_cost/momentum_cost (and com/ccrba
+NON-MIMIC ONLY — it drives grim_plant com_cost/momentum_cost (and com/ccrba
 device fns) which codegen emits for non-mimic robots only (_plant.py). Mimic
 validation of the centroidal id-bias `s_vaf` (NB-sized) path needs a dedicated
 generalized_gravity/nonlinear_effects-only runner (backlog: f2_audit_findings).
-Override with GRID_CUDA_CENTROIDAL_ROBOTS="iiwa14:fixed,g1:floating".
+Override with GRIM_CUDA_CENTROIDAL_ROBOTS="iiwa14:fixed,g1:floating".
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -69,7 +69,7 @@ def _mom_des_off():    return np.array([0.1 * (r + 1) for r in range(6)], dtype=
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_CENTROIDAL_ROBOTS", "iiwa14:fixed,go2:floating")
+    raw = os.environ.get("GRIM_CUDA_CENTROIDAL_ROBOTS", "iiwa14:fixed,go2:floating")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -88,8 +88,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(codegen_profile="all", output_path=str(header))
     return header
@@ -130,14 +130,14 @@ def _mimic_robot_modes():
     #
     # h1_2:fixed is the BIG mimic (NB=NJ=51 > NV=NPOS=39) and is the regression guard for
     # a real emitter bug this test EXPOSED: the device wrapper lays out s_vaf at 18*NB=918
-    # floats, but the HOST arena macro INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES (GRiDCodeGenerator.py
+    # floats, but the HOST arena macro INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES (GRiMCodeGenerator.py
     # `id_bias_t_count`) used to budget only 18*NV=702, so the wrapper overflowed the
     # dynamic-smem arena by 18*(NB-NV) floats → illegal __shared__ write (fr3 NB-NV=1
     # survived on slack; h1_2 NB-NV=12 crashed). FIXED: the macro now sizes s_vaf by
     # 18*NB for mimic (mirroring the device-wrapper fix; non-mimic byte-identical). h1_2:fixed
     # is kept in the default list so a regression re-trips here.
-    # Override the whole list with GRID_CUDA_CENTROIDAL_MIMIC_ROBOTS.
-    raw = os.environ.get("GRID_CUDA_CENTROIDAL_MIMIC_ROBOTS",
+    # Override the whole list with GRIM_CUDA_CENTROIDAL_MIMIC_ROBOTS.
+    raw = os.environ.get("GRIM_CUDA_CENTROIDAL_MIMIC_ROBOTS",
                          "fr3:fixed,h1_2:fixed,iiwa14:fixed")
     out = []
     for tok in raw.split(","):
@@ -153,7 +153,7 @@ def _mimic_robot_modes():
 # (R6) — generalized_gravity / nonlinear_effects auto-pull `inverse_dynamics` —
 # PLUS com / ccrba / energy (the kinematics-domain centroidal device fns, now
 # ALPHA-FOLDED + de-gated for mimic robots). We deliberately do NOT request the
-# grid_plant com_cost/momentum_cost (gen_grid_plant: centroidal_ok requires
+# grim_plant com_cost/momentum_cost (gen_grim_plant: centroidal_ok requires
 # non-mimic), so the resulting header defines ONLY the mimic-supported centroidal
 # DEVICE symbols this runner references — it links for mimic AND non-mimic robots.
 _MIMIC_SAFE_ALGORITHMS = [
@@ -162,8 +162,8 @@ _MIMIC_SAFE_ALGORITHMS = [
 
 
 def _generate_mimic_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(algorithm_list=list(_MIMIC_SAFE_ALGORITHMS),
                              output_path=str(header))
@@ -352,7 +352,7 @@ def test_cuda_centroidal_matches_reference(tmp_path, robot_id, base_mode):
         close(out["energy"].reshape(-1), np.array([ke, pe, me]),
               f"{tag} energy [KE, PE, mechanical]")
 
-        # ================= D1c: grid_plant CoM / momentum costs =================
+        # ================= D1c: grim_plant CoM / momentum costs =================
         # CoM's gradient/hessian layout is over x = [q (nq); qd (nv)],
         # size NX = nq + nv. For a floating base nq > nv (the quaternion uses 4
         # position slots for 3 velocity DOFs), so the gradient's tangent ("q")

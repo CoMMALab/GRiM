@@ -1,8 +1,8 @@
-# GRiD wrapper-type tour: `_inner` → `_device` → `_kernel` → `_host` → batch
+# GRiM wrapper-type tour: `_inner` → `_device` → `_kernel` → `_host` → batch
 
-For every algorithm, the GRiD codegen emits the **same five layers** of surface,
+For every algorithm, the GRiM codegen emits the **same five layers** of surface,
 each wrapping the one before. Picking the right layer is the main decision when
-you write CUDA against `grid.cuh`. This tour uses `inverse_dynamics` (companion to
+you write CUDA against `grim.cuh`. This tour uses `inverse_dynamics` (companion to
 `inverse_dynamics_kernel_example.cu`); every other algorithm follows the identical
 shape with its own macro prefix, which matches the verbose function name
 (`FORWARD_DYNAMICS_`, `INVERSE_DYNAMICS_GRADIENT_`, …); a few keep their
@@ -35,9 +35,9 @@ Wraps `_inner`. It declares the `extern __shared__` arena, carves out
 `s_vaf`/`s_XImats`/`s_temp`/linalg scratch from it, calls
 `load_update_XImats_helpers`, then `_inner`. You supply only inputs/outputs
 (shared-memory pointers) + the model. The launch must reserve
-`grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>()`.
+`grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>()`.
 
-**Reach for it when:** you want to drop GRiD dynamics into a kernel *you* launch
+**Reach for it when:** you want to drop GRiM dynamics into a kernel *you* launch
 (custom grid/stream/fusion at the launch level) but don't want to hand-manage the
 algorithm's scratch. This is the **default choice for writing your own kernel** —
 it's exactly Path A in the flagship example.
@@ -55,27 +55,27 @@ block level), and writes packed device outputs. Carries
 holds `s_q_qd`/`s_c`/`s_vaf` for the load/store).
 
 **Reach for it when:** you want the batched launcher but are managing the device
-buffers + memcpy yourself, and don't want the `gridData` bookkeeping.
+buffers + memcpy yourself, and don't want the `grimData` bookkeeping.
 
-### 4. `_host` — gridData orchestration + memcpy  (`__host__`)
+### 4. `_host` — grimData orchestration + memcpy  (`__host__`)
 ```cpp
 inverse_dynamics<T, /*USE_QDD_FLAG=*/false, /*USE_COMPRESSED_MEM=*/true>(
     hd_data, d_robotModel, gravity, num_timesteps,
     block_dimms, thread_dimms, streams);
 ```
-The top of the stack. Takes a `grid::gridData<T>` (from `init_gridData`) that
+The top of the stack. Takes a `grim::grimData<T>` (from `init_grimData`) that
 bundles all host+device input/output pointers, async-copies `h_*` → `d_*`,
 launches `_kernel`, copies results `d_*` → `h_*`. Template flags select the
 qdd-input and compressed-memory variants.
 
 **Reach for it when:** you "just want to call one algorithm" from host code with
-no CUDA plumbing — closest to what `grid_rbd` does under the hood. See the
+no CUDA plumbing — closest to what `grim` does under the hood. See the
 `#else` (fixed-base) branch of `test/cuda_equivalents/cuda_equivalence_runner.cu`
-for the full `init_grid` / `init_robotModel` / `init_gridData` / `close_grid`
+for the full `init_grim` / `init_robotModel` / `init_grimData` / `close_grim`
 lifecycle around these `_host` calls.
 
 ### 5. batch — one block per problem
-Not a separate emitted symbol but the **launch convention**: GRiD is
+Not a separate emitted symbol but the **launch convention**: GRiM is
 single-block-per-problem (one robot/timestep per CUDA block, never split across
 blocks). `_kernel` and `_host` bake this in via their `NUM_TIMESTEPS` block loop;
 when you write your own kernel around `_device`, you express it as
@@ -87,7 +87,7 @@ free — more blocks, same per-block code.
 
 | your situation | use |
 |----------------|-----|
-| fusing GRiD into a bigger kernel, sharing `s_XImats`/scratch across algos | `_inner` |
+| fusing GRiM into a bigger kernel, sharing `s_XImats`/scratch across algos | `_inner` |
 | writing your **own** kernel, one algo, don't want to manage scratch | `_device` |
 | want the batched `__global__` but own your device buffers + memcpy | `_kernel` |
 | just call one algorithm from host, no CUDA plumbing | `_host` |
@@ -105,4 +105,4 @@ hand:
 
 Layers 3–4 (`_kernel` / `_host`) are exercised end-to-end by
 `test/cuda_equivalents/cuda_equivalence_runner.cu`, which is the place to look for
-the full `gridData` lifecycle.
+the full `grimData` lifecycle.

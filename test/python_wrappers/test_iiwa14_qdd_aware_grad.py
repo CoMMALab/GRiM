@@ -1,4 +1,4 @@
-"""qdd-aware autograd gradient tests for grid_rbd.jax / grid_rbd.torch.
+"""qdd-aware autograd gradient tests for grim.jax / grim.torch.
 
 Phase-1 follow-up. The qdd VALUE path was wired on all surfaces, but the JAX
 ``custom_vjp`` ``id_bwd`` and the torch ``InverseDynamicsFn.backward`` previously
@@ -39,7 +39,7 @@ from config import robot_urdf
 
 # ─── preconditions ───────────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 
 if shutil.which("nvcc") is None:
     pytest.skip("nvcc not on PATH; register_robot requires it", allow_module_level=True)
@@ -61,7 +61,7 @@ _ROBOT = "iiwa14_qdd_aware_grad"
 @pytest.fixture(scope="module")
 def numpy_handle():
     # The numpy register also compiles the shared .so the jax/torch handles reuse.
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name=_ROBOT, urdf_path=str(_URDF),
         floating_base=False, max_batch_size=16, force_rebuild=True)
 
@@ -108,8 +108,8 @@ def test_numpy_gradient_depends_on_qdd(numpy_handle, samples):
 
 @pytest.fixture(scope="module")
 def jax_handle(numpy_handle):
-    pytest.importorskip("jax", reason="jax not installed (pip install grid-rbd[jax])")
-    import grid_rbd.jax as gj
+    pytest.importorskip("jax", reason="jax not installed (pip install grim[jax])")
+    import grim.jax as gj
     return gj.get_robot(_ROBOT)
 
 
@@ -182,7 +182,7 @@ def torch_handle(numpy_handle):
     torch = pytest.importorskip("torch", reason="torch not installed")
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     return gt.get_robot(_ROBOT)
 
 

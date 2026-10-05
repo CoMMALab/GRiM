@@ -16,7 +16,7 @@ Three checks (mirroring the runtime_inertia suite's structure):
           robot whose URDF origins ARE those perturbed values (proves mutation == recompile).
   CHECK3  thread-invariance     bit-identical across {1,32,256} threads (single-block core).
 
-Requires a CUDA GPU + the grid_rbd binding build toolchain (nvcc). iiwa14 fixed base.
+Requires a CUDA GPU + the grim binding build toolchain (nvcc). iiwa14 fixed base.
 
 Run with:
     pytest test/python_wrappers/test_runtime_transform.py -m python_wrappers -v
@@ -44,10 +44,10 @@ from config import robot_urdf, ROBOT_ASSETS_DIR  # noqa: E402
 
 import shutil  # noqa: E402
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it",
+    pytest.skip("nvcc not on PATH; grim register_robot requires it",
                 allow_module_level=True)
 
 _IIWA = robot_urdf("iiwa14")
@@ -68,7 +68,7 @@ CHECK3_ABS_TOL = 1e-5
 
 def _reg(name, **kw):
     with contextlib.redirect_stdout(io.StringIO()):
-        return _grid_rbd.register_robot(name=name, urdf_path=str(_IIWA),
+        return _grim.register_robot(name=name, urdf_path=str(_IIWA),
                                         floating_base=False, max_batch_size=8, **kw)
 
 
@@ -136,7 +136,7 @@ def recodegen(rt, perturbed):
     tree.write(pert_urdf)
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            handle = _grid_rbd.register_robot(
+            handle = _grim.register_robot(
                 name="iiwa_recodegen_pert_pytest", urdf_path=pert_urdf,
                 floating_base=False, max_batch_size=8, force_rebuild=True)
         yield handle
@@ -201,9 +201,9 @@ def test_transform_poke_seen_across_surfaces(rt, perturbed, samples):
     global) see the poked joint origins: numpy == jax == torch AFTER
     set_transform_params. End-to-end check that the jax/torch runtime_transform
     exposure threads the shared table. Skips if jax/torch unavailable."""
-    gj = pytest.importorskip("grid_rbd.jax")
+    gj = pytest.importorskip("grim.jax")
     pytest.importorskip("jax")
-    gt = pytest.importorskip("grid_rbd.torch")
+    gt = pytest.importorskip("grim.torch")
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device not available for torch")

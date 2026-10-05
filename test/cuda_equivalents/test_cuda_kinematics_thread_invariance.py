@@ -1,6 +1,6 @@
 """V6 — kinematics thread-count-invariance matrix.
 
-GRiD's single-block kernels are a CORE design invariant: every parallel region
+GRiM's single-block kernels are a CORE design invariant: every parallel region
 is a block-stride loop (``for i = tid; i < N; i += blockDim.x``), so ANY block
 size that fits MUST produce identical results (design_principles.rst §1). This
 test pins that down for the KINEMATICS kernels specifically, sweeping the LOW end
@@ -25,12 +25,12 @@ Algorithms: end_effector_pose, end_effector_pose_gradient, frame_jacobian
 (the current emitted symbols / algorithm_list keys — verified against the codegen).
 
 Matrix (per algorithm):
-  thread counts : {1, 2, 16, 32, 64, 128, 256}   (override GRID_CUDA_KIN_THREADS)
+  thread counts : {1, 2, 16, 32, 64, 128, 256}   (override GRIM_CUDA_KIN_THREADS)
   batch sizes   : {1, 16, 256}  (= number of distinct input samples compared;
-                   override GRID_CUDA_KIN_BATCHES)
+                   override GRIM_CUDA_KIN_BATCHES)
   robots/bases  : iiwa14-fixed + go2-floating  (+ g1-floating for frame_jacobian)
 
-Robots override via GRID_CUDA_KIN_ROBOTS="iiwa14:fixed,go2:floating".
+Robots override via GRIM_CUDA_KIN_ROBOTS="iiwa14:fixed,go2:floating".
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from test.cuda_equivalents.cuda_harness import (
     _compile_runner,
     _ee_gimbal_lock_leaves,
     _expected_output,
-    _generate_grid_header,
+    _generate_grim_header,
     _parse_runner_output,
     _run_runner,
     _sample_to_stdin,
@@ -81,7 +81,7 @@ _INVARIANCE_ATOL = 1e-5
 
 
 def _thread_counts() -> tuple[int, ...]:
-    raw = os.environ.get("GRID_CUDA_KIN_THREADS")
+    raw = os.environ.get("GRIM_CUDA_KIN_THREADS")
     if not raw:
         return _DEFAULT_THREAD_COUNTS
     counts = tuple(int(p.strip()) for p in raw.split(",") if p.strip())
@@ -89,7 +89,7 @@ def _thread_counts() -> tuple[int, ...]:
 
 
 def _batch_sizes() -> tuple[int, ...]:
-    raw = os.environ.get("GRID_CUDA_KIN_BATCHES")
+    raw = os.environ.get("GRIM_CUDA_KIN_BATCHES")
     if not raw:
         return _DEFAULT_BATCH_SIZES
     sizes = tuple(int(p.strip()) for p in raw.split(",") if p.strip())
@@ -99,7 +99,7 @@ def _batch_sizes() -> tuple[int, ...]:
 def _ee_robot_modes():
     """Robots for the end_effector_pose / end_effector_pose_gradient invariance
     sweep: iiwa14-fixed + go2-floating at minimum."""
-    raw = os.environ.get("GRID_CUDA_KIN_ROBOTS", "iiwa14:fixed,go2:floating")
+    raw = os.environ.get("GRIM_CUDA_KIN_ROBOTS", "iiwa14:fixed,go2:floating")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -112,9 +112,9 @@ def _ee_robot_modes():
 
 def _frame_jac_robot_modes():
     """frame_jacobian invariance sweep adds a big robot (g1-floating) when the
-    compile/runtime budget allows (override GRID_CUDA_KIN_FRAME_JAC_ROBOTS)."""
+    compile/runtime budget allows (override GRIM_CUDA_KIN_FRAME_JAC_ROBOTS)."""
     raw = os.environ.get(
-        "GRID_CUDA_KIN_FRAME_JAC_ROBOTS", "iiwa14:fixed,go2:floating,g1:floating"
+        "GRIM_CUDA_KIN_FRAME_JAC_ROBOTS", "iiwa14:fixed,go2:floating,g1:floating"
     )
     out = []
     for tok in raw.split(","):
@@ -140,7 +140,7 @@ def _resolve_models(robot_id, base_mode):
     except RuntimeError as exc:
         pytest.skip(f"Could not resolve manifest {spec.robot_id}: {exc}")
     project_model = build_project_adapter(spec, resolved, base_mode=base_mode)
-    oracle_backend = resolve_backend(os.environ.get("GRID_REFERENCE_BACKEND", "pinocchio"))
+    oracle_backend = resolve_backend(os.environ.get("GRIM_REFERENCE_BACKEND", "pinocchio"))
     reference_model = (
         project_model
         if oracle_backend == "reference"
@@ -172,13 +172,13 @@ def _deterministic_samples(project_model, batch_size):
 
 @contextlib.contextmanager
 def _floating_emit_only(names):
-    """Scope GRID_CUDA_FLOATING_ALGORITHMS so the FLOATING equivalence runner
+    """Scope GRIM_CUDA_FLOATING_ALGORITHMS so the FLOATING equivalence runner
     emits ONLY the requested kinematics kernels. Without this, an unset env makes
     the floating runner additionally emit the (heavy, workspace-dependent)
     end_effector_pose_hessian, which is not part of the V6 kinematics target and
     would only add launch risk / nvcc time. The runner reads this env at runtime
     in floating_algorithm_requested()."""
-    key = "GRID_CUDA_FLOATING_ALGORITHMS"
+    key = "GRIM_CUDA_FLOATING_ALGORITHMS"
     prev = os.environ.get(key)
     os.environ[key] = ",".join(names)
     try:
@@ -241,7 +241,7 @@ def test_ee_pose_thread_invariance(tmp_path, robot_id, base_mode, batch_size, re
 
     build_dir = tmp_path / f"kin_ee_{robot_id}_{base_mode}_b{batch_size}"
     build_dir.mkdir()
-    header_path, header_key = _generate_grid_header(
+    header_path, header_key = _generate_grim_header(
         project_model, resolved, build_dir, request.config
     )
 

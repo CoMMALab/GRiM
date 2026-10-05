@@ -5,12 +5,12 @@ Validates `gen_inverse_dynamics_regressor` (CUDA) against
 `_RegressorMixin`) and the structural identity `Y @ pi == inverse_dynamics(q,qd,qdd)`.
 
 `tau = Y(q,qd,qdd) . pi` with `pi_i = [m, m*c(3), I_O(6)=[Ixx,Ixy,Ixz,Iyy,Iyz,Izz]]`
-per link (GRiD/URDF basis). The CUDA kernel reuses the RNEA forward sweep to get
+per link (GRiM/URDF basis). The CUDA kernel reuses the RNEA forward sweep to get
 per-link (v, a), builds each link's 6x10 body regressor, and back-propagates the
 6x10 blocks up the tree (X^T + S^T projection) exactly like the numpy reference.
 
 Gated iiwa14 (fixed) first, then g1 (floating). The regressor output is
-nv x 10*NUM_BODIES and is NOT a gridData field, so the runner allocates the
+nv x 10*NUM_BODIES and is NOT a grimData field, so the runner allocates the
 output buffer itself.
 """
 
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -55,7 +55,7 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _project_pi(robot):
-    """Stack each body's 10 standard inertial params, GRiD/URDF basis
+    """Stack each body's 10 standard inertial params, GRiM/URDF basis
     [m, h(3), Ixx, Ixy, Ixz, Iyy, Iyz, Izz]. Mirrors the RBDReference test
     `_project_pi`."""
     nb = robot.get_num_bodies()
@@ -74,8 +74,8 @@ def _project_pi(robot):
 
 
 def _generate_header(project_model, build_dir: Path) -> Path:
-    header_path = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header_path = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -104,9 +104,9 @@ def _compile_runner(build_dir: Path, floating_base: bool):
     thread_count = _random_thread_count()
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
-        f"-DGRID_CUDA_REGRESSOR_TEST_THREADS={thread_count}",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
+        f"-DGRIM_CUDA_REGRESSOR_TEST_THREADS={thread_count}",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(executable), str(runner_copy),
@@ -165,7 +165,7 @@ def test_cuda_regressor_matches_reference(robot_id, base_mode, tmp_path):
 
         Y_cuda = np.asarray(outputs["regressor"], dtype=np.float64).reshape(nv, 10 * nb)
 
-        # numpy reference (verified _RegressorMixin); GRiD and the reference now
+        # numpy reference (verified _RegressorMixin); GRiM and the reference now
         # share one gravity convention (-9.81), so the runner passes -9.81 too.
         Y_ref = np.asarray(
             reference.inverse_dynamics_regressor(q, qd, qdd, GRAVITY=-9.81), dtype=np.float64

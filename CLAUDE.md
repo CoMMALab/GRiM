@@ -5,30 +5,39 @@ deeper docs it points at. This file is tracked and authoritative for conventions
 `docs/STARTUP_PROMPT.md` holds machine-local facts ONLY (GPU arch, RAM caps) — it is never a task
 list, and current plans live in `docs/open-tasks/`.
 
-## What GRiD is
+## What GRiM is
 
-A GPU-accelerated rigid body dynamics library. GRiD reads a URDF and **generates** optimized,
-per-robot CUDA C++ (`grid.cuh`) implementing forward/inverse dynamics, their analytical gradients,
+A fork of GRiD (A2R-Lab) extended with a motion-generation layer, `bindings/grim/motion/` (IK,
+region IK, trajectory optimization, fused collision, compiled least squares, C3+, traced
+dynamics), held to GRiD's verification standard: read `test/motion/TESTING.md` before touching
+it. GRiD's own description follows.
+
+A GPU-accelerated rigid body dynamics library. GRiM reads a URDF and **generates** optimized,
+per-robot CUDA C++ (`grim.cuh`) implementing forward/inverse dynamics, their analytical gradients,
 second-order derivatives, kinematics, centroidal quantities, and a trajectory-optimization
-`grid_plant` layer. Every algorithm exists on **two surfaces tested for numerical agreement**: a
+`grim_plant` layer. Every algorithm exists on **two surfaces tested for numerical agreement**: a
 numpy oracle in `RBDReference` (validated against Pinocchio) and the generated CUDA kernels
 (validated against that oracle). Keep that invariant sacred.
 
 ## Layout
 
-- `grid_codegen/` — the code-generation engine (the heart of GRiD); emits `grid.cuh` AND the
-  checked-in generated regions of `bindings/grid_rbd/wrapper_template.cu` (C-ABI bodies,
+- `grim_codegen/` — the code-generation engine (the heart of GRiM); emits `grim.cuh` AND the
+  checked-in generated regions of `bindings/grim/wrapper_template.cu` (C-ABI bodies,
   kernel_max_threads table, mjx twins, JAX-FFI handlers, torch op bodies + op table — via
-  `wrapper_body_gen.py`; the JAX/torch plant tails — via `grid_codegen/wrapper_plant_gen.py`)
+  `wrapper_body_gen.py`; the JAX/torch plant tails — via `grim_codegen/wrapper_plant_gen.py`)
   and of `bindings/src/_core.cpp` (the pybind method bodies + mjx accessors — via
   `core_body_gen.py`), all driven by the one `abi_specs.py` table. Regenerate with
-  `.venv/bin/python -m grid_codegen.wrapper_body_gen` / `-m grid_codegen.core_body_gen`; never
+  `.venv/bin/python -m grim_codegen.wrapper_body_gen` / `-m grim_codegen.core_body_gen`; never
   hand-edit inside the BEGIN/END markers. Includes
-  `grid_codegen/collision/` (collision-geometry SDF header + spherized assets for two-tier `config_free`).
+  `grim_codegen/collision/` (collision-geometry SDF header + spherized assets for two-tier `config_free`).
+- `bindings/grim/motion/` — motion kernels (`kernels/*.cu`, hand-written, GLASS-form tiers) built
+  per robot by `_build.py` (robot tables baked as `__constant__`, optional cricket traces), their
+  JAX launchers, and the float64 oracle in `reference/`. Tests in `test/motion/` (cricket-dependent
+  ones run in a conda env with cricket's Python extension; see `install/motion_install.sh`).
 - `external/` — the peer-product submodules `GLASS/`, `RBDReference/`, `URDFParser/` (GPU linear
   algebra, Pinocchio-validated reference dynamics, URDF parsing). **Four separate peer products** with
-  GRiD, all under `A2R-Lab`; grouped here so the top level stays about GRiD itself.
-- `bindings/` — the `grid-rbd` Python package: `register_robot(...)` → numpy / jax / torch handles.
+  GRiM, all under `A2R-Lab`; grouped here so the top level stays about GRiM itself.
+- `bindings/` — the `grim` Python package: `register_robot(...)` → numpy / jax / torch handles.
   Agent-facing API tour: `bindings/examples/AGENT_INTEGRATION_GUIDE.md`.
 - `examples/` — start here: `examples/notebooks/` (Python-wrapper walkthroughs, the "start here" track;
   see `examples/README.md`), `examples/codegen/` + `examples/cuda/` (generate + validate walkthroughs).
@@ -42,23 +51,23 @@ numpy oracle in `RBDReference` (validated against Pinocchio) and the generated C
 ## Generate code
 
 ```bash
-bash install/base_install.sh && source .venv/bin/activate      # single `pip install -e .` + `grid-generate` CLI
-grid-generate path/to/robot.urdf [-f] [-t EE_JOINT] [-n NAMESPACE] [-c] [-d]
+bash install/base_install.sh && source .venv/bin/activate      # single `pip install -e .` + `grim-generate` CLI
+grim-generate path/to/robot.urdf [-f] [-t EE_JOINT] [-n NAMESPACE] [-c] [-d]
 .venv/bin/python examples/codegen/generate_iiwa14.py             # fixed-base example
 .venv/bin/python examples/codegen/generate_go2_floating.py       # floating-base example
 ```
 
-Always use `.venv/bin/python` (never bare `python`). The editable install puts `grid_codegen`,
-`URDFParser`, `RBDReference`, and `grid_rbd` on the venv path, so no `PYTHONPATH` is needed. Box CUDA
+Always use `.venv/bin/python` (never bare `python`). The editable install puts `grim_codegen`,
+`URDFParser`, `RBDReference`, and `grim` on the venv path, so no `PYTHONPATH` is needed. Box CUDA
 arch: `sm_120`/`compute_120` (per-machine notes belong in the gitignored `docs/STARTUP_PROMPT.md`).
-Clear `grid_codegen/__pycache__` after codegen changes.
+Clear `grim_codegen/__pycache__` after codegen changes.
 
 ## Test
 
 ```bash
 .venv/bin/python -m pytest -q                                   # full suite
 .venv/bin/python -m pytest -m cuda_equivalence -q               # CUDA-vs-numpy equivalence (needs a GPU)
-.venv/bin/python -m pytest -m python_wrappers -q                # jax/torch handles (needs GPU + grid-rbd)
+.venv/bin/python -m pytest -m python_wrappers -q                # jax/torch handles (needs GPU + grim)
 .venv/bin/python -m pytest -m pinocchio_equivalence -q          # numpy oracle vs Pinocchio (CPU)
 ```
 
@@ -90,7 +99,7 @@ workers (predicted peak RSS from a rolling `/usr/bin/time -v` ledger at
 floor) and OVERLAP GPU shard execution — a shard only waits for its own compile
 jobs, so the pool is the sole writer of a cache key until that shard starts (the
 unlocked cache writers are never raced; a mimic robot's cells share one header and
-fold into one serial job). `GRID_SPLIT_COMPILE_JOBS` sizes the pool (default 5;
+fold into one serial job). `GRIM_SPLIT_COMPILE_JOBS` sizes the pool (default 5;
 `0` = legacy serial inline warm).
 **Receipt policies (two-tier, user decision 2026-08-20).** The committed
 `gpu-proof.json` goes stale — and CI's verify-receipt job goes RED — the
@@ -106,7 +115,7 @@ That red is by design, and the fix is a refresh or a full pass:
   goes green — minutes-to-hours, not the full pass. A carried shard attests
   "these tests, whose files are unchanged, passed at an ancestor commit ≤30
   days old"; cross-cutting codegen/bindings changes are NOT re-proven by
-  carry. `GRID_SPLIT_REFRESH_DRY=1` previews the stale/carried plan.
+  carry. `GRIM_SPLIT_REFRESH_DRY=1` previews the stale/carried plan.
 - **Release** (`test/gpu-proof-policy-release.yaml`, `allow_carried: false`):
   refuses carried shards outright, so a release receipt requires ONE fresh
   full `SPLIT=1` pass at the release tip — every shard executed at that exact
@@ -120,17 +129,19 @@ seconds of regeneration, never an nvcc rebuild.
 ## Durable engineering conventions
 
 - **Single-block per kernel/robot, always** — no multi-block / cooperative groups. Big-robot
-  performance comes from in-block parallelism only.
+  performance comes from in-block parallelism only. For the motion kernels: one problem never
+  spans blocks (thread and warp tiers pack many problems into a block; independent per-column or
+  elementwise work may spread across blocks because it never communicates).
 - **Thread-count invariant** — a kernel's output must be identical at 1 / 32 / any thread count.
   Test it. Floating-base reductions must also be **run-to-run bit-deterministic** (fixed-order sums).
 - **Byte-identical codegen discipline** — a refactor that shouldn't change emitted code must produce
-  a byte-identical `grid.cuh` (regen before/after + `diff`; harness:
+  a byte-identical `grim.cuh` (regen before/after + `diff`; harness:
   `.venv/bin/python tools/byte_gate.py <outdir>` — 7 representative cells, sha256 per cell). Never
   advance on a non-identical diff without a CUDA-equivalence sign-off.
 - **Fix, don't guard** — no `xfail`/`skip`/defensive guards; fix the root cause.
 - **Physics**: gravity `-9.81`; Pinocchio is authoritative. Prefer extending GLASS primitives over
   working around them (GLASS is first-party).
-- **Big floating-base builds are mjx-dominated.** On a floating, non-mimic robot GRiD also emits a
+- **Big floating-base builds are mjx-dominated.** On a floating, non-mimic robot GRiM also emits a
   MuJoCo-convention ("mjx") twin of each kernel; the second-order twins used to dwarf their pin
   kernels (`idsva_so_world_frame` twin was **28x** raw, cut to 5.5x by rolling, then to **2.42x** by
   block-parallelizing the epilogue; `fdsva_so` **1.41x**; first-order twins ~1.0x). That — not
@@ -138,7 +149,7 @@ seconds of regeneration, never an nvcc rebuild.
   output slab in PER-THREAD register arrays (nv²-sized) that spilled to local memory; block-sharing
   them + spreading each op across the block removed the spill (both smaller AND faster) — see
   `docs/agent_debugging_guide.md` §1u. Build pin-only with `enable_mujoco_kernels=False`
-  (`register_robot` / `gen_all_code`), or `GRID_ENABLE_MUJOCO_KERNELS=0` for a whole codegen
+  (`register_robot` / `gen_all_code`), or `GRIM_ENABLE_MUJOCO_KERNELS=0` for a whole codegen
   session; an explicit argument always beats the env var. The CUDA equivalence suite defaults to
   pin-only (`test/cuda_equivalents/conftest.py`) — it exercises no mjx path, and that alone took a
   go2-floating second-order cell from 175 s to 20 s.

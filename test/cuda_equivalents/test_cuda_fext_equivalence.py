@@ -3,7 +3,7 @@ pure-Python RBDReference vs pinocchio, for a known nonzero LOCAL-frame f_ext.
 
 This is a dedicated, self-contained companion to
 ``test_cuda_executable_equivalence.py``. It drives the SAME runner
-(``cuda_equivalence_runner.cu``) but with ``GRID_RUNNER_FEXT=1`` so the runner
+(``cuda_equivalence_runner.cu``) but with ``GRIM_RUNNER_FEXT=1`` so the runner
 reads a per-body external force (body-major ``6*NUM_BODIES`` local frame,
 [angular; linear]) and emits ``*_fext``-labeled outputs for the dynamics that
 thread external forces (inverse_dynamics / fd / aba / inverse_dynamics-grad / fd-grad). We feed the
@@ -26,7 +26,7 @@ from RBDReference.equivalents.pinocchio_backend import build_pinocchio_adapter
 from RBDReference.tests.state_sampling import build_dynamics_samples
 from RBDReference.tests.tolerances import get_tolerance
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
@@ -52,8 +52,8 @@ def _build_adapters(robot_id, base_mode):
 
 
 def _gen_and_compile(proj, build_dir, floating_base):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         proj.robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     import contextlib
@@ -77,16 +77,16 @@ def _gen_and_compile(proj, build_dir, floating_base):
     arch = _detect_cuda_arch()
     runner_copy = build_dir / RUNNER_SOURCE.name
     shutil.copyfile(RUNNER_SOURCE, runner_copy)
-    # The runner #includes "grid_runner_select.cuh" (split scaffold, monolith-inert);
+    # The runner #includes "grim_runner_select.cuh" (split scaffold, monolith-inert);
     # copy it next to the runner copy so the isolated-dir compile resolves it —
     # same as the flagship harness does.
-    shutil.copyfile(RUNNER_SOURCE.with_name("grid_runner_select.cuh"),
-                    build_dir / "grid_runner_select.cuh")
+    shutil.copyfile(RUNNER_SOURCE.with_name("grim_runner_select.cuh"),
+                    build_dir / "grim_runner_select.cuh")
     exe = build_dir / "cuda_fext_runner.exe"
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(exe), str(runner_copy),
@@ -100,7 +100,7 @@ def _gen_and_compile(proj, build_dir, floating_base):
 def _run(exe, stdin_text):
     result = subprocess.run(
         [str(exe)], input=stdin_text, cwd=exe.parent, capture_output=True, text=True,
-        env={**os.environ, "GRID_RUNNER_FEXT": "1"},
+        env={**os.environ, "GRIM_RUNNER_FEXT": "1"},
     )
     combined = f"{result.stdout}\n{result.stderr}".lower()
     if result.returncode != 0:

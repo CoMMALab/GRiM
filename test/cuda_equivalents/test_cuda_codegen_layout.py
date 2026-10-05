@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._idsva_so import (
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._idsva_so import (
     idsva_so_parent_topology_needs_reference_order_output_repair,
 )
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
@@ -24,7 +24,7 @@ from RBDReference.equivalents.reference_backend import build_project_adapter
 CONST_RE = re.compile(r"const int (?P<name>[A-Z0-9_]+) = (?P<value>-?[0-9]+);")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CODEGEN_ROOT = REPO_ROOT / "grid_codegen"
+CODEGEN_ROOT = REPO_ROOT / "grim_codegen"
 
 
 @contextlib.contextmanager
@@ -72,8 +72,8 @@ def _generate_header(
         )
     project_model = build_project_adapter(spec, resolved, base_mode=base_mode)
     header_path = tmp_path / f"{robot_id}_{base_mode}_{target_shared_bytes or 'default'}.cuh"
-    with _temporary_env({"GRID_CUDA_TARGET_SHARED_MEM_BYTES": target_shared_bytes}):
-        codegen = GRiDCodeGenerator(
+    with _temporary_env({"GRIM_CUDA_TARGET_SHARED_MEM_BYTES": target_shared_bytes}):
+        codegen = GRiMCodeGenerator(
             project_model.robot,
             DEBUG_MODE=False,
             NEED_PRINT_MAT=False,
@@ -101,7 +101,7 @@ def _codegen_for_robot(robot_id: str, base_mode: str):
             f"before executing CUDA codegen tests. Resolution error: {exc}"
         )
     project_model = build_project_adapter(spec, resolved, base_mode=base_mode)
-    return GRiDCodeGenerator(
+    return GRiMCodeGenerator(
         project_model.robot,
         DEBUG_MODE=False,
         NEED_PRINT_MAT=False,
@@ -164,7 +164,7 @@ def _compile_header_consumer(
 
     build_dir = tmp_path / label
     build_dir.mkdir()
-    header_path = build_dir / "grid.cuh"
+    header_path = build_dir / "grim.cuh"
     source_path = build_dir / f"{label}.cu"
     object_path = build_dir / f"{label}.o"
     header_path.write_text(header)
@@ -231,12 +231,12 @@ def test_fixed_default_header_keeps_gradient_paths_all_shared(tmp_path):
     # `"__shared__ T" not in header` is no longer valid: the batched FK / quadratic
     # cost helper kernels legitimately declare small fixed-size __shared__ T scratch
     # of their own, unrelated to the gradient spill arenas this test asserts about.
-    assert constants["GRID_INVERSE_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP"] == 0
-    assert constants["GRID_FORWARD_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP"] == 0
-    assert constants["GRID_INVERSE_DYNAMICS_GRADIENT_USES_DA_DF_SPILL"] == 0
-    assert constants["GRID_FORWARD_DYNAMICS_GRADIENT_USES_DA_DF_SPILL"] == 0
-    assert constants["GRID_GENERATES_IDSVA_SO_BODY_FRAME"] == 1
-    assert constants["GRID_GENERATES_FDSVA_SO"] == 1
+    assert constants["GRIM_INVERSE_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP"] == 0
+    assert constants["GRIM_FORWARD_DYNAMICS_GRADIENT_USES_GLOBAL_TEMP"] == 0
+    assert constants["GRIM_INVERSE_DYNAMICS_GRADIENT_USES_DA_DF_SPILL"] == 0
+    assert constants["GRIM_FORWARD_DYNAMICS_GRADIENT_USES_DA_DF_SPILL"] == 0
+    assert constants["GRIM_GENERATES_IDSVA_SO_BODY_FRAME"] == 1
+    assert constants["GRIM_GENERATES_FDSVA_SO"] == 1
 
 
 @pytest.mark.cuda_equivalence
@@ -250,12 +250,12 @@ def test_fixed_forced_low_shared_header_selects_fallbacks(tmp_path):
     # See test_fixed_default_header_keeps_gradient_paths_all_shared: the spill-tier
     # constants are the real signal. A blanket `"__shared__ T" not in header` would
     # now trip on the batched FK / cost helper kernels' own small __shared__ scratch.
-    assert constants["GRID_FORWARD_DYNAMICS_GRADIENT_USES_DA_DF_SPILL"] == 1
-    assert constants["GRID_IDSVA_SO_USES_GLOBAL_OUTPUT"] == 1
-    assert constants["GRID_FDSVA_SO_USES_GLOBAL_TENSORS"] == 1
-    assert constants["GRID_FDSVA_SO_USES_WORKSPACE_TEMP"] == 1
-    assert "grid_begin_l2_persisting" in header
-    assert "grid_end_l2_persisting" in header
+    assert constants["GRIM_FORWARD_DYNAMICS_GRADIENT_USES_DA_DF_SPILL"] == 1
+    assert constants["GRIM_IDSVA_SO_USES_GLOBAL_OUTPUT"] == 1
+    assert constants["GRIM_FDSVA_SO_USES_GLOBAL_TENSORS"] == 1
+    assert constants["GRIM_FDSVA_SO_USES_WORKSPACE_TEMP"] == 1
+    assert "grim_begin_l2_persisting" in header
+    assert "grim_end_l2_persisting" in header
 
 
 # There are NO remaining refused mimic gradients: the last one — floating-base
@@ -437,20 +437,20 @@ def test_floating_header_does_not_require_second_order_kernels(tmp_path, robot_i
     assert constants["SECOND_ORDER_COORDS"] == constants["NUM_VEL"]
     assert constants["SECOND_ORDER_TENSOR_SIZE"] == 4 * constants["NUM_VEL"]**3
     assert constants["Q_QD_U_STRIDE"] == 3 * constants["NUM_POS"]
-    assert constants["GRID_GENERATES_IDSVA_SO_BODY_FRAME"] == 0
-    assert constants["GRID_GENERATES_FDSVA_SO"] == 0
-    assert constants["GRID_GENERATES_D2EE"] == 1
-    assert constants["GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP"] == expected_d2ee_workspace
-    assert constants["GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_D2XHOM"] == 0
-    assert constants["GRID_END_EFFECTOR_POSE_HESSIAN_SHARED_TIER_VALUE"] == expected_d2ee_workspace
-    assert "!GRID_GENERATES_IDSVA_SO_BODY_FRAME" in header
-    assert "!GRID_GENERATES_FDSVA_SO" in header
-    assert "void end_effector_pose(gridData<T, KIND> *hd_data" in header
-    assert "void end_effector_pose_gradient(gridData<T, KIND> *hd_data" in header
-    assert "void end_effector_pose_hessian(gridData<T, KIND> *hd_data" in header
-    assert "void kinematics_only(gridData<T, KIND> *hd_data" in header
-    assert "void aba(gridData<T, KIND> *hd_data" in header
-    assert "void crba(gridData<T, KIND> *hd_data" in header
+    assert constants["GRIM_GENERATES_IDSVA_SO_BODY_FRAME"] == 0
+    assert constants["GRIM_GENERATES_FDSVA_SO"] == 0
+    assert constants["GRIM_GENERATES_D2EE"] == 1
+    assert constants["GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP"] == expected_d2ee_workspace
+    assert constants["GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_D2XHOM"] == 0
+    assert constants["GRIM_END_EFFECTOR_POSE_HESSIAN_SHARED_TIER_VALUE"] == expected_d2ee_workspace
+    assert "!GRIM_GENERATES_IDSVA_SO_BODY_FRAME" in header
+    assert "!GRIM_GENERATES_FDSVA_SO" in header
+    assert "void end_effector_pose(grimData<T, KIND> *hd_data" in header
+    assert "void end_effector_pose_gradient(grimData<T, KIND> *hd_data" in header
+    assert "void end_effector_pose_hessian(grimData<T, KIND> *hd_data" in header
+    assert "void kinematics_only(grimData<T, KIND> *hd_data" in header
+    assert "void aba(grimData<T, KIND> *hd_data" in header
+    assert "void crba(grimData<T, KIND> *hd_data" in header
 
 
 @pytest.mark.cuda_equivalence
@@ -491,8 +491,8 @@ def test_floating_second_order_opt_in_header_compiles(
     )
     constants = _constants(header)
 
-    assert constants["GRID_GENERATES_IDSVA_SO_BODY_FRAME"] == generates_body
-    assert constants["GRID_GENERATES_FDSVA_SO"] == generates_fdsva
+    assert constants["GRIM_GENERATES_IDSVA_SO_BODY_FRAME"] == generates_body
+    assert constants["GRIM_GENERATES_FDSVA_SO"] == generates_fdsva
     assert constants["SECOND_ORDER_COORDS"] == constants["NUM_VEL"]
     assert constants["SECOND_ORDER_TENSOR_SIZE"] == 4 * constants["NUM_VEL"]**3
     # The per-timestep input block is THREE NUM_POS-WIDE SLOTS, not a tight packing:
@@ -505,15 +505,15 @@ def test_floating_second_order_opt_in_header_compiles(
     # in test_cuda_input_abi.py, and by the device allocation / host memcpy / stride arg.
     assert constants["Q_QD_U_STRIDE"] == 3 * constants["NUM_POS"]
     if generates_body:
-        assert "void idsva_so_body_frame(gridData<T, KIND> *hd_data" in header
+        assert "void idsva_so_body_frame(grimData<T, KIND> *hd_data" in header
     else:
-        assert "void idsva_so_body_frame(gridData<T, KIND> *hd_data" not in header
+        assert "void idsva_so_body_frame(grimData<T, KIND> *hd_data" not in header
     if generates_fdsva:
-        assert "void fdsva_so(gridData<T, KIND> *hd_data" in header
+        assert "void fdsva_so(grimData<T, KIND> *hd_data" in header
     else:
-        assert "void fdsva_so(gridData<T, KIND> *hd_data" not in header
+        assert "void fdsva_so(grimData<T, KIND> *hd_data" not in header
     if enable_world_frame:
-        assert "void idsva_so_world_frame(gridData<T, KIND> *hd_data" in header
+        assert "void idsva_so_world_frame(grimData<T, KIND> *hd_data" in header
         assert "void idsva_so_world_frame_inner(" in header
         assert "void idsva_so_world_frame_kernel(" in header
     else:
@@ -523,16 +523,16 @@ def test_floating_second_order_opt_in_header_compiles(
         tmp_path,
         header,
         """
-        #include "grid.cuh"
+        #include "grim.cuh"
         int main() {
-            static_assert(grid::GRID_GENERATES_IDSVA_SO_BODY_FRAME == EXPECTED_BODY, "IDSVA-SO body-frame flag mismatch");
-            static_assert(grid::GRID_GENERATES_FDSVA_SO == EXPECTED_FDSVA, "FDSVA-SO flag mismatch");
-            static_assert(grid::SECOND_ORDER_COORDS == grid::NUM_VEL, "second-order tensor must be velocity-sized");
-            static_assert(grid::SECOND_ORDER_TENSOR_SIZE == 4 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_VEL, "tensor size mismatch");
-            static_assert(grid::Q_QD_U_STRIDE == 3 * grid::NUM_POS, "q/qd/u stride mismatch");
-            static_assert(grid::GRID_Q_OFFSET == 0 && grid::GRID_QD_OFFSET == grid::NUM_POS
-                          && grid::GRID_U_OFFSET == 2 * grid::NUM_POS
-                          && grid::GRID_QDD_OFFSET == grid::GRID_U_OFFSET,
+            static_assert(grim::GRIM_GENERATES_IDSVA_SO_BODY_FRAME == EXPECTED_BODY, "IDSVA-SO body-frame flag mismatch");
+            static_assert(grim::GRIM_GENERATES_FDSVA_SO == EXPECTED_FDSVA, "FDSVA-SO flag mismatch");
+            static_assert(grim::SECOND_ORDER_COORDS == grim::NUM_VEL, "second-order tensor must be velocity-sized");
+            static_assert(grim::SECOND_ORDER_TENSOR_SIZE == 4 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_VEL, "tensor size mismatch");
+            static_assert(grim::Q_QD_U_STRIDE == 3 * grim::NUM_POS, "q/qd/u stride mismatch");
+            static_assert(grim::GRIM_Q_OFFSET == 0 && grim::GRIM_QD_OFFSET == grim::NUM_POS
+                          && grim::GRIM_U_OFFSET == 2 * grim::NUM_POS
+                          && grim::GRIM_QDD_OFFSET == grim::GRIM_U_OFFSET,
                           "published input-slot offset constants mismatch");
             return 0;
         }
@@ -576,29 +576,29 @@ def test_d2ee_spill_tiers_are_size_and_base_selected(robot_id, base_mode, expect
     codegen.gen_add_constants_helpers(include_homogenous_transforms=True)
     constants = _constants(codegen.code_str)
 
-    assert constants["GRID_END_EFFECTOR_POSE_HESSIAN_SHARED_TIER_VALUE"] == expected_tier
-    assert constants["GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP"] == int(expected_tier >= 1)
-    assert constants["GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_D2XHOM"] == int(expected_tier >= 2)
+    assert constants["GRIM_END_EFFECTOR_POSE_HESSIAN_SHARED_TIER_VALUE"] == expected_tier
+    assert constants["GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP"] == int(expected_tier >= 1)
+    assert constants["GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_D2XHOM"] == int(expected_tier >= 2)
 
 
 @pytest.mark.cuda_equivalence
 @pytest.mark.developer_only
-def test_generated_header_includes_grid_data_variants_and_no_rnea_alias(tmp_path):
+def test_generated_header_includes_grim_data_variants_and_no_rnea_alias(tmp_path):
     # iiwa14: kept as the sentinel from when mimic gradient codegen was refused
-    # (mimic gradients are fully supported now). The gridData surface asserted
+    # (mimic gradients are fully supported now). The grimData surface asserted
     # here is robot-agnostic.
     header = _generate_header(tmp_path, "iiwa14", "fixed")
 
-    assert "enum gridDataKind { GRID_DATA_ALL = 0, GRID_DATA_DYNAMICS = 1, GRID_DATA_KINEMATICS = 2 };" in header
-    assert "template <typename T, gridDataKind KIND = GRID_DATA_ALL>" in header
-    assert "gridData<T, KIND> *init_gridData" in header
-    assert "void close_grid(cudaStream_t *streams, robotModel<T> *d_robotModel, gridData<T, KIND> *hd_data)" in header
+    assert "enum grimDataKind { GRIM_DATA_ALL = 0, GRIM_DATA_DYNAMICS = 1, GRIM_DATA_KINEMATICS = 2 };" in header
+    assert "template <typename T, grimDataKind KIND = GRIM_DATA_ALL>" in header
+    assert "grimData<T, KIND> *init_grimData" in header
+    assert "void close_grim(cudaStream_t *streams, robotModel<T> *d_robotModel, grimData<T, KIND> *hd_data)" in header
     # Clean-break: inverse_dynamics is the single canonical RNEA host (RNEA stays
     # greppable via docstrings/comments only). There is NO rnea_* alias host. The
     # canonical inverse_dynamics host legitimately exists and must be present.
-    assert "void rnea_single_timing(gridData<T, KIND> *hd_data" not in header
-    assert "void rnea_compute_only(gridData<T, KIND> *hd_data" not in header
-    assert "void inverse_dynamics(gridData<T, KIND> *hd_data" in header
+    assert "void rnea_single_timing(grimData<T, KIND> *hd_data" not in header
+    assert "void rnea_compute_only(grimData<T, KIND> *hd_data" not in header
+    assert "void inverse_dynamics(grimData<T, KIND> *hd_data" in header
 
 
 @pytest.mark.cuda_equivalence
@@ -609,14 +609,14 @@ def test_linalg_backend_controls_and_helpers_are_generated(tmp_path):
     # v2.0 clean-break: cuBLASDx / GLASS-NVIDIA backend was REMOVED (it was a
     # no-op on sm_120 / RTX 5090 per the dispatcher findings). The linalg layer
     # is now SIMT-only vendored GLASS. The NVIDIA macros / namespace / helper
-    # functions and the GRID_CUDA_LINALG_BACKEND/GRID_LINALG_GLASS* selector
-    # macros no longer exist. The `GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()`
+    # functions and the GRIM_CUDA_LINALG_BACKEND/GRIM_LINALG_GLASS* selector
+    # macros no longer exist. The `GRIM_LINALG_NVIDIA_MAX_HELPER_BYTES<T>()`
     # symbol is retained ONLY as a 0-returning stub so the shared-memory arena
     # macros keep compiling unchanged.
-    assert "#define GRID_LINALG_GLASS_NVIDIA" not in header
-    assert "#ifndef GRID_CUDA_LINALG_BACKEND" not in header
+    assert "#define GRIM_LINALG_GLASS_NVIDIA" not in header
+    assert "#ifndef GRIM_CUDA_LINALG_BACKEND" not in header
     assert "namespace nvidia" not in header
-    assert "GRID_CUDA_USE_GLASS_NVIDIA_VALUE" not in header
+    assert "GRIM_CUDA_USE_GLASS_NVIDIA_VALUE" not in header
 
     # Vendored SIMT GLASS primitives (still present).
     assert "namespace glass" in header
@@ -632,24 +632,24 @@ def test_linalg_backend_controls_and_helpers_are_generated(tmp_path):
     assert "glass::gemv_ex" not in header
 
     # The arena-sizing stub must remain (returns 0 now, but the macros call it).
-    assert "GRID_LINALG_NVIDIA_MAX_HELPER_BYTES" in header
+    assert "GRIM_LINALG_NVIDIA_MAX_HELPER_BYTES" in header
 
-    # Public grid_linalg_* SIMT wrappers (the surface kernels call).
-    assert "grid_linalg_gemm" in header
-    assert "grid_linalg_gemv" in header
-    assert "grid_linalg_row_strided_gemv" in header
-    assert "grid_linalg_row_strided_gemm" in header
-    assert "grid_linalg_dot_strided" in header
-    assert "grid_linalg_segmented_row_strided_gemv" in header
+    # Public grim_linalg_* SIMT wrappers (the surface kernels call).
+    assert "grim_linalg_gemm" in header
+    assert "grim_linalg_gemv" in header
+    assert "grim_linalg_row_strided_gemv" in header
+    assert "grim_linalg_row_strided_gemm" in header
+    assert "grim_linalg_dot_strided" in header
+    assert "grim_linalg_segmented_row_strided_gemv" in header
 
     # The removed NVIDIA-backed helpers must NOT regrow.
-    assert "grid_linalg_gemm_glass" not in header
-    assert "grid_linalg_nvidia_row_strided_gemv_smem_bytes" not in header
-    assert "grid_linalg_nvidia_row_strided_gemm_smem_bytes" not in header
-    assert "grid_linalg_packed_gemm_nvidia_colmajor" not in header
-    assert "grid_linalg_packed_gemm_nvidia_transb" not in header
-    assert "grid_linalg_row_strided_gemv_nvidia" not in header
-    assert "grid_linalg_row_strided_gemm_nvidia" not in header
+    assert "grim_linalg_gemm_glass" not in header
+    assert "grim_linalg_nvidia_row_strided_gemv_smem_bytes" not in header
+    assert "grim_linalg_nvidia_row_strided_gemm_smem_bytes" not in header
+    assert "grim_linalg_packed_gemm_nvidia_colmajor" not in header
+    assert "grim_linalg_packed_gemm_nvidia_transb" not in header
+    assert "grim_linalg_row_strided_gemv_nvidia" not in header
+    assert "grim_linalg_row_strided_gemm_nvidia" not in header
 
 
 @pytest.mark.cuda_equivalence
@@ -658,10 +658,10 @@ def test_linalg_backend_default_cxx11_compiles_without_mathdx(tmp_path):
     header = _generate_header(tmp_path, "fr3", "fixed", codegen_profile="dynamics-core")
     # v2.0: cuBLASDx/mathDx was removed; the default header is SIMT-only GLASS and
     # must compile under -std=c++11 with no mathDx headers present. The retained
-    # GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>() stub returns 0 (no NVIDIA helper
+    # GRIM_LINALG_NVIDIA_MAX_HELPER_BYTES<T>() stub returns 0 (no NVIDIA helper
     # smem) — referencing it proves the SIMT-only arena path compiles clean.
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
@@ -671,7 +671,7 @@ int main() {
     (void)A;
     (void)B;
     (void)C;
-    return static_cast<int>(grid::GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
+    return static_cast<int>(grim::GRIM_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
 }
 '''
     _compile_header_consumer(
@@ -687,15 +687,15 @@ int main() {
 def test_linalg_base_strided_helpers_compile(tmp_path):
     header = _generate_header(tmp_path, "fr3", "fixed", codegen_profile="dynamics-core")
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 __global__ void smoke(float *A, float *B, float *C) {
-    C[0] = grid::dot_prod<float, 4, 4, 1>(A, B);
-    C[1] = grid::dot_prod<float, 6, 1, 1>(A, B);
-    C[2] = grid::dot_prod<float, 6, 6, 1>(A, B);
-    C[3] = grid::dot_prod<float, 6, 6, 6>(A, B);
-    grid::grid_linalg_row_strided_gemv<float, 6, 6, 8>(A, B, C, 1.0f, 0.0f);
-    grid::grid_linalg_row_strided_gemm<float, 6, 6, 6, 8, 8>(A, B, C, 1.0f, 0.0f);
+    C[0] = grim::dot_prod<float, 4, 4, 1>(A, B);
+    C[1] = grim::dot_prod<float, 6, 1, 1>(A, B);
+    C[2] = grim::dot_prod<float, 6, 6, 1>(A, B);
+    C[3] = grim::dot_prod<float, 6, 6, 6>(A, B);
+    grim::grim_linalg_row_strided_gemv<float, 6, 6, 8>(A, B, C, 1.0f, 0.0f);
+    grim::grim_linalg_row_strided_gemm<float, 6, 6, 6, 8, 8>(A, B, C, 1.0f, 0.0f);
 }
 
 int main() { return 0; }
@@ -710,61 +710,61 @@ int main() { return 0; }
 
 @pytest.mark.cuda_equivalence
 @pytest.mark.developer_only
-def test_dynamics_grid_data_variant_wrappers_compile(tmp_path):
+def test_dynamics_grim_data_variant_wrappers_compile(tmp_path):
     # iiwa14: kept as the sentinel from when mimic gradient codegen was refused
-    # (mimic gradients are fully supported now). The DYNAMICS gridData-variant
+    # (mimic gradients are fully supported now). The DYNAMICS grimData-variant
     # wrapper surface asserted below is robot-agnostic.
     header = _generate_header(tmp_path, "iiwa14", "fixed", codegen_profile="dynamics")
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
-    grid::gridData<T, grid::GRID_DATA_DYNAMICS> *data = nullptr;
-    grid::robotModel<T> *model = nullptr;
+    grim::grimData<T, grim::GRIM_DATA_DYNAMICS> *data = nullptr;
+    grim::robotModel<T> *model = nullptr;
     cudaStream_t *streams = nullptr;
     dim3 blocks(1, 1, 1);
     dim3 threads(32, 1, 1);
-    grid::inverse_dynamics<T, false, false, grid::GRID_DATA_DYNAMICS>(
+    grim::inverse_dynamics<T, false, false, grim::GRIM_DATA_DYNAMICS>(
         data, model, static_cast<T>(-9.81), 1, blocks, threads, streams);
-    grid::minv<T, false, grid::GRID_DATA_DYNAMICS>(
+    grim::minv<T, false, grim::GRIM_DATA_DYNAMICS>(
         data, model, 1, blocks, threads, streams);
-    grid::forward_dynamics<T, grid::GRID_DATA_DYNAMICS>(
+    grim::forward_dynamics<T, grim::GRIM_DATA_DYNAMICS>(
         data, model, static_cast<T>(-9.81), 1, blocks, threads, streams);
-    grid::inverse_dynamics_gradient<T, false, false, grid::GRID_DATA_DYNAMICS>(
+    grim::inverse_dynamics_gradient<T, false, false, grim::GRIM_DATA_DYNAMICS>(
         data, model, static_cast<T>(-9.81), 1, blocks, threads, streams);
-    grid::forward_dynamics_gradient<T, false, grid::GRID_DATA_DYNAMICS>(
+    grim::forward_dynamics_gradient<T, false, grim::GRIM_DATA_DYNAMICS>(
         data, model, static_cast<T>(-9.81), 1, blocks, threads, streams);
-    grid::dynamics_only<T, grid::GRID_DATA_DYNAMICS>(
+    grim::dynamics_only<T, grim::GRIM_DATA_DYNAMICS>(
         data, model, static_cast<T>(-9.81), 1, blocks, threads, streams);
     return 0;
 }
 '''
-    _compile_header_consumer(tmp_path, header, source, "dynamics_grid_data_variant")
+    _compile_header_consumer(tmp_path, header, source, "dynamics_grim_data_variant")
 
 
 @pytest.mark.cuda_equivalence
 @pytest.mark.developer_only
-def test_kinematics_grid_data_variant_wrappers_compile(tmp_path):
+def test_kinematics_grim_data_variant_wrappers_compile(tmp_path):
     header = _generate_header(tmp_path, "fr3", "fixed", codegen_profile="kinematics")
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
-    grid::gridData<T, grid::GRID_DATA_KINEMATICS> *data = nullptr;
-    grid::robotModel<T> *model = nullptr;
+    grim::grimData<T, grim::GRIM_DATA_KINEMATICS> *data = nullptr;
+    grim::robotModel<T> *model = nullptr;
     cudaStream_t *streams = nullptr;
     dim3 blocks(1, 1, 1);
     dim3 threads(32, 1, 1);
-    grid::end_effector_pose<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::kinematics_only<T, grid::GRID_DATA_KINEMATICS>(
+    grim::kinematics_only<T, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
     return 0;
 }
 '''
-    _compile_header_consumer(tmp_path, header, source, "kinematics_grid_data_variant")
+    _compile_header_consumer(tmp_path, header, source, "kinematics_grim_data_variant")
 
 
 @pytest.mark.cuda_equivalence
@@ -775,22 +775,22 @@ def test_fixed_kinematics_derivative_wrappers_compile(tmp_path):
     # robot-agnostic (the floating variant below already uses iiwa14).
     header = _generate_header(tmp_path, "iiwa14", "fixed", codegen_profile="kinematics-derivatives")
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
-    grid::gridData<T, grid::GRID_DATA_KINEMATICS> *data = nullptr;
-    grid::robotModel<T> *model = nullptr;
+    grim::grimData<T, grim::GRIM_DATA_KINEMATICS> *data = nullptr;
+    grim::robotModel<T> *model = nullptr;
     cudaStream_t *streams = nullptr;
     dim3 blocks(1, 1, 1);
     dim3 threads(32, 1, 1);
-    grid::end_effector_pose<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::end_effector_pose_gradient<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose_gradient<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::end_effector_pose_hessian<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose_hessian<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::kinematics_only<T, grid::GRID_DATA_KINEMATICS>(
+    grim::kinematics_only<T, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
     return 0;
 }
@@ -804,22 +804,22 @@ int main() {
 def test_floating_kinematics_derivative_wrappers_compile(tmp_path):
     header = _generate_header(tmp_path, "iiwa14", "floating", codegen_profile="kinematics-derivatives")
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
-    grid::gridData<T, grid::GRID_DATA_KINEMATICS> *data = nullptr;
-    grid::robotModel<T> *model = nullptr;
+    grim::grimData<T, grim::GRIM_DATA_KINEMATICS> *data = nullptr;
+    grim::robotModel<T> *model = nullptr;
     cudaStream_t *streams = nullptr;
     dim3 blocks(1, 1, 1);
     dim3 threads(32, 1, 1);
-    grid::end_effector_pose<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::end_effector_pose_gradient<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose_gradient<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::end_effector_pose_hessian<T, false, grid::GRID_DATA_KINEMATICS>(
+    grim::end_effector_pose_hessian<T, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
-    grid::kinematics_only<T, grid::GRID_DATA_KINEMATICS>(
+    grim::kinematics_only<T, grim::GRIM_DATA_KINEMATICS>(
         data, model, 1, blocks, threads, streams);
     return 0;
 }
@@ -833,46 +833,46 @@ int main() {
     ("label", "source", "expected_error"),
     [
         (
-            "dynamics_api_rejects_kinematics_grid_data",
+            "dynamics_api_rejects_kinematics_grim_data",
             r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
-    grid::gridData<T, grid::GRID_DATA_KINEMATICS> *data = nullptr;
-    grid::robotModel<T> *model = nullptr;
+    grim::grimData<T, grim::GRIM_DATA_KINEMATICS> *data = nullptr;
+    grim::robotModel<T> *model = nullptr;
     cudaStream_t *streams = nullptr;
     dim3 blocks(1, 1, 1);
     dim3 threads(32, 1, 1);
-    grid::inverse_dynamics<T, false, false, grid::GRID_DATA_KINEMATICS>(
+    grim::inverse_dynamics<T, false, false, grim::GRIM_DATA_KINEMATICS>(
         data, model, static_cast<T>(-9.81), 1, blocks, threads, streams);
     return 0;
 }
 ''',
-            "inverse_dynamics requires all-data or dynamics gridData",
+            "inverse_dynamics requires all-data or dynamics grimData",
         ),
         (
-            "kinematics_api_rejects_dynamics_grid_data",
+            "kinematics_api_rejects_dynamics_grim_data",
             r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
 int main() {
     using T = float;
-    grid::gridData<T, grid::GRID_DATA_DYNAMICS> *data = nullptr;
-    grid::robotModel<T> *model = nullptr;
+    grim::grimData<T, grim::GRIM_DATA_DYNAMICS> *data = nullptr;
+    grim::robotModel<T> *model = nullptr;
     cudaStream_t *streams = nullptr;
     dim3 blocks(1, 1, 1);
     dim3 threads(32, 1, 1);
-    grid::end_effector_pose<T, false, grid::GRID_DATA_DYNAMICS>(
+    grim::end_effector_pose<T, false, grim::GRIM_DATA_DYNAMICS>(
         data, model, 1, blocks, threads, streams);
     return 0;
 }
 ''',
-            "end_effector_pose requires all-data or kinematics gridData",
+            "end_effector_pose requires all-data or kinematics grimData",
         ),
     ],
 )
-def test_grid_data_variant_invalid_wrappers_fail_to_compile(
+def test_grim_data_variant_invalid_wrappers_fail_to_compile(
     tmp_path,
     label,
     source,
@@ -898,17 +898,17 @@ def test_dynamics_core_profile_generates_only_core_dynamics_hosts(tmp_path):
     header = _generate_header(tmp_path, "fr3", "fixed", codegen_profile="dynamics-core")
 
     assert "Codegen profile: dynamics-core" in header
-    assert "void inverse_dynamics(gridData<T, KIND> *hd_data" in header
-    assert "void minv(gridData<T, KIND> *hd_data" in header
-    assert "void forward_dynamics(gridData<T, KIND> *hd_data" in header
-    assert "void dynamics_core(gridData<T, KIND> *hd_data" in header
-    assert "void id_minv_fd(gridData<T, KIND> *hd_data" in header
-    assert "void inverse_dynamics_gradient(gridData<T, KIND> *hd_data" not in header
-    assert "void forward_dynamics_gradient(gridData<T, KIND> *hd_data" not in header
-    assert "void all_dynamics(gridData<T, KIND> *hd_data" not in header
-    assert "void end_effector_pose(gridData<T, KIND> *hd_data" not in header
-    assert "void idsva_so_body_frame(gridData<T, KIND> *hd_data" not in header
-    assert "void fdsva_so(gridData<T, KIND> *hd_data" not in header
+    assert "void inverse_dynamics(grimData<T, KIND> *hd_data" in header
+    assert "void minv(grimData<T, KIND> *hd_data" in header
+    assert "void forward_dynamics(grimData<T, KIND> *hd_data" in header
+    assert "void dynamics_core(grimData<T, KIND> *hd_data" in header
+    assert "void id_minv_fd(grimData<T, KIND> *hd_data" in header
+    assert "void inverse_dynamics_gradient(grimData<T, KIND> *hd_data" not in header
+    assert "void forward_dynamics_gradient(grimData<T, KIND> *hd_data" not in header
+    assert "void all_dynamics(grimData<T, KIND> *hd_data" not in header
+    assert "void end_effector_pose(grimData<T, KIND> *hd_data" not in header
+    assert "void idsva_so_body_frame(grimData<T, KIND> *hd_data" not in header
+    assert "void fdsva_so(grimData<T, KIND> *hd_data" not in header
 
 
 @pytest.mark.cuda_equivalence
@@ -917,12 +917,12 @@ def test_kinematics_profile_generates_kinematics_hosts_only(tmp_path):
     header = _generate_header(tmp_path, "fr3", "fixed", codegen_profile="kinematics")
 
     assert "Codegen profile: kinematics" in header
-    assert "void end_effector_pose(gridData<T, KIND> *hd_data" in header
-    assert "void kinematics_only(gridData<T, KIND> *hd_data" in header
-    assert "static_assert(KIND == GRID_DATA_ALL || KIND == GRID_DATA_KINEMATICS" in header
-    assert "void inverse_dynamics(gridData<T, KIND> *hd_data" not in header
-    assert "void minv(gridData<T, KIND> *hd_data" not in header
-    assert "void forward_dynamics(gridData<T, KIND> *hd_data" not in header
+    assert "void end_effector_pose(grimData<T, KIND> *hd_data" in header
+    assert "void kinematics_only(grimData<T, KIND> *hd_data" in header
+    assert "static_assert(KIND == GRIM_DATA_ALL || KIND == GRIM_DATA_KINEMATICS" in header
+    assert "void inverse_dynamics(grimData<T, KIND> *hd_data" not in header
+    assert "void minv(grimData<T, KIND> *hd_data" not in header
+    assert "void forward_dynamics(grimData<T, KIND> *hd_data" not in header
 
 
 @pytest.mark.cuda_equivalence
@@ -934,15 +934,15 @@ def test_algorithm_list_override_expands_dependencies(tmp_path):
     header = _generate_header(tmp_path, "iiwa14", "fixed", algorithm_list="forward_dynamics_gradient")
 
     assert "Generated algorithms:" in header
-    assert "void inverse_dynamics(gridData<T, KIND> *hd_data" in header
-    assert "void minv(gridData<T, KIND> *hd_data" in header
-    assert "void forward_dynamics(gridData<T, KIND> *hd_data" in header
-    assert "void inverse_dynamics_gradient(gridData<T, KIND> *hd_data" in header
-    assert "void forward_dynamics_gradient(gridData<T, KIND> *hd_data" in header
-    assert "void dynamics_core(gridData<T, KIND> *hd_data" in header
-    assert "void dynamics_gradients(gridData<T, KIND> *hd_data" in header
-    assert "void all_dynamics(gridData<T, KIND> *hd_data" in header
-    assert "void end_effector_pose(gridData<T, KIND> *hd_data" not in header
+    assert "void inverse_dynamics(grimData<T, KIND> *hd_data" in header
+    assert "void minv(grimData<T, KIND> *hd_data" in header
+    assert "void forward_dynamics(grimData<T, KIND> *hd_data" in header
+    assert "void inverse_dynamics_gradient(grimData<T, KIND> *hd_data" in header
+    assert "void forward_dynamics_gradient(grimData<T, KIND> *hd_data" in header
+    assert "void dynamics_core(grimData<T, KIND> *hd_data" in header
+    assert "void dynamics_gradients(grimData<T, KIND> *hd_data" in header
+    assert "void all_dynamics(grimData<T, KIND> *hd_data" in header
+    assert "void end_effector_pose(grimData<T, KIND> *hd_data" not in header
 
 
 @pytest.mark.cuda_equivalence
@@ -1016,7 +1016,7 @@ def test_joint_limits_land_at_true_q_offsets(tmp_path):
         pytest.skip("nvcc not on PATH")
     tu = tmp_path / "limits_tu.cu"
     tu.write_text('#include "go2_floating_default.cuh"\n'
-                  'template float* grid::init_joint_limits<float>();\n'
+                  'template float* grim::init_joint_limits<float>();\n'
                   'int main() { return 0; }\n')
     arch = _detect_cuda_arch()
     proc = subprocess.run([nvcc, "-std=c++17", f"-arch=sm_{arch}", f"-I{tmp_path}",
@@ -1027,7 +1027,7 @@ def test_joint_limits_land_at_true_q_offsets(tmp_path):
 
 @pytest.mark.cuda_equivalence
 def test_tracking_cost_fc_overloads_emit_and_compile(tmp_path):
-    """GATO ASK 1: with contact frames baked, grid_plant emits CONTROL_SIZE-wide
+    """GATO ASK 1: with contact frames baked, grim_plant emits CONTROL_SIZE-wide
     fc overloads of the tracking-cost preset (value + gradient + hessian) with
     runtime fc_cost + nullable fc_ref; without contact frames the header is
     bitwise free of them (the FC_SIZE==0 contract). Compile-checks a TU that
@@ -1035,8 +1035,8 @@ def test_tracking_cost_fc_overloads_emit_and_compile(tmp_path):
     import subprocess as _sp
     import shutil as _sh
     from URDFParser import URDFParser as _P
-    from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator as _G
-    from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf as _cf
+    from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator as _G
+    from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf as _cf
 
     urdf = str(REPO_ROOT / "config" / "robot_assets" / "iiwa14.urdf")
     algos = ["end_effector_pose", "end_effector_pose_gradient", "f_ext_gradient"]
@@ -1044,19 +1044,19 @@ def test_tracking_cost_fc_overloads_emit_and_compile(tmp_path):
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         robot = _P().parse(urdf, floating_base=False)
         frames = _cf(robot, ["iiwa_joint_ee"])
-        fc_header = tmp_path / "fc" / "grid.cuh"
+        fc_header = tmp_path / "fc" / "grim.cuh"
         fc_header.parent.mkdir()
         _G(robot, FILE_NAMESPACE="grid").gen_all_code(
             algorithm_list=algos, output_path=str(fc_header), contact_frames=frames)
         robot2 = _P().parse(urdf, floating_base=False)
-        plain_header = tmp_path / "plain" / "grid.cuh"
+        plain_header = tmp_path / "plain" / "grim.cuh"
         plain_header.parent.mkdir()
         _G(robot2, FILE_NAMESPACE="grid").gen_all_code(
             algorithm_list=algos, output_path=str(plain_header))
 
     fc_text = fc_header.read_text()
-    assert "GRID_PLANT_HAS_TRACKING_COST_FC" in fc_text
-    assert "GRID_PLANT_CONTROL_SIZE = 13;" in fc_text  # NU=7 + 6*1 frame
+    assert "GRIM_PLANT_HAS_TRACKING_COST_FC" in fc_text
+    assert "GRIM_PLANT_CONTROL_SIZE = 13;" in fc_text  # NU=7 + 6*1 frame
     for fn in ("tracking_cost_fc", "tracking_cost_gradient_fc", "tracking_cost_hessian_fc"):
         assert f"void {fn}(" in fc_text, fn
         assert fn not in plain_header.read_text(), f"{fn} leaked into a no-contact build"
@@ -1066,17 +1066,17 @@ def test_tracking_cost_fc_overloads_emit_and_compile(tmp_path):
         pytest.skip("nvcc not on PATH")
     tu = fc_header.parent / "fc_tu.cu"
     tu.write_text(r'''
-#include "grid.cuh"
+#include "grim.cuh"
 using T = float;
-__global__ void fc_probe(T *out, const T *x, const T *u, const grid::robotModel<T> *m) {
+__global__ void fc_probe(T *out, const T *x, const T *u, const grim::robotModel<T> *m) {
     __shared__ T s_scratch[4096]; __shared__ T s_ee[6]; __shared__ T s_eeg[6*7];
     __shared__ T s_qk[14]; __shared__ T s_rk[13]; __shared__ T s_Qk[14*14]; __shared__ T s_Rk[13*13];
     __shared__ T s_Rnu[7*7]; __shared__ T buf[14];
-    grid_plant::tracking_cost_fc<T, 0, false>(out, x, u, buf, buf, buf, buf, buf, buf,
+    grim_plant::tracking_cost_fc<T, 0, false>(out, x, u, buf, buf, buf, buf, buf, buf,
         buf, buf, (T)1, buf, buf, (T)1, buf, buf, (T)1, (T)0.5, nullptr, s_ee, s_scratch, m);
-    grid_plant::tracking_cost_gradient_fc<T, 0, true>(s_qk, s_rk, x, u, buf, buf, buf, buf, buf, buf,
+    grim_plant::tracking_cost_gradient_fc<T, 0, true>(s_qk, s_rk, x, u, buf, buf, buf, buf, buf, buf,
         buf, buf, (T)1, buf, buf, (T)1, buf, buf, (T)1, (T)0.5, nullptr, s_ee, s_eeg, s_scratch, m);
-    grid_plant::tracking_cost_hessian_fc<T, 0, false>(s_Qk, s_Rk, x, u, buf, buf, buf,
+    grim_plant::tracking_cost_hessian_fc<T, 0, false>(s_Qk, s_Rk, x, u, buf, buf, buf,
         buf, buf, (T)1, buf, buf, (T)1, buf, buf, (T)1, (T)0.5, s_Rnu, s_eeg, s_scratch, m);
 }
 int main() { return 0; }
@@ -1091,38 +1091,38 @@ int main() { return 0; }
 @pytest.mark.cuda_equivalence
 @pytest.mark.developer_only
 def test_arena_carve_structs_compile(tmp_path):
-    """GATO ASK6: the namespace-scope carve structs (grid::integrator_arena /
-    grid::integrator_du_arena / grid_plant::plant_step_gradient_arena) are
+    """GATO ASK6: the namespace-scope carve structs (grim::integrator_arena /
+    grim::integrator_du_arena / grim_plant::plant_step_gradient_arena) are
     emitted, carve() compiles as device code, and members carry the
     kernel-layout types (drift in a member name/type fails this compile).
 
     The EXACT layout tie — carve walk == the sizer's baked t-count — is
     enforced at EMISSION time (gen_arena_carve_struct's expected_t_count
     raises during codegen on any drift), so this gate's job is the C++
-    surface, not the arithmetic. The GRID_EE_FIXED_TARGET_NAME stamp
+    surface, not the arithmetic. The GRIM_EE_FIXED_TARGET_NAME stamp
     (ASK6 step 4) is asserted both in the header text and via #ifndef."""
     # end_effector_pose pulls in the EE target-alias surface, whose emission
-    # carries the GRID_EE_FIXED_TARGET_NAME stamp (the stamp is deliberately
+    # carries the GRIM_EE_FIXED_TARGET_NAME stamp (the stamp is deliberately
     # absent from EE-less headers — it describes the alias family).
     header = _generate_header(tmp_path, "iiwa14", "fixed",
                               algorithm_list="integrator,integrator_with_gradient,end_effector_pose")
     assert "struct integrator_arena {" in header
     assert "struct integrator_du_arena {" in header
     assert "struct plant_step_gradient_arena {" in header
-    assert '#define GRID_EE_FIXED_TARGET_NAME ""' in header
+    assert '#define GRIM_EE_FIXED_TARGET_NAME ""' in header
     assert "void end_effector_pose_target_inner(" in header
     source = r'''
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_EE_FIXED_TARGET_NAME
-#error "GRID_EE_FIXED_TARGET_NAME must be stamped by gen_ee_target_aliases"
+#ifndef GRIM_EE_FIXED_TARGET_NAME
+#error "GRIM_EE_FIXED_TARGET_NAME must be stamped by gen_ee_target_aliases"
 #endif
 
 __global__ void carve_probe(unsigned char *out) {
     extern __shared__ __align__(16) unsigned char smem[];
-    auto ia = grid::integrator_arena<float>::carve(smem);
-    auto da = grid::integrator_du_arena<float>::carve(smem);
-    auto pa = grid_plant::plant_step_gradient_arena<float>::carve(smem);
+    auto ia = grim::integrator_arena<float>::carve(smem);
+    auto da = grim::integrator_du_arena<float>::carve(smem);
+    auto pa = grim_plant::plant_step_gradient_arena<float>::carve(smem);
     // Type-checked member access: name/type drift fails to compile.
     float *f = ia.s_q_qd_u; f = ia.s_qdd; f = ia.s_stage_qdd; f = ia.s_stage_point;
     f = ia.s_x_kp1; f = ia.s_XImats; f = ia.s_temp;
@@ -1138,8 +1138,8 @@ __global__ void carve_probe(unsigned char *out) {
 
 int main() {
     // The launch reservations the carve contract pairs with, host-visible.
-    size_t a = grid::INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<float, grid::TIER_SHARED>();
-    size_t b = grid::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<float, grid::TIER_SHARED>();
+    size_t a = grim::INTEGRATOR_DYNAMIC_SHARED_MEM_BYTES<float, grim::TIER_SHARED>();
+    size_t b = grim::INTEGRATOR_DU_DYNAMIC_SHARED_MEM_BYTES<float, grim::TIER_SHARED>();
     return (a > 0 && b > 0) ? 0 : 1;
 }
 '''

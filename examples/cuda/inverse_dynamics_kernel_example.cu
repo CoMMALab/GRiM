@@ -1,9 +1,9 @@
 // =============================================================================
-// GRiD CUDA usage example: writing your OWN kernel against the generated header.
+// GRiM CUDA usage example: writing your OWN kernel against the generated header.
 //
 // This is the canonical "how do I actually use the codegen output" walkthrough.
-// GRiD's whole value is the generated `grid::` CUDA in `grid.cuh`; the high-level
-// `grid_rbd` Python wrapper hides it. Here we drive `inverse_dynamics` (the RNEA,
+// GRiM's whole value is the generated `grim::` CUDA in `grim.cuh`; the high-level
+// `grim` Python wrapper hides it. Here we drive `inverse_dynamics` (the RNEA,
 // the simplest dynamics algorithm) the way a controls/MPC author would: from a
 // single-block kernel we wrote ourselves, then batched one-block-per-timestep.
 //
@@ -12,10 +12,10 @@
 // -----------------------------------------------------------------------------
 //   from robot_descriptions import iiwa14_description
 //   from URDFParser import URDFParser
-//   from GRiDCodeGenerator import GRiDCodeGenerator
+//   from GRiMCodeGenerator import GRiMCodeGenerator
 //   robot = URDFParser().parse(iiwa14_description.URDF_PATH, floating_base=False)
-//   GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
-//       algorithm_list=["inverse_dynamics"], output_path="grid.cuh")
+//   GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+//       algorithm_list=["inverse_dynamics"], output_path="grim.cuh")
 //
 // `algorithm_list` restricts codegen to just the kernels you need (smaller
 // header, faster nvcc). The build script for this example does exactly that; see
@@ -28,12 +28,12 @@
 #include <cmath>
 #include <vector>
 
-#include "grid.cuh"   // generated; defines grid::NUM_JOINTS, the kernels, init_*
+#include "grim.cuh"   // generated; defines grim::NUM_JOINTS, the kernels, init_*
 
-// gpuErrchk / gpuErrchkKernel are defined inside grid.cuh -- use them after EVERY
+// gpuErrchk / gpuErrchkKernel are defined inside grim.cuh -- use them after EVERY
 // CUDA API call and kernel launch. A silent launch failure (e.g. asking for more
 // dynamic shared memory than you registered) otherwise looks like a zeroed
-// "answer", which is the single most common GRiD-kernel footgun.
+// "answer", which is the single most common GRiM-kernel footgun.
 
 // -----------------------------------------------------------------------------
 // Deterministic test inputs (kept identical to examples/cuda/validate.py so the
@@ -41,7 +41,7 @@
 // -----------------------------------------------------------------------------
 template <typename T>
 static void make_inputs(std::vector<T> &q, std::vector<T> &qd, std::vector<T> &qdd) {
-    const int n = grid::NUM_JOINTS;
+    const int n = grim::NUM_JOINTS;
     q.resize(n); qd.resize(n); qdd.resize(n);
     for (int i = 0; i < n; ++i) {
         q[i]   = static_cast<T>(0.1 * (i + 1));
@@ -51,13 +51,13 @@ static void make_inputs(std::vector<T> &q, std::vector<T> &qd, std::vector<T> &q
 }
 
 // =============================================================================
-// PATH A -- the EASY path: call grid::inverse_dynamics_device<T>(...).
+// PATH A -- the EASY path: call grim::inverse_dynamics_device<T>(...).
 //
 // `_device` is the auto-scratch wrapper. It declares the shared-memory arena
 // (`extern __shared__`), carves out s_vaf / s_XImats / s_temp / the linalg
 // scratch for you, runs load_update_XImats_helpers(), then calls the `_inner`.
 // You only hand it inputs + outputs. The launch must reserve exactly
-// grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>() bytes of dynamic shared memory.
+// grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>() bytes of dynamic shared memory.
 //
 // Signature (fixed base, qdd-input variant, from the generated header):
 //   inverse_dynamics_device<T>(T *s_c, const T *s_q, const T *s_qd,
@@ -69,22 +69,22 @@ static void make_inputs(std::vector<T> &q, std::vector<T> &qd, std::vector<T> &q
 template <typename T>
 __global__ void id_device_kernel(
     T *d_c, const T *d_q, const T *d_qd, const T *d_qdd,
-    const grid::robotModel<T> *d_robotModel, const T gravity)
+    const grim::robotModel<T> *d_robotModel, const T gravity)
 {
-    const int n = grid::NUM_JOINTS;
+    const int n = grim::NUM_JOINTS;
     // Per-block static shared inputs/outputs. (The big algorithm scratch is the
     // *dynamic* arena that _device allocates from the smem we reserve at launch.)
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_qd[grid::NUM_JOINTS];
-    __shared__ T s_qdd[grid::NUM_JOINTS];
-    __shared__ T s_c[grid::NUM_JOINTS];
+    __shared__ T s_q[grim::NUM_JOINTS];
+    __shared__ T s_qd[grim::NUM_JOINTS];
+    __shared__ T s_qdd[grim::NUM_JOINTS];
+    __shared__ T s_c[grim::NUM_JOINTS];
 
     for (int i = threadIdx.x; i < n; i += blockDim.x) {
         s_q[i] = d_q[i]; s_qd[i] = d_qd[i]; s_qdd[i] = d_qdd[i];
     }
     __syncthreads();
 
-    grid::inverse_dynamics_device<T>(
+    grim::inverse_dynamics_device<T>(
         s_c, s_q, s_qd, s_qdd, d_robotModel, /*d_f_ext=*/nullptr, gravity);
     __syncthreads();
 
@@ -92,14 +92,14 @@ __global__ void id_device_kernel(
 }
 
 // =============================================================================
-// PATH B -- the FULL-CONTROL path: call grid::inverse_dynamics_inner<T>(...).
+// PATH B -- the FULL-CONTROL path: call grim::inverse_dynamics_inner<T>(...).
 //
 // `_inner` is the fat logic with NO scratch management -- the CALLER places every
 // buffer. Use this when you fuse RNEA into a bigger kernel and want to share the
 // XImats / linalg scratch with other algorithm calls. You must:
 //   (1) lay out the dynamic arena yourself (s_vaf, s_XImats, s_temp, ...),
-//   (2) call grid::load_update_XImats_helpers<T>(...) to populate s_XImats,
-//   (3) call grid::inverse_dynamics_inner<T>(...).
+//   (2) call grim::load_update_XImats_helpers<T>(...) to populate s_XImats,
+//   (3) call grim::inverse_dynamics_inner<T>(...).
 //
 // Buffer sizes for iiwa14 (and the general rule):
 //   s_vaf   : 18*NUM_JOINTS  (v/a/f, 6 each per body)
@@ -117,17 +117,17 @@ __global__ void id_device_kernel(
 template <typename T>
 __global__ void id_inner_kernel(
     T *d_c, const T *d_q, const T *d_qd, const T *d_qdd,
-    const grid::robotModel<T> *d_robotModel, const T gravity)
+    const grim::robotModel<T> *d_robotModel, const T gravity)
 {
-    const int n = grid::NUM_JOINTS;
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_qd[grid::NUM_JOINTS];
-    __shared__ T s_qdd[grid::NUM_JOINTS];
-    __shared__ T s_c[grid::NUM_JOINTS];
+    const int n = grim::NUM_JOINTS;
+    __shared__ T s_q[grim::NUM_JOINTS];
+    __shared__ T s_qd[grim::NUM_JOINTS];
+    __shared__ T s_qdd[grim::NUM_JOINTS];
+    __shared__ T s_c[grim::NUM_JOINTS];
     // Caller-owned algorithm scratch.
-    __shared__ T s_vaf[18 * grid::NUM_JOINTS];
-    __shared__ T s_XImats[72 * grid::NUM_JOINTS];
-    __shared__ T s_temp[6 * grid::NUM_JOINTS];
+    __shared__ T s_vaf[18 * grim::NUM_JOINTS];
+    __shared__ T s_XImats[72 * grim::NUM_JOINTS];
+    __shared__ T s_temp[6 * grim::NUM_JOINTS];
 
     for (int i = threadIdx.x; i < n; i += blockDim.x) {
         s_q[i] = d_q[i]; s_qd[i] = d_qd[i]; s_qdd[i] = d_qdd[i];
@@ -135,13 +135,13 @@ __global__ void id_inner_kernel(
     __syncthreads();
 
     // (2) populate the per-body transform+inertia matrices for this q.
-    grid::load_update_XImats_helpers<T>(
+    grim::load_update_XImats_helpers<T>(
         s_XImats, s_q, /*s_topology_helpers=*/nullptr, d_robotModel, s_temp);
     __syncthreads();
 
     // (3) RNEA. s_topology_helpers is nullptr because TOPOLOGY_HELPERS_COUNT==0
     // for iiwa14; for robots that need it, allocate TOPOLOGY_HELPERS_COUNT ints.
-    grid::inverse_dynamics_inner<T>(
+    grim::inverse_dynamics_inner<T>(
         s_c, s_vaf, s_q, s_qd, s_qdd, s_XImats,
         /*s_topology_helpers=*/nullptr, s_temp, /*d_f_ext=*/nullptr, gravity);
     __syncthreads();
@@ -152,7 +152,7 @@ __global__ void id_inner_kernel(
 // =============================================================================
 // PATH C -- BATCHED: one block per robot/timestep.
 //
-// The GRiD design is SINGLE-BLOCK per problem (never split one robot across
+// The GRiM design is SINGLE-BLOCK per problem (never split one robot across
 // blocks). To process a batch of B states, launch B blocks; block k handles
 // timestep k. The grid-stride loop makes it robust to B > gridDim.x. Here we
 // reuse the easy `_device` wrapper -- the single-block design scales for free.
@@ -161,13 +161,13 @@ __global__ void id_inner_kernel(
 template <typename T>
 __global__ void id_batched_kernel(
     T *d_c, const T *d_q, const T *d_qd, const T *d_qdd, int B,
-    const grid::robotModel<T> *d_robotModel, const T gravity)
+    const grim::robotModel<T> *d_robotModel, const T gravity)
 {
-    const int n = grid::NUM_JOINTS;
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_qd[grid::NUM_JOINTS];
-    __shared__ T s_qdd[grid::NUM_JOINTS];
-    __shared__ T s_c[grid::NUM_JOINTS];
+    const int n = grim::NUM_JOINTS;
+    __shared__ T s_q[grim::NUM_JOINTS];
+    __shared__ T s_qd[grim::NUM_JOINTS];
+    __shared__ T s_qdd[grim::NUM_JOINTS];
+    __shared__ T s_c[grim::NUM_JOINTS];
 
     for (int k = blockIdx.x; k < B; k += gridDim.x) {
         const T *q_k = &d_q[k * n], *qd_k = &d_qd[k * n], *qdd_k = &d_qdd[k * n];
@@ -175,7 +175,7 @@ __global__ void id_batched_kernel(
             s_q[i] = q_k[i]; s_qd[i] = qd_k[i]; s_qdd[i] = qdd_k[i];
         }
         __syncthreads();
-        grid::inverse_dynamics_device<T>(
+        grim::inverse_dynamics_device<T>(
             s_c, s_q, s_qd, s_qdd, d_robotModel, /*d_f_ext=*/nullptr, gravity);
         __syncthreads();
         for (int i = threadIdx.x; i < n; i += blockDim.x) d_c[k * n + i] = s_c[i];
@@ -188,8 +188,8 @@ __global__ void id_batched_kernel(
 // -----------------------------------------------------------------------------
 template <typename T>
 static void launch_and_print(const char *label, void (*kernel)(
-        T*, const T*, const T*, const T*, const grid::robotModel<T>*, const T),
-    const grid::robotModel<T> *d_robotModel, const T *d_q, const T *d_qd,
+        T*, const T*, const T*, const T*, const grim::robotModel<T>*, const T),
+    const grim::robotModel<T> *d_robotModel, const T *d_q, const T *d_qd,
     const T *d_qdd, T *d_c, int n, int threads, size_t smem, T gravity)
 {
     // Opt-in dynamic shared memory MUST be registered before launching, or the
@@ -212,17 +212,17 @@ static void launch_and_print(const char *label, void (*kernel)(
 template <typename T>
 static void run() {
     const T gravity = static_cast<T>(-9.81);
-    const int n = grid::NUM_JOINTS;
+    const int n = grim::NUM_JOINTS;
     // One warp is plenty for a 7-DoF arm; the kernels carry
-    // __launch_bounds__(grid::MAX_PERF_LEVEL_THREADS), so never exceed that.
+    // __launch_bounds__(grim::MAX_PERF_LEVEL_THREADS), so never exceed that.
     int threads = 32;
-    if (threads > grid::MAX_PERF_LEVEL_THREADS) threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (threads > grim::MAX_PERF_LEVEL_THREADS) threads = grim::MAX_PERF_LEVEL_THREADS;
 
     // init_robotModel uploads the (compile-time) inertia/topology constants to the
-    // GPU; init_grid sets up CUDA streams. We don't use init_gridData here because
+    // GPU; init_grim sets up CUDA streams. We don't use init_grimData here because
     // we manage our own device buffers -- that is the whole point of this example.
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
 
     std::vector<T> h_q, h_qd, h_qdd;
     make_inputs(h_q, h_qd, h_qdd);
@@ -239,7 +239,7 @@ static void run() {
     // PATH A: _device (auto scratch).
     launch_and_print<T>("inverse_dynamics_device", id_device_kernel<T>,
         d_robotModel, d_q, d_qd, d_qdd, d_c, n, threads,
-        grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>(), gravity);
+        grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>(), gravity);
 
     // PATH B: _inner (caller scratch). No dynamic smem registration needed -- all
     // its scratch is the __shared__ arrays declared in the kernel, so launch with
@@ -266,7 +266,7 @@ static void run() {
     gpuErrchk(cudaMemcpy(d_qdB,  h_qdB.data(),  B * n * sizeof(T), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_qddB, h_qddB.data(), B * n * sizeof(T), cudaMemcpyHostToDevice));
 
-    const size_t smem = grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const size_t smem = grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>();
     gpuErrchk(cudaFuncSetAttribute(id_batched_kernel<T>,
         cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(smem)));
     id_batched_kernel<T><<<B, threads, smem>>>(
@@ -285,8 +285,8 @@ static void run() {
 
     cudaFree(d_q); cudaFree(d_qd); cudaFree(d_qdd); cudaFree(d_c);
     cudaFree(d_qB); cudaFree(d_qdB); cudaFree(d_qddB); cudaFree(d_cB);
-    // We own our buffers, so we don't call grid::close_grid (it tears down a
-    // gridData we never allocated). Free what init_* gave us directly.
+    // We own our buffers, so we don't call grim::close_grim (it tears down a
+    // grimData we never allocated). Free what init_* gave us directly.
     gpuErrchk(cudaFree(d_robotModel));
     for (int i = 0; i < 3; ++i) gpuErrchk(cudaStreamDestroy(streams[i]));
     free(streams);

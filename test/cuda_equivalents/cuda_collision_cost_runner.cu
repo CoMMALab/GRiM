@@ -7,16 +7,16 @@
 //   (2) collision_cost_gradient      : grad_q  vs  FD of collision_cost (the margin hinge; the TOTAL
 //       cost is smooth even though a boundary sphere's activation is not).
 // Also checks the GN hessian is symmetric PSD (diag>=0). T=double for clean FD (production is fp32).
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = double;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 constexpr int NS = gc::NUM_COLLISION_SPHERES;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
@@ -25,7 +25,7 @@ __constant__ gc::Sphere<T> c_obst;   // single obstacle (in-range), set from hos
 __device__ T d_margin, d_weight, d_eps;
 
 // analytic: fills d_ddist[NS*NV], d_grad[NV], d_hess[NV*NV] at q0
-__global__ void analytic_kernel(const T *q0, const grid::robotModel<T> *m,
+__global__ void analytic_kernel(const T *q0, const grim::robotModel<T> *m,
                                 T *d_ddist, T *d_grad, T *d_hess) {
     __shared__ T s_pos[3*NS], s_r[NS], s_n[3*NS], s_dist[NS], s_ddist[NS*NV], s_pg[3*NV*NS];
     __shared__ T s_grad[NV], s_hess[NV*NV];
@@ -42,7 +42,7 @@ __global__ void analytic_kernel(const T *q0, const grid::robotModel<T> *m,
 }
 
 // FD: perturb q[vi] +-eps, write per-sphere clearances into d_dist_pm (2 rows) and the scalar cost.
-__global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, int vi, int sign,
+__global__ void fd_kernel(const T *q0, const grim::robotModel<T> *m, int vi, int sign,
                           T *d_dist_out, T *d_cost_out) {
     __shared__ T s_q[NQ], s_pos[3*NS], s_r[NS], s_n[3*NS], s_dist[NS], s_out[1];
     gc::Environment<T> env{ &c_obst, 1, nullptr, 0, nullptr, 0 };
@@ -57,9 +57,9 @@ __global__ void fd_kernel(const T *q0, const grid::robotModel<T> *m, int vi, int
 }
 
 int main(){
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t s1 = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t s2 = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t s1 = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t s2 = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t smem = s1 > s2 ? s1 : s2;
     cudaFuncSetAttribute(analytic_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
     cudaFuncSetAttribute(fd_kernel,       cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);

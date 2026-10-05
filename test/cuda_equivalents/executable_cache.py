@@ -88,14 +88,14 @@ def cached_nvcc_executable(sources, flags, *, exe_name: str, fallback_dir: Path,
     """Build ``sources[0]`` with nvcc once per content key and return (exe, cmd).
 
     ``sources`` are copied side by side into a private build directory (so quoted
-    includes such as grid.cuh resolve locally); ``flags`` are every nvcc flag except
+    includes such as grim.cuh resolve locally); ``flags`` are every nvcc flag except
     -I, -o and the source path. The key covers all source bytes plus the quoted
     includes they reach, the toolkit identity, the flags and ``variant``.
 
     Concurrency and failure: a per-key flock serializes builders, a build happens
     in a temporary directory and is published by one atomic rename together with
     its manifest, and a failed build is deleted, never cached. A hit re-checks the
-    executable's sha256 against the manifest. GRID_CUDA_DISABLE_CACHE=1 builds in
+    executable's sha256 against the manifest. GRIM_CUDA_DISABLE_CACHE=1 builds in
     ``fallback_dir`` instead.
     """
     nvcc = shutil.which("nvcc")

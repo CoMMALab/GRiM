@@ -1,7 +1,7 @@
 """Permanent regression gate for the PSD_CLAMP option of ee_pos_cost_hessian.
 
-`grid_plant::ee_pos_cost_hessian<..., PSD_CLAMP=true>` eigen-clamps the NV x NV
-q-block (grid::glass::eig_clamp) so the returned cost Hessian is SPD and directly
+`grim_plant::ee_pos_cost_hessian<..., PSD_CLAMP=true>` eigen-clamps the NV x NV
+q-block (grim::glass::eig_clamp) so the returned cost Hessian is SPD and directly
 factorable even when the residual-weighted Newton curvature makes it indefinite --
 a guaranteed-PSD alternative to a caller-side rho schedule.
 
@@ -13,7 +13,7 @@ The runner certifies two guarantees on a CUDA self-check (no NumPy oracle needed
       the max entrywise change is bounded by eps.
 
 Fixed-base robots only (the runner assumes NUM_POS == NUM_VEL). Correctness only --
-no timing (the GPU is shared). Override the robot set with GRID_CUDA_PSD_ROBOTS.
+no timing (the GPU is shared). Override the robot set with GRIM_CUDA_PSD_ROBOTS.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 from RBDReference.tests.model_sources import resolve_robot_spec, iter_robot_cases
 from RBDReference.tests import MANIFEST_PATH
@@ -37,7 +37,7 @@ RUNNER_SOURCE = Path(__file__).with_name("cuda_ee_psd_clamp_runner.cu")
 
 
 def _robot_cells():
-    override = os.environ.get("GRID_CUDA_PSD_ROBOTS")
+    override = os.environ.get("GRIM_CUDA_PSD_ROBOTS")
     if override:
         return [(r.strip(), "fixed") for r in override.split(",") if r.strip()]
     return [("iiwa14", "fixed"), ("go2", "fixed")]
@@ -51,10 +51,10 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-        # SPLIT codegen: grid_plant's ee_pos_cost family gates on the ee pose/
+        # SPLIT codegen: grim_plant's ee_pos_cost family gates on the ee pose/
         # gradient/hessian keys — exactly the "kinematics-derivatives" profile.
         codegen.gen_all_code(codegen_profile="kinematics-derivatives", output_path=str(header))
     return header

@@ -7,7 +7,7 @@ unvalidated regimes:
 
   1. NAMED fixed-target, FLOATING base (NUM_EES == 1).
      register_robot(floating_base=True, ee_joint_names=["<fixed_joint>"]) bakes
-     fixed_target_name into gen_all_code (bindings/grid_rbd/_compile.py:183-186),
+     fixed_target_name into gen_all_code (bindings/grim/_compile.py:183-186),
      so the codegen emits the `_<name>` gradient/hessian kernels and the handle's
      end_effector_pose_gradient(q) / _hessian(q) report THAT named frame. This
      exercises the floating root's 6 base-velocity columns through the named-target
@@ -21,7 +21,7 @@ unvalidated regimes:
      6*NEE*NV*NV hessian stride that a single-leaf manipulator never hits.
 
 Both halves are checked against the INDEPENDENT pinocchio backend (the C++
-authority — NOT GRiD's own RBDReference, which would mask shared bugs; this is
+authority — NOT GRiM's own RBDReference, which would mask shared bugs; this is
 why the iiwa14 smoke test only shape-checks the hessian). Plus a thread-
 invariance sweep (1 / 32 / 100 / max_perf) on every regime: single-block
 kernels are block-stride loops, so any thread count that fits MUST produce
@@ -32,7 +32,7 @@ BOTH oracle and device, so those rows are skipped per (leaf, sample). The xyz
 (position-Jacobian) rows are always checked.
 
 Run on the serial GPU queue (the first register per robot compiles a .so,
-~1-5 min each; subsequent runs hit the grid-rbd cache):
+~1-5 min each; subsequent runs hit the grim cache):
 
     .venv/bin/python -m pytest \
         test/python_wrappers/test_ee_named_target_floating_multileaf.py \
@@ -57,13 +57,13 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip(
-    "grid_rbd", reason="grid-rbd not installed (pip install bindings/)"
+_grim = pytest.importorskip(
+    "grim", reason="grim not installed (pip install bindings/)"
 )
 
 if shutil.which("nvcc") is None:
     pytest.skip(
-        "nvcc not on PATH; grid-rbd register_robot requires it",
+        "nvcc not on PATH; grim register_robot requires it",
         allow_module_level=True,
     )
 
@@ -102,7 +102,7 @@ pytestmark = [pytest.mark.python_wrappers, pytest.mark.floating_base]
 #                    on FLOATING base = the named-target floating canary that the
 #                    iiwa14-FIXED validation never reached (floating root columns).
 #
-# Override the whole matrix with GRID_EE_NAMED_CASES, a ';'-separated list of
+# Override the whole matrix with GRIM_EE_NAMED_CASES, a ';'-separated list of
 # 'robot:base:mode[:joint]' tokens (e.g. "go2:floating:named:imu_joint;
 # baxter:floating:multileaf").
 #
@@ -134,7 +134,7 @@ _DEFAULT_CASES = [
 
 
 def _parse_cases():
-    raw = os.environ.get("GRID_EE_NAMED_CASES")
+    raw = os.environ.get("GRIM_EE_NAMED_CASES")
     if not raw:
         return _DEFAULT_CASES
     out = []
@@ -222,7 +222,7 @@ def _leaf_target_names(robot, ee_mode, ee_joint_name):
 def _register(robot_id, base_mode, ee_mode, ee_joint_name, urdf, batch):
     ee_names = [ee_joint_name] if ee_mode == "named" else None
     name = f"c4_{robot_id}_{base_mode}_{ee_mode}_{ee_joint_name or 'leaves'}"
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name=name,
         urdf_path=str(urdf),
         floating_base=(base_mode == "floating"),
@@ -272,7 +272,7 @@ def test_ee_named_multileaf_gradient_hessian(case, request):
 
     # INDEPENDENT oracle = pinocchio (the C++ authority). RBDReference's own
     # d2ee layout is not a 1:1 match — using it would mask shared bugs.
-    backend = resolve_backend(os.environ.get("GRID_REFERENCE_BACKEND", "pinocchio"))
+    backend = resolve_backend(os.environ.get("GRIM_REFERENCE_BACKEND", "pinocchio"))
     reference_model = (
         project_model
         if backend == "reference"

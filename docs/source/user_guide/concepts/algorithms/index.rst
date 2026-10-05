@@ -1,10 +1,10 @@
 Algorithms
 ==========
 
-GRiD implements the core rigid-body dynamics algorithms, their analytical
+GRiM implements the core rigid-body dynamics algorithms, their analytical
 derivatives, and the kinematic, centroidal and trajectory-optimization
 operations built on them. Each page gives the algorithm, its Python signature,
-where the reference and the CUDA code generator live, and how GRiD exposes it.
+where the reference and the CUDA code generator live, and how GRiM exposes it.
 
 .. toctree::
     :maxdepth: 2

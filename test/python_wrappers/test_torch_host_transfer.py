@@ -20,7 +20,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 torch = pytest.importorskip("torch", reason="torch not installed")
 if not torch.cuda.is_available():
     pytest.skip("CUDA not available", allow_module_level=True)
@@ -32,7 +32,7 @@ if not _URDF.exists():
 
 pytestmark = pytest.mark.python_wrappers
 
-import grid_rbd.torch as gt  # noqa: E402
+import grim.torch as gt  # noqa: E402
 
 
 @pytest.fixture(scope="module")

@@ -1,14 +1,14 @@
-// grid_rbd._core — pybind11 Runner that dlopens a per-robot .so and
+// grim._core — pybind11 Runner that dlopens a per-robot .so and
 // dispatches numpy arrays through its C ABI.
 //
 // The per-robot .so is built at register_robot() time by
-// grid_rbd._compile.compile_sources() from a generated grid.cuh plus
-// the robot-agnostic wrapper.cu (see grid_rbd/wrapper_template.cu). It
+// grim._compile.compile_sources() from a generated grim.cuh plus
+// the robot-agnostic wrapper.cu (see grim/wrapper_template.cu). It
 // exports `extern "C"` symbols like:
 //
-//   int grid_rbd_init();
-//   int grid_rbd_num_joints();
-//   int grid_rbd_inverse_dynamics(const CT* q, const CT* qd, const CT* qdd_opt,
+//   int grim_init();
+//   int grim_num_joints();
+//   int grim_inverse_dynamics(const CT* q, const CT* qd, const CT* qdd_opt,
 //                     CT* c_out, int batch, CT gravity,
 //                     const CT* f_ext_opt);  // f_ext_opt may be nullptr
 //   ... etc ...
@@ -47,7 +47,7 @@
 // the C ABI fills directly — pair with Runner.pinned_empty for a page-locked
 // destination. Validated, never copied, returned as-is; None allocates as before.
 template <typename CT>
-static pybind11::array_t<CT> grid_py_out(pybind11::object out_opt, int batch, int cols, const char* name) {
+static pybind11::array_t<CT> grim_py_out(pybind11::object out_opt, int batch, int cols, const char* name) {
     namespace py = pybind11;
     if (out_opt.is_none()) return py::array_t<CT>({batch, cols});
     if (!py::isinstance<py::array>(out_opt))
@@ -67,9 +67,9 @@ static pybind11::array_t<CT> grid_py_out(pybind11::object out_opt, int batch, in
 // caller-owned `out` is the FLAT per-item buffer (batch, rows*cols) in the C ABI's raw
 // layout — the handle returns the public (batch, rows, cols) array as a view of it.
 template <typename CT>
-static pybind11::array_t<CT> grid_py_out(pybind11::object out_opt, int batch, int rows, int cols, const char* name) {
+static pybind11::array_t<CT> grim_py_out(pybind11::object out_opt, int batch, int rows, int cols, const char* name) {
     if (out_opt.is_none()) return pybind11::array_t<CT>({batch, rows, cols});
-    return grid_py_out<CT>(out_opt, batch, rows * cols, name);
+    return grim_py_out<CT>(out_opt, batch, rows * cols, name);
 }
 
 namespace py = pybind11;
@@ -81,9 +81,9 @@ namespace py = pybind11;
 // token bracket itself. No Python object is touched inside a released section (array
 // data pointers are taken before it). Guarded: a call from a thread without the GIL
 // (never expected) is a no-op instead of an abort.
-struct GridNoGil {
+struct GrimNoGil {
     std::optional<py::gil_scoped_release> r;
-    GridNoGil() { if (PyGILState_Check()) r.emplace(); }
+    GrimNoGil() { if (PyGILState_Check()) r.emplace(); }
 };
 
 
@@ -91,7 +91,7 @@ struct GridNoGil {
 //
 // fp64 (Phase 8): the per-robot .so's `extern "C"` symbols take `const CT*` /
 // `CT*` where CT == float (default) or CT == double (a .so built with
-// -DGRID_WRAPPER_T_DOUBLE). dlsym carries no type, so the Runner must declare
+// -DGRIM_WRAPPER_T_DOUBLE). dlsym carries no type, so the Runner must declare
 // its function-pointer typedefs AND its numpy buffers in the SAME element type
 // as the .so it dlopen'd. We therefore template the whole signature set + Runner
 // on the buffer C-type CT and register one pybind class per dtype (Runner =
@@ -136,8 +136,8 @@ struct CAbi {
     using fn_frame_jac_t    = int (*)(long long, const CT*, CT*, int, int, int);
     using fn_frame_jac_dot_t = int (*)(long long, const CT*, const CT*, CT*, int, int, int);
     using fn_ee_runtime_t   = int (*)(long long, const CT*, CT*, int, int, const CT*);
-    using fn_tool_fext_t    = int (*)(long long, const CT*, const CT*, int, const CT*, CT*, int);  // grid_rbd_tool_fext
-    using fn_contact_fext_t = int (*)(long long, const CT*, const CT*, CT*, int);                   // grid_rbd_contact_fext
+    using fn_tool_fext_t    = int (*)(long long, const CT*, const CT*, int, const CT*, CT*, int);  // grim_tool_fext
+    using fn_contact_fext_t = int (*)(long long, const CT*, const CT*, CT*, int);                   // grim_contact_fext
     using fn_q_qd_out_grav_t = int (*)(long long, const CT*, const CT*, CT*, int, CT);
     using fn_q_out_grav_t   = int (*)(long long, const CT*, CT*, int, CT);
     using fn_set_params_t   = int (*)(long long, const CT*);   // set_{inertia,transform,joint_dynamics}_params
@@ -150,7 +150,7 @@ struct CAbi {
     using fn_ctx_create_t   = int (*)(void*, unsigned long long, int, long long*);  // ctx_create(base, bytes, ws_slots, &id)
     using fn_ctx_close_t    = int (*)(long long);                    // ctx_close(id)
     using fn_ctx_idp_t      = int (*)(long long*);                   // ctx_default_id(&id)
-    using fn_ctx_profile_t  = int (*)(long long, void*);             // ctx_profile(id, GridDeviceProfile*)
+    using fn_ctx_profile_t  = int (*)(long long, void*);             // ctx_profile(id, GrimDeviceProfile*)
     using fn_ctx_version_t  = int (*)(long long, unsigned long long*);  // ctx_version(id, &version)  (B2)
     using fn_graph_begin_t  = int (*)(long long, unsigned long long, long long*);  // graph_begin(id, version, &token) (R5)
     using fn_graph_end_t    = int (*)(long long);                    // graph_end(token)
@@ -214,134 +214,134 @@ public:
         }
 
         // Metadata symbols — required.
-        fn_num_joints_       = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_num_joints"));
-        fn_num_vel_          = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_num_vel"));
-        fn_num_ees_          = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_num_ees"));
-        fn_num_bodies_       = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_num_bodies"));
-        fn_max_batch_        = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_max_batch"));
-        fn_max_perf_level_threads_ = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_max_perf_level_threads"));
-        fn_threads_per_block_ = reinterpret_cast<fn_ctx_int_v_t>(require_sym("grid_rbd_threads_per_block"));
-        fn_set_threads_per_block_ = reinterpret_cast<fn_ctx_int_i_t>(require_sym("grid_rbd_set_threads_per_block"));
-        fn_ctx_create_       = reinterpret_cast<fn_ctx_create_t>(require_sym("grid_rbd_ctx_create"));
-        fn_ctx_close_        = reinterpret_cast<fn_ctx_close_t>(require_sym("grid_rbd_ctx_close"));
-        fn_ctx_default_id_   = reinterpret_cast<fn_ctx_idp_t>(require_sym("grid_rbd_ctx_default_id"));
-        fn_ctx_profile_      = reinterpret_cast<fn_ctx_profile_t>(require_sym("grid_rbd_ctx_profile"));
-        fn_ctx_version_      = reinterpret_cast<fn_ctx_version_t>(require_sym("grid_rbd_ctx_version"));
-        fn_graph_begin_      = reinterpret_cast<fn_graph_begin_t>(require_sym("grid_rbd_graph_begin"));
-        fn_graph_end_        = reinterpret_cast<fn_graph_end_t>(require_sym("grid_rbd_graph_end"));
-        fn_ctx_count_        = reinterpret_cast<fn_ctx_count_t>(require_sym("grid_rbd_ctx_count"));
+        fn_num_joints_       = reinterpret_cast<fn_int_v_t>(require_sym("grim_num_joints"));
+        fn_num_vel_          = reinterpret_cast<fn_int_v_t>(require_sym("grim_num_vel"));
+        fn_num_ees_          = reinterpret_cast<fn_int_v_t>(require_sym("grim_num_ees"));
+        fn_num_bodies_       = reinterpret_cast<fn_int_v_t>(require_sym("grim_num_bodies"));
+        fn_max_batch_        = reinterpret_cast<fn_int_v_t>(require_sym("grim_max_batch"));
+        fn_max_perf_level_threads_ = reinterpret_cast<fn_int_v_t>(require_sym("grim_max_perf_level_threads"));
+        fn_threads_per_block_ = reinterpret_cast<fn_ctx_int_v_t>(require_sym("grim_threads_per_block"));
+        fn_set_threads_per_block_ = reinterpret_cast<fn_ctx_int_i_t>(require_sym("grim_set_threads_per_block"));
+        fn_ctx_create_       = reinterpret_cast<fn_ctx_create_t>(require_sym("grim_ctx_create"));
+        fn_ctx_close_        = reinterpret_cast<fn_ctx_close_t>(require_sym("grim_ctx_close"));
+        fn_ctx_default_id_   = reinterpret_cast<fn_ctx_idp_t>(require_sym("grim_ctx_default_id"));
+        fn_ctx_profile_      = reinterpret_cast<fn_ctx_profile_t>(require_sym("grim_ctx_profile"));
+        fn_ctx_version_      = reinterpret_cast<fn_ctx_version_t>(require_sym("grim_ctx_version"));
+        fn_graph_begin_      = reinterpret_cast<fn_graph_begin_t>(require_sym("grim_graph_begin"));
+        fn_graph_end_        = reinterpret_cast<fn_graph_end_t>(require_sym("grim_graph_end"));
+        fn_ctx_count_        = reinterpret_cast<fn_ctx_count_t>(require_sym("grim_ctx_count"));
         // E1 kernel ceiling + E6 per-algo/batch-regime overlays.
-        fn_kernel_max_threads_ = reinterpret_cast<fn_int_s_t>(require_sym("grid_rbd_kernel_max_threads"));
-        fn_set_threads_for_  = reinterpret_cast<fn_ctx_int_ii_t>(require_sym("grid_rbd_set_threads_for"));
-        fn_algo_count_       = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_algo_count"));
-        fn_set_threads_for_n_ = reinterpret_cast<fn_ctx_int_iii_t>(require_sym("grid_rbd_set_threads_for_n"));
-        fn_get_batch_switch_ = reinterpret_cast<fn_ctx_int_ipp_t>(require_sym("grid_rbd_get_batch_switch"));
-        fn_device_pool_bytes_ = reinterpret_cast<fn_ll_i_t>(require_sym("grid_rbd_device_pool_bytes"));
-        fn_set_device_pool_  = reinterpret_cast<fn_int_pulli_t>(require_sym("grid_rbd_set_device_pool"));
-        fn_device_pool_used_ = reinterpret_cast<fn_ll_v_t>(require_sym("grid_rbd_device_pool_used"));
-        fn_init_             = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_init"));
-        fn_close_            = reinterpret_cast<fn_int_v_t>(require_sym("grid_rbd_close"));
+        fn_kernel_max_threads_ = reinterpret_cast<fn_int_s_t>(require_sym("grim_kernel_max_threads"));
+        fn_set_threads_for_  = reinterpret_cast<fn_ctx_int_ii_t>(require_sym("grim_set_threads_for"));
+        fn_algo_count_       = reinterpret_cast<fn_int_v_t>(require_sym("grim_algo_count"));
+        fn_set_threads_for_n_ = reinterpret_cast<fn_ctx_int_iii_t>(require_sym("grim_set_threads_for_n"));
+        fn_get_batch_switch_ = reinterpret_cast<fn_ctx_int_ipp_t>(require_sym("grim_get_batch_switch"));
+        fn_device_pool_bytes_ = reinterpret_cast<fn_ll_i_t>(require_sym("grim_device_pool_bytes"));
+        fn_set_device_pool_  = reinterpret_cast<fn_int_pulli_t>(require_sym("grim_set_device_pool"));
+        fn_device_pool_used_ = reinterpret_cast<fn_ll_v_t>(require_sym("grim_device_pool_used"));
+        fn_init_             = reinterpret_cast<fn_int_v_t>(require_sym("grim_init"));
+        fn_close_            = reinterpret_cast<fn_int_v_t>(require_sym("grim_close"));
 
         // Algorithm symbols — required for v1 surface.
-        fn_inverse_dynamics_             = reinterpret_cast<fn_dyn_t>(require_sym("grid_rbd_inverse_dynamics"));
+        fn_inverse_dynamics_             = reinterpret_cast<fn_dyn_t>(require_sym("grim_inverse_dynamics"));
         // MuJoCo output-convention ID kernel: optional symbol — present ONLY in a
-        // mjx-capable .so (floating, non-mimic, non-skew; gated on GRID_RBD_WITH_MUJOCO
+        // mjx-capable .so (floating, non-mimic, non-skew; gated on GRIM_WITH_MUJOCO
         // in the wrapper). nullptr on fixed-base / mimic / older .so, in which case
         // the mjx method raises.
-        fn_inverse_dynamics_mujoco_      = reinterpret_cast<fn_dyn_t>(opt_sym("grid_rbd_inverse_dynamics_mujoco"));
-        fn_minv_             = reinterpret_cast<fn_q_out_t>(require_sym("grid_rbd_minv"));
-        fn_fd_               = reinterpret_cast<fn_dyn_t>  (require_sym("grid_rbd_forward_dynamics"));
-        fn_aba_              = reinterpret_cast<fn_dyn_t>  (require_sym("grid_rbd_aba"));
-        fn_crba_             = reinterpret_cast<fn_q_out_grav_t>(require_sym("grid_rbd_crba"));
-        fn_crba_mujoco_      = reinterpret_cast<fn_q_out_grav_t>(opt_sym("grid_rbd_crba_mujoco"));  // floating only
+        fn_inverse_dynamics_mujoco_      = reinterpret_cast<fn_dyn_t>(opt_sym("grim_inverse_dynamics_mujoco"));
+        fn_minv_             = reinterpret_cast<fn_q_out_t>(require_sym("grim_minv"));
+        fn_fd_               = reinterpret_cast<fn_dyn_t>  (require_sym("grim_forward_dynamics"));
+        fn_aba_              = reinterpret_cast<fn_dyn_t>  (require_sym("grim_aba"));
+        fn_crba_             = reinterpret_cast<fn_q_out_grav_t>(require_sym("grim_crba"));
+        fn_crba_mujoco_      = reinterpret_cast<fn_q_out_grav_t>(opt_sym("grim_crba_mujoco"));  // floating only
         // floating-base mjx value kernels (optional; present only on a floating .so)
-        fn_fd_mujoco_        = reinterpret_cast<fn_dyn_t>(opt_sym("grid_rbd_forward_dynamics_mujoco"));
-        fn_aba_mujoco_       = reinterpret_cast<fn_dyn_t>(opt_sym("grid_rbd_aba_mujoco"));
-        fn_coriolis_matrix_mujoco_ = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grid_rbd_coriolis_matrix_mujoco"));
-        fn_frame_jacobian_mujoco_  = reinterpret_cast<fn_frame_jac_t>(opt_sym("grid_rbd_frame_jacobian_mujoco"));
-        fn_frame_jacobian_dot_mujoco_ = reinterpret_cast<fn_frame_jac_dot_t>(opt_sym("grid_rbd_frame_jacobian_dot_mujoco"));
-        fn_osc_inertia_mujoco_     = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_osc_inertia_mujoco"));
+        fn_fd_mujoco_        = reinterpret_cast<fn_dyn_t>(opt_sym("grim_forward_dynamics_mujoco"));
+        fn_aba_mujoco_       = reinterpret_cast<fn_dyn_t>(opt_sym("grim_aba_mujoco"));
+        fn_coriolis_matrix_mujoco_ = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grim_coriolis_matrix_mujoco"));
+        fn_frame_jacobian_mujoco_  = reinterpret_cast<fn_frame_jac_t>(opt_sym("grim_frame_jacobian_mujoco"));
+        fn_frame_jacobian_dot_mujoco_ = reinterpret_cast<fn_frame_jac_dot_t>(opt_sym("grim_frame_jacobian_dot_mujoco"));
+        fn_osc_inertia_mujoco_     = reinterpret_cast<fn_q_out_t>(opt_sym("grim_osc_inertia_mujoco"));
         // floating-base mjx value kernels (optional; present only on a floating .so)
-        fn_minv_mujoco_      = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_minv_mujoco"));
-        fn_com_mujoco_       = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_com_mujoco"));
-        fn_ccrba_mujoco_     = reinterpret_cast<fn_q_qd_out_t>(opt_sym("grid_rbd_ccrba_mujoco"));
-        fn_energy_mujoco_    = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grid_rbd_energy_mujoco"));
-        fn_kinetic_energy_regressor_mujoco_   = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grid_rbd_kinetic_energy_regressor_mujoco"));
-        fn_potential_energy_regressor_mujoco_ = reinterpret_cast<fn_q_out_grav_t>(opt_sym("grid_rbd_potential_energy_regressor_mujoco"));
-        fn_ee_pose_          = reinterpret_cast<fn_q_out_t>  (require_sym("grid_rbd_end_effector_pose"));
-        fn_ee_pose_grad_     = reinterpret_cast<fn_q_out_t>  (require_sym("grid_rbd_end_effector_pose_gradient"));
+        fn_minv_mujoco_      = reinterpret_cast<fn_q_out_t>(opt_sym("grim_minv_mujoco"));
+        fn_com_mujoco_       = reinterpret_cast<fn_q_out_t>(opt_sym("grim_com_mujoco"));
+        fn_ccrba_mujoco_     = reinterpret_cast<fn_q_qd_out_t>(opt_sym("grim_ccrba_mujoco"));
+        fn_energy_mujoco_    = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grim_energy_mujoco"));
+        fn_kinetic_energy_regressor_mujoco_   = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grim_kinetic_energy_regressor_mujoco"));
+        fn_potential_energy_regressor_mujoco_ = reinterpret_cast<fn_q_out_grav_t>(opt_sym("grim_potential_energy_regressor_mujoco"));
+        fn_ee_pose_          = reinterpret_cast<fn_q_out_t>  (require_sym("grim_end_effector_pose"));
+        fn_ee_pose_grad_     = reinterpret_cast<fn_q_out_t>  (require_sym("grim_end_effector_pose_gradient"));
         // floating-base mjx EE kernels (optional; present only on a floating .so)
-        fn_ee_pose_mujoco_      = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_end_effector_pose_mujoco"));
-        fn_ee_pose_grad_mujoco_ = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_end_effector_pose_gradient_mujoco"));
-        fn_inverse_dynamics_gradient_        = reinterpret_cast<fn_dyn_t>(require_sym("grid_rbd_inverse_dynamics_gradient"));
-        fn_inverse_dynamics_gradient_mujoco_ = reinterpret_cast<fn_dyn_t>(opt_sym("grid_rbd_inverse_dynamics_gradient_mujoco"));  // floating only
-        fn_fd_grad_          = reinterpret_cast<fn_dyn_t>  (require_sym("grid_rbd_forward_dynamics_gradient"));
-        fn_fd_grad_mujoco_   = reinterpret_cast<fn_dyn_t>  (opt_sym("grid_rbd_forward_dynamics_gradient_mujoco"));  // floating only
+        fn_ee_pose_mujoco_      = reinterpret_cast<fn_q_out_t>(opt_sym("grim_end_effector_pose_mujoco"));
+        fn_ee_pose_grad_mujoco_ = reinterpret_cast<fn_q_out_t>(opt_sym("grim_end_effector_pose_gradient_mujoco"));
+        fn_inverse_dynamics_gradient_        = reinterpret_cast<fn_dyn_t>(require_sym("grim_inverse_dynamics_gradient"));
+        fn_inverse_dynamics_gradient_mujoco_ = reinterpret_cast<fn_dyn_t>(opt_sym("grim_inverse_dynamics_gradient_mujoco"));  // floating only
+        fn_fd_grad_          = reinterpret_cast<fn_dyn_t>  (require_sym("grim_forward_dynamics_gradient"));
+        fn_fd_grad_mujoco_   = reinterpret_cast<fn_dyn_t>  (opt_sym("grim_forward_dynamics_gradient_mujoco"));  // floating only
         // Phase-C extension: hessian + SO. Required for v0.1+ .so files.
-        fn_ee_pose_hessian_  = reinterpret_cast<fn_q_out_t>  (require_sym("grid_rbd_end_effector_pose_hessian"));
-        fn_ee_pose_hessian_mujoco_ = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_end_effector_pose_hessian_mujoco"));  // floating only
-        fn_idsva_so_         = reinterpret_cast<fn_dyn_no_fext_t>(require_sym("grid_rbd_idsva_so"));
-        fn_idsva_so_mujoco_  = reinterpret_cast<fn_dyn_no_fext_t>(opt_sym("grid_rbd_idsva_so_mujoco"));  // floating only
-        fn_id_regressor_        = reinterpret_cast<fn_dyn_no_fext_t>(require_sym("grid_rbd_inverse_dynamics_regressor"));
-        fn_id_regressor_mujoco_ = reinterpret_cast<fn_dyn_no_fext_t>(opt_sym("grid_rbd_inverse_dynamics_regressor_mujoco"));  // floating only
-        fn_fdsva_so_         = reinterpret_cast<fn_dyn_no_fext_t>  (require_sym("grid_rbd_fdsva_so"));
-        fn_fdsva_so_mujoco_  = reinterpret_cast<fn_dyn_no_fext_t>  (opt_sym("grid_rbd_fdsva_so_mujoco"));  // floating only
+        fn_ee_pose_hessian_  = reinterpret_cast<fn_q_out_t>  (require_sym("grim_end_effector_pose_hessian"));
+        fn_ee_pose_hessian_mujoco_ = reinterpret_cast<fn_q_out_t>(opt_sym("grim_end_effector_pose_hessian_mujoco"));  // floating only
+        fn_idsva_so_         = reinterpret_cast<fn_dyn_no_fext_t>(require_sym("grim_idsva_so"));
+        fn_idsva_so_mujoco_  = reinterpret_cast<fn_dyn_no_fext_t>(opt_sym("grim_idsva_so_mujoco"));  // floating only
+        fn_id_regressor_        = reinterpret_cast<fn_dyn_no_fext_t>(require_sym("grim_inverse_dynamics_regressor"));
+        fn_id_regressor_mujoco_ = reinterpret_cast<fn_dyn_no_fext_t>(opt_sym("grim_inverse_dynamics_regressor_mujoco"));  // floating only
+        fn_fdsva_so_         = reinterpret_cast<fn_dyn_no_fext_t>  (require_sym("grim_fdsva_so"));
+        fn_fdsva_so_mujoco_  = reinterpret_cast<fn_dyn_no_fext_t>  (opt_sym("grim_fdsva_so_mujoco"));  // floating only
         // page-locked host buffers (2026-10-01; optional: an older .so lacks them)
-        fn_pinned_alloc_ = reinterpret_cast<fn_pinned_alloc_t>(opt_sym("grid_rbd_pinned_alloc"));
-        fn_pinned_free_  = reinterpret_cast<fn_pinned_free_t>(opt_sym("grid_rbd_pinned_free"));
-        fn_is_pinned_    = reinterpret_cast<fn_is_pinned_t>(opt_sym("grid_rbd_is_pinned"));
-        fn_integrator_       = reinterpret_cast<fn_integrator_t>(require_sym("grid_rbd_integrator"));
-        fn_integrator_mujoco_ = reinterpret_cast<fn_integrator_t>(opt_sym("grid_rbd_integrator_mujoco"));  // floating only
-        fn_integrator_grad_  = reinterpret_cast<fn_integrator_t>(require_sym("grid_rbd_integrator_gradient"));
-        fn_integrator_grad_mujoco_ = reinterpret_cast<fn_integrator_t>(opt_sym("grid_rbd_integrator_gradient_mujoco"));  // floating only
+        fn_pinned_alloc_ = reinterpret_cast<fn_pinned_alloc_t>(opt_sym("grim_pinned_alloc"));
+        fn_pinned_free_  = reinterpret_cast<fn_pinned_free_t>(opt_sym("grim_pinned_free"));
+        fn_is_pinned_    = reinterpret_cast<fn_is_pinned_t>(opt_sym("grim_is_pinned"));
+        fn_integrator_       = reinterpret_cast<fn_integrator_t>(require_sym("grim_integrator"));
+        fn_integrator_mujoco_ = reinterpret_cast<fn_integrator_t>(opt_sym("grim_integrator_mujoco"));  // floating only
+        fn_integrator_grad_  = reinterpret_cast<fn_integrator_t>(require_sym("grim_integrator_gradient"));
+        fn_integrator_grad_mujoco_ = reinterpret_cast<fn_integrator_t>(opt_sym("grim_integrator_gradient_mujoco"));  // floating only
 
-        // grid_plant C ABI (G1). The quadratic costs + barriers are always
+        // grim_plant C ABI (G1). The quadratic costs + barriers are always
         // exported; step/gradient/hessian and the ee/com/momentum costs are
-        // feature-gated in the wrapper (GRID_PLANT_HAS_*), so those stay
+        // feature-gated in the wrapper (GRIM_PLANT_HAS_*), so those stay
         // optional and the handle methods raise a clear error when null.
-        fn_plant_state_cost_ = reinterpret_cast<fn_plant_cost_t>(require_sym("grid_plant_quadratic_state_cost"));
-        fn_plant_input_cost_ = reinterpret_cast<fn_plant_cost_t>(require_sym("grid_plant_quadratic_input_cost"));
-        fn_plant_pos_barrier_ = reinterpret_cast<fn_plant_barrier_t>(require_sym("grid_plant_joint_position_barrier"));
-        fn_plant_vel_barrier_ = reinterpret_cast<fn_plant_barrier_t>(require_sym("grid_plant_joint_velocity_barrier"));
-        fn_plant_tor_barrier_ = reinterpret_cast<fn_plant_barrier_t>(require_sym("grid_plant_joint_torque_barrier"));
-        fn_plant_step_       = reinterpret_cast<fn_plant_step_t>(opt_sym("grid_plant_step"));
-        fn_plant_step_mujoco_ = reinterpret_cast<fn_plant_step_t>(opt_sym("grid_plant_step_mujoco"));  // floating only
-        fn_plant_ee_cost_    = reinterpret_cast<fn_plant_cost_t>(opt_sym("grid_plant_ee_pos_cost"));
-        fn_plant_com_cost_   = reinterpret_cast<fn_plant_cost_t>(opt_sym("grid_plant_com_cost"));
-        fn_plant_mom_cost_   = reinterpret_cast<fn_plant_mom_t>(opt_sym("grid_plant_momentum_cost"));
-        fn_plant_ee_cost_mujoco_  = reinterpret_cast<fn_plant_cost_t>(opt_sym("grid_rbd_ee_pos_cost_mujoco"));   // floating only
-        fn_plant_com_cost_mujoco_ = reinterpret_cast<fn_plant_cost_t>(opt_sym("grid_rbd_com_cost_mujoco"));      // floating only
-        fn_plant_mom_cost_mujoco_ = reinterpret_cast<fn_plant_mom_t>(opt_sym("grid_rbd_momentum_cost_mujoco")); // floating only
-        fn_plant_state_cost_mujoco_ = reinterpret_cast<fn_plant_cost_t>(opt_sym("grid_rbd_quadratic_state_cost_mujoco")); // floating only
-        fn_plant_step_grad_  = reinterpret_cast<fn_plant_step_t>(opt_sym("grid_plant_step_gradient"));
-        fn_plant_step_grad_mujoco_ = reinterpret_cast<fn_plant_step_t>(opt_sym("grid_plant_step_gradient_mujoco"));  // floating only
-        fn_plant_step_hess_  = reinterpret_cast<fn_plant_step_t>(opt_sym("grid_plant_step_hessian"));
-        fn_plant_step_hess_mujoco_ = reinterpret_cast<fn_plant_step_t>(opt_sym("grid_plant_step_hessian_mujoco"));  // floating only
+        fn_plant_state_cost_ = reinterpret_cast<fn_plant_cost_t>(require_sym("grim_plant_quadratic_state_cost"));
+        fn_plant_input_cost_ = reinterpret_cast<fn_plant_cost_t>(require_sym("grim_plant_quadratic_input_cost"));
+        fn_plant_pos_barrier_ = reinterpret_cast<fn_plant_barrier_t>(require_sym("grim_plant_joint_position_barrier"));
+        fn_plant_vel_barrier_ = reinterpret_cast<fn_plant_barrier_t>(require_sym("grim_plant_joint_velocity_barrier"));
+        fn_plant_tor_barrier_ = reinterpret_cast<fn_plant_barrier_t>(require_sym("grim_plant_joint_torque_barrier"));
+        fn_plant_step_       = reinterpret_cast<fn_plant_step_t>(opt_sym("grim_plant_step"));
+        fn_plant_step_mujoco_ = reinterpret_cast<fn_plant_step_t>(opt_sym("grim_plant_step_mujoco"));  // floating only
+        fn_plant_ee_cost_    = reinterpret_cast<fn_plant_cost_t>(opt_sym("grim_plant_ee_pos_cost"));
+        fn_plant_com_cost_   = reinterpret_cast<fn_plant_cost_t>(opt_sym("grim_plant_com_cost"));
+        fn_plant_mom_cost_   = reinterpret_cast<fn_plant_mom_t>(opt_sym("grim_plant_momentum_cost"));
+        fn_plant_ee_cost_mujoco_  = reinterpret_cast<fn_plant_cost_t>(opt_sym("grim_ee_pos_cost_mujoco"));   // floating only
+        fn_plant_com_cost_mujoco_ = reinterpret_cast<fn_plant_cost_t>(opt_sym("grim_com_cost_mujoco"));      // floating only
+        fn_plant_mom_cost_mujoco_ = reinterpret_cast<fn_plant_mom_t>(opt_sym("grim_momentum_cost_mujoco")); // floating only
+        fn_plant_state_cost_mujoco_ = reinterpret_cast<fn_plant_cost_t>(opt_sym("grim_quadratic_state_cost_mujoco")); // floating only
+        fn_plant_step_grad_  = reinterpret_cast<fn_plant_step_t>(opt_sym("grim_plant_step_gradient"));
+        fn_plant_step_grad_mujoco_ = reinterpret_cast<fn_plant_step_t>(opt_sym("grim_plant_step_gradient_mujoco"));  // floating only
+        fn_plant_step_hess_  = reinterpret_cast<fn_plant_step_t>(opt_sym("grim_plant_step_hessian"));
+        fn_plant_step_hess_mujoco_ = reinterpret_cast<fn_plant_step_t>(opt_sym("grim_plant_step_hessian_mujoco"));  // floating only
 
         // G2 batched FK (pos+quat) — returns rc=3 on floating-base/mimic robots.
-        fn_fk_batched_      = reinterpret_cast<fn_fk_batched_t>(require_sym("grid_rbd_fk_batched"));
+        fn_fk_batched_      = reinterpret_cast<fn_fk_batched_t>(require_sym("grim_fk_batched"));
 
         // F2 centroidal / energy / general-frame kinematics. com/ccrba/energy/
         // gg/nle are always emitted with the "all" profile; frame_jacobian* /
         // osc_inertia are opt-in codegen (the C-ABI returns rc=3 if the family
         // wasn't generated).
-        fn_com_                = reinterpret_cast<fn_q_out_t>(require_sym("grid_rbd_com"));
-        fn_ccrba_              = reinterpret_cast<fn_q_qd_out_t>(require_sym("grid_rbd_ccrba"));
-        fn_energy_             = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grid_rbd_energy"));
-        fn_generalized_gravity_ = reinterpret_cast<fn_q_out_grav_t>(require_sym("grid_rbd_generalized_gravity"));
-        fn_generalized_gravity_mujoco_ = reinterpret_cast<fn_q_out_grav_t>(opt_sym("grid_rbd_generalized_gravity_mujoco"));  // floating only
-        fn_nonlinear_effects_  = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grid_rbd_nonlinear_effects"));
-        fn_nonlinear_effects_mujoco_ = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grid_rbd_nonlinear_effects_mujoco"));  // floating only
-        fn_frame_jacobian_     = reinterpret_cast<fn_frame_jac_t>(require_sym("grid_rbd_frame_jacobian"));
-        fn_frame_jacobian_dot_ = reinterpret_cast<fn_frame_jac_dot_t>(require_sym("grid_rbd_frame_jacobian_dot"));
-        fn_osc_inertia_        = reinterpret_cast<fn_q_out_t>(require_sym("grid_rbd_osc_inertia"));
-        fn_ee_pose_runtime_      = reinterpret_cast<fn_ee_runtime_t>(require_sym("grid_rbd_end_effector_pose_runtime"));
-        fn_ee_pose_grad_runtime_ = reinterpret_cast<fn_ee_runtime_t>(require_sym("grid_rbd_end_effector_pose_gradient_runtime"));
-        fn_ee_pose_runtime_mujoco_      = reinterpret_cast<fn_ee_runtime_t>(opt_sym("grid_rbd_end_effector_pose_runtime_mujoco"));            // floating only
-        fn_ee_pose_grad_runtime_mujoco_ = reinterpret_cast<fn_ee_runtime_t>(opt_sym("grid_rbd_end_effector_pose_gradient_runtime_mujoco")); // floating only
-        fn_tool_fext_            = reinterpret_cast<fn_tool_fext_t>(opt_sym("grid_rbd_tool_fext"));  // enable_tool only
-        fn_contact_fext_         = reinterpret_cast<fn_contact_fext_t>(opt_sym("grid_rbd_contact_fext"));           // contact_frames only
-        fn_num_contact_frames_   = reinterpret_cast<fn_int_v_t>(opt_sym("grid_rbd_num_contact_frames"));
+        fn_com_                = reinterpret_cast<fn_q_out_t>(require_sym("grim_com"));
+        fn_ccrba_              = reinterpret_cast<fn_q_qd_out_t>(require_sym("grim_ccrba"));
+        fn_energy_             = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grim_energy"));
+        fn_generalized_gravity_ = reinterpret_cast<fn_q_out_grav_t>(require_sym("grim_generalized_gravity"));
+        fn_generalized_gravity_mujoco_ = reinterpret_cast<fn_q_out_grav_t>(opt_sym("grim_generalized_gravity_mujoco"));  // floating only
+        fn_nonlinear_effects_  = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grim_nonlinear_effects"));
+        fn_nonlinear_effects_mujoco_ = reinterpret_cast<fn_q_qd_out_grav_t>(opt_sym("grim_nonlinear_effects_mujoco"));  // floating only
+        fn_frame_jacobian_     = reinterpret_cast<fn_frame_jac_t>(require_sym("grim_frame_jacobian"));
+        fn_frame_jacobian_dot_ = reinterpret_cast<fn_frame_jac_dot_t>(require_sym("grim_frame_jacobian_dot"));
+        fn_osc_inertia_        = reinterpret_cast<fn_q_out_t>(require_sym("grim_osc_inertia"));
+        fn_ee_pose_runtime_      = reinterpret_cast<fn_ee_runtime_t>(require_sym("grim_end_effector_pose_runtime"));
+        fn_ee_pose_grad_runtime_ = reinterpret_cast<fn_ee_runtime_t>(require_sym("grim_end_effector_pose_gradient_runtime"));
+        fn_ee_pose_runtime_mujoco_      = reinterpret_cast<fn_ee_runtime_t>(opt_sym("grim_end_effector_pose_runtime_mujoco"));            // floating only
+        fn_ee_pose_grad_runtime_mujoco_ = reinterpret_cast<fn_ee_runtime_t>(opt_sym("grim_end_effector_pose_gradient_runtime_mujoco")); // floating only
+        fn_tool_fext_            = reinterpret_cast<fn_tool_fext_t>(opt_sym("grim_tool_fext"));  // enable_tool only
+        fn_contact_fext_         = reinterpret_cast<fn_contact_fext_t>(opt_sym("grim_contact_fext"));           // contact_frames only
+        fn_num_contact_frames_   = reinterpret_cast<fn_int_v_t>(opt_sym("grim_num_contact_frames"));
         if (fn_num_contact_frames_) num_contact_frames_ = fn_num_contact_frames_();
 
         // PS5 value ops.
@@ -349,29 +349,29 @@ public:
         // are always emitted with the "all" profile (mimic-safe). dccrba /
         // cmm_time_variation are skipped for mimic robots (the per-body Jacobian
         // fold isn't mimic-reduced), so their C-ABI symbol returns rc=3 there.
-        fn_coriolis_matrix_    = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grid_rbd_coriolis_matrix"));
-        fn_kinetic_energy_regressor_   = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grid_rbd_kinetic_energy_regressor"));
-        fn_potential_energy_regressor_ = reinterpret_cast<fn_q_out_grav_t>(require_sym("grid_rbd_potential_energy_regressor"));
-        fn_dccrba_             = reinterpret_cast<fn_q_out_t>(require_sym("grid_rbd_dccrba"));
-        fn_dccrba_mujoco_      = reinterpret_cast<fn_q_out_t>(opt_sym("grid_rbd_dccrba_mujoco"));  // floating only
-        fn_cmm_time_variation_ = reinterpret_cast<fn_q_qd_out_t>(require_sym("grid_rbd_cmm_time_variation"));
+        fn_coriolis_matrix_    = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grim_coriolis_matrix"));
+        fn_kinetic_energy_regressor_   = reinterpret_cast<fn_q_qd_out_grav_t>(require_sym("grim_kinetic_energy_regressor"));
+        fn_potential_energy_regressor_ = reinterpret_cast<fn_q_out_grav_t>(require_sym("grim_potential_energy_regressor"));
+        fn_dccrba_             = reinterpret_cast<fn_q_out_t>(require_sym("grim_dccrba"));
+        fn_dccrba_mujoco_      = reinterpret_cast<fn_q_out_t>(opt_sym("grim_dccrba_mujoco"));  // floating only
+        fn_cmm_time_variation_ = reinterpret_cast<fn_q_qd_out_t>(require_sym("grim_cmm_time_variation"));
         // floating-base mjx variant (optional; present only on a floating .so)
-        fn_cmm_time_variation_mujoco_ = reinterpret_cast<fn_q_qd_out_t>(opt_sym("grid_rbd_cmm_time_variation_mujoco"));
+        fn_cmm_time_variation_mujoco_ = reinterpret_cast<fn_q_qd_out_t>(opt_sym("grim_cmm_time_variation_mujoco"));
 
         // D.4 / Phase 5 runtime-mutable inertia — OPTIONAL: present only in a .so
-        // built with runtime_inertia=True (compiled with -DGRID_RBD_RUNTIME_INERTIA).
+        // built with runtime_inertia=True (compiled with -DGRIM_RUNTIME_INERTIA).
         // set_inertia_params() raises a clear error if this symbol is null.
-        fn_set_inertia_params_ = reinterpret_cast<fn_set_params_t>(opt_sym("grid_rbd_set_inertia_params"));
+        fn_set_inertia_params_ = reinterpret_cast<fn_set_params_t>(opt_sym("grim_set_inertia_params"));
 
         // runtime_transform — OPTIONAL: present only in a .so built with
-        // runtime_transform=True (-DGRID_RBD_RUNTIME_TRANSFORM). set_transform_params()
+        // runtime_transform=True (-DGRIM_RUNTIME_TRANSFORM). set_transform_params()
         // raises a clear error if this symbol is null.
-        fn_set_transform_params_ = reinterpret_cast<fn_set_params_t>(opt_sym("grid_rbd_set_transform_params"));
+        fn_set_transform_params_ = reinterpret_cast<fn_set_params_t>(opt_sym("grim_set_transform_params"));
 
         // runtime_joint_dynamics — OPTIONAL: present only in a .so built with
-        // runtime_joint_dynamics=True (-DGRID_RBD_RUNTIME_JOINT_DYNAMICS).
+        // runtime_joint_dynamics=True (-DGRIM_RUNTIME_JOINT_DYNAMICS).
         // set_joint_dynamics_params() raises a clear error if this symbol is null.
-        fn_set_jd_params_ = reinterpret_cast<fn_set_params_t>(opt_sym("grid_rbd_set_joint_dynamics_params"));
+        fn_set_jd_params_ = reinterpret_cast<fn_set_params_t>(opt_sym("grim_set_joint_dynamics_params"));
 
         // Cache constants (avoid the indirect-function-call cost on every read).
         num_joints_ = fn_num_joints_();
@@ -393,7 +393,7 @@ public:
     // ── shared-runtime ownership (audit W04 increment A, 2026-09-19) ──────
     // The .so owns ONE runtime (g_data / g_robot / streams / runtime parameter
     // tables) and dlopen() of the same path hands every Runner the SAME image.
-    // Each destructor used to call grid_rbd_close() unconditionally, so closing
+    // Each destructor used to call grim_close() unconditionally, so closing
     // handle B freed the runtime handle A was still using (A's next call
     // re-initialized with baked defaults — live inertia updates lost). The
     // runtime now closes only when the LAST Runner on that path releases it;
@@ -428,7 +428,7 @@ public:
             }
         }
         if (last) {
-            GridNoGil nogil;
+            GrimNoGil nogil;
             if (fn_close_) fn_close_();      // last owner: free the runtime
             // The library may stay loaded through Torch/JAX registrations.
             // Never leave its pool pointing at a released framework tensor.
@@ -452,19 +452,19 @@ public:
     int kernel_max_threads(const std::string& algo) const {
         return fn_kernel_max_threads_(algo.c_str());
     }
-    // E6 per-algo threads overlay: force `n` threads for the GridAlgo at index `algo`
+    // E6 per-algo threads overlay: force `n` threads for the GrimAlgo at index `algo`
     // (n==0 clears it back to the baked launch_cfg<ALGO>::THREADS). The global
     // set_threads_per_block override still wins when set.
     void set_threads_for(int algo, int n) {
         if (n < 0) throw std::invalid_argument("set_threads_for: n must be >= 0");
-        int rc; { GridNoGil nogil; rc = fn_set_threads_for_(ctx_id_, algo, n); }
+        int rc; { GrimNoGil nogil; rc = fn_set_threads_for_(ctx_id_, algo, n); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "set_threads_for", nullptr));
     }
     int algo_count() const { return fn_algo_count_(); }
     // E6 batch-switch: when a call's batch <= threshold, launch `algo` with
     // n_small threads (threshold==0 clears the switch for that algo).
     void set_threads_for_n(int algo, int threshold, int n_small) {
-        int rc; { GridNoGil nogil; rc = fn_set_threads_for_n_(ctx_id_, algo, threshold, n_small); }
+        int rc; { GrimNoGil nogil; rc = fn_set_threads_for_n_(ctx_id_, algo, threshold, n_small); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "set_threads_for_n", nullptr));
     }
     py::tuple get_batch_switch(int algo) const {
@@ -473,7 +473,7 @@ public:
         if (rc != 0) throw std::runtime_error(rc_message(rc, "get_batch_switch", nullptr));
         return py::make_tuple(threshold, n_small);
     }
-    // Device-pool (slab) mode: carve GRiD's gridData VRAM from a caller-owned
+    // Device-pool (slab) mode: carve GRiM's grimData VRAM from a caller-owned
     // framework-allocator buffer instead of cudaMalloc (see wrapper docs).
     long long device_pool_bytes(int ws_slots) const { return fn_device_pool_bytes_(ws_slots); }
     void set_device_pool(unsigned long long base_ptr, unsigned long long bytes, int ws_slots) {
@@ -494,7 +494,7 @@ public:
         return id;
     }
     void ctx_close(long long id) {
-        int rc; { GridNoGil nogil; rc = fn_ctx_close_(id); }
+        int rc; { GrimNoGil nogil; rc = fn_ctx_close_(id); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "ctx_close", nullptr));
     }
     long long ctx_default_id() {
@@ -509,17 +509,17 @@ public:
         if (rc != 0) throw std::runtime_error(rc_message(rc, "ctx_version", nullptr));
         return v;
     }
-    // codex R5: replay admission bracket (see grid_rbd_graph_begin in the wrapper).
+    // codex R5: replay admission bracket (see grim_graph_begin in the wrapper).
     long long graph_begin(long long id, unsigned long long version) {
         long long tok = 0;
-        int rc; { GridNoGil nogil; rc = fn_graph_begin_(id, version, &tok); }
+        int rc; { GrimNoGil nogil; rc = fn_graph_begin_(id, version, &tok); }
         if (rc == 15) throw std::runtime_error(
             "graph replay refused: the model was mutated since this graph was captured (recapture it)");
         if (rc != 0) throw std::runtime_error(rc_message(rc, "graph_begin", nullptr));
         return tok;
     }
     void graph_end(long long token) {
-        int rc; { GridNoGil nogil; rc = fn_graph_end_(token); }
+        int rc; { GrimNoGil nogil; rc = fn_graph_end_(token); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "graph_end", nullptr));
     }
     int ctx_count() const { return fn_ctx_count_(); }
@@ -554,7 +554,7 @@ public:
         return true;
     }
     void close_arena() {
-        // grid_rbd_close: free the device/host arena (attached tools + runtime
+        // grim_close: free the device/host arena (attached tools + runtime
         // parameter tables reset with it); the next call re-inits lazily.
         // Explicit resets retain any owned slab, but cannot reset a sibling's state.
         {
@@ -562,7 +562,7 @@ public:
             if (owners().at(so_key_).count > 1)
                 throw std::runtime_error("cannot reset an arena shared by multiple handles");
         }
-        GridNoGil nogil;   // the drain waits for admitted work, incl. replay tokens
+        GrimNoGil nogil;   // the drain waits for admitted work, incl. replay tokens
         if (fn_close_) fn_close_();
     }
     int threads_per_block() const { return fn_threads_per_block_(ctx_id_); }
@@ -576,7 +576,7 @@ public:
             throw std::invalid_argument(
                 "set_threads_per_block: n must be >= 0 (0 resets to autotuned default), got " + std::to_string(n));
         }
-        int rc; { GridNoGil nogil; rc = fn_set_threads_per_block_(ctx_id_, n); }
+        int rc; { GrimNoGil nogil; rc = fn_set_threads_per_block_(ctx_id_, n); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "set_threads_per_block", nullptr));
     }
 
@@ -653,9 +653,9 @@ public:
         return fn_is_pinned_ != nullptr && arr.size() > 0 && fn_is_pinned_(arr.data()) == 1;
     }
 
-    // ── BEGIN GENERATED PYBIND METHOD BODIES (grid_codegen/core_body_gen.py — do not hand-edit) ──
-    // Regenerate: .venv/bin/python -m grid_codegen.core_body_gen
-    // Table: grid_codegen/abi_specs.py (ABI_SPECS: inputs/py_out_dims/
+    // ── BEGIN GENERATED PYBIND METHOD BODIES (grim_codegen/core_body_gen.py — do not hand-edit) ──
+    // Regenerate: .venv/bin/python -m grim_codegen.core_body_gen
+    // Table: grim_codegen/abi_specs.py (ABI_SPECS: inputs/py_out_dims/
     // py_rc3_msg/py_twin_guard); drift-gated by test/test_core_generated_block.py.
     //
     // Shared input contract: q is (batch, NUM_JOINTS) and qd/qdd/u are
@@ -681,7 +681,7 @@ public:
     {
         if (!fn_crba_mujoco_) throw std::runtime_error(
             "crba_mujoco unavailable: this .so has no mjx CRBA kernel (only "
-            "floating-base robots export grid_rbd_crba_mujoco)");
+            "floating-base robots export grim_crba_mujoco)");
         int batch = check_q(q, "crba_mujoco");
         py::array_t<CT> out({batch, num_vel_, num_vel_});
         int rc = fn_crba_mujoco_(ctx_id_, q.data(), out.mutable_data(), batch, gravity);
@@ -717,8 +717,7 @@ public:
     {
         if (!fn_inverse_dynamics_mujoco_) throw std::runtime_error(
             "inverse_dynamics_mujoco unavailable: this .so has no mjx ID kernel "
-            "(only floating-base robots export "
-            "grid_rbd_inverse_dynamics_mujoco)");
+            "(only floating-base robots export grim_inverse_dynamics_mujoco)");
         int batch = check_inputs_2d(q, qd, num_joints_, num_vel_);
         check_array_2d(qdd, batch, num_vel_, "qdd");
         arr_t fe_hold;
@@ -776,7 +775,7 @@ public:
     {
         if (!fn_minv_mujoco_) throw std::runtime_error(
             "minv_mujoco unavailable: this .so has no mjx Minv kernel (only "
-            "floating-base robots export grid_rbd_minv_mujoco)");
+            "floating-base robots export grim_minv_mujoco)");
         int batch = check_q(q, "minv_mujoco");
         py::array_t<CT> out({batch, num_vel_, num_vel_});
         int rc = fn_minv_mujoco_(ctx_id_, q.data(), out.mutable_data(), batch);
@@ -862,7 +861,7 @@ public:
         }
         arr_t fe_hold;
         const CT* fe_ptr = f_ext_ptr(f_ext_opt, fe_hold, batch);
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "inverse_dynamics_gradient");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "inverse_dynamics_gradient");
         int rc = fn_inverse_dynamics_gradient_(ctx_id_, q.data(), qd.data(), qdd_ptr, out.mutable_data(), batch, gravity, fe_ptr);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "inverse_dynamics_gradient",
             "inverse_dynamics_gradient not built into this robot .so — add "
@@ -881,7 +880,7 @@ public:
         check_array_2d(qdd, batch, num_vel_, "qdd");
         arr_t fe_hold;
         const CT* fe_ptr = f_ext_ptr(f_ext_opt, fe_hold, batch);
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "inverse_dynamics_gradient_mujoco");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "inverse_dynamics_gradient_mujoco");
         int rc = fn_inverse_dynamics_gradient_mujoco_(ctx_id_, q.data(), qd.data(), qdd.data(), out.mutable_data(), batch, gravity, fe_ptr);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "inverse_dynamics_gradient_mujoco",
             nullptr));
@@ -895,7 +894,7 @@ public:
         check_array_2d(u, batch, num_vel_, "u");
         arr_t fe_hold;
         const CT* fe_ptr = f_ext_ptr(f_ext_opt, fe_hold, batch);
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "forward_dynamics_gradient");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "forward_dynamics_gradient");
         int rc = fn_fd_grad_(ctx_id_, q.data(), qd.data(), u.data(), out.mutable_data(), batch, gravity, fe_ptr);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "forward_dynamics_gradient",
             "forward_dynamics_gradient not built into this robot .so — add "
@@ -914,7 +913,7 @@ public:
         check_array_2d(u, batch, num_vel_, "u");
         arr_t fe_hold;
         const CT* fe_ptr = f_ext_ptr(f_ext_opt, fe_hold, batch);
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "forward_dynamics_gradient_mujoco");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, num_vel_, 2 * num_vel_, "forward_dynamics_gradient_mujoco");
         int rc = fn_fd_grad_mujoco_(ctx_id_, q.data(), qd.data(), u.data(), out.mutable_data(), batch, gravity, fe_ptr);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "forward_dynamics_gradient_mujoco",
             nullptr));
@@ -931,7 +930,7 @@ public:
             check_array_2d(qdd, batch, num_vel_, "qdd");
             qdd_ptr = qdd.data();
         }
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, second_order_tensor_size, "idsva_so");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, second_order_tensor_size, "idsva_so");
         int rc = fn_idsva_so_(ctx_id_, q.data(), qd.data(), qdd_ptr, out.mutable_data(), batch, gravity);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "idsva_so",
             "idsva_so not built into this robot .so — add 'idsva_so_body_frame' "
@@ -952,7 +951,7 @@ public:
             check_array_2d(qdd, batch, num_vel_, "qdd");
             qdd_ptr = qdd.data();
         }
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, second_order_tensor_size, "idsva_so_mujoco");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, second_order_tensor_size, "idsva_so_mujoco");
         int rc = fn_idsva_so_mujoco_(ctx_id_, q.data(), qd.data(), qdd_ptr, out.mutable_data(), batch, gravity);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "idsva_so_mujoco",
             nullptr));
@@ -964,7 +963,7 @@ public:
     {
         int batch = check_inputs_2d(q, qd, num_joints_, num_vel_);
         check_array_2d(u, batch, num_vel_, "u");
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, second_order_tensor_size, "fdsva_so");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, second_order_tensor_size, "fdsva_so");
         int rc = fn_fdsva_so_(ctx_id_, q.data(), qd.data(), u.data(), out.mutable_data(), batch, gravity);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "fdsva_so",
             "fdsva_so not built into this robot .so — add 'fdsva_so' to "
@@ -980,7 +979,7 @@ public:
             "fdsva_so_mujoco unavailable: floating-base .so only");
         int batch = check_inputs_2d(q, qd, num_joints_, num_vel_);
         check_array_2d(u, batch, num_vel_, "u");
-        py::array_t<CT> out = grid_py_out<CT>(out_opt, batch, second_order_tensor_size, "fdsva_so_mujoco");
+        py::array_t<CT> out = grim_py_out<CT>(out_opt, batch, second_order_tensor_size, "fdsva_so_mujoco");
         int rc = fn_fdsva_so_mujoco_(ctx_id_, q.data(), qd.data(), u.data(), out.mutable_data(), batch, gravity);
         if (rc != 0) throw std::runtime_error(rc_message(rc, "fdsva_so_mujoco",
             nullptr));
@@ -1561,16 +1560,16 @@ public:
 
     // ── END GENERATED PYBIND METHOD BODIES ──
 
-    // ─── grid_plant surface (G1 binding layer) ───────────────────────────────
+    // ─── grim_plant surface (G1 binding layer) ───────────────────────────────
     //
     // Each returns a tuple (value, grad, hess[/hess_diag]). value is (batch,);
     // grad/hess shapes depend on the cost. The plant kernels are emitted in the
-    // grid_plant namespace; symbols are optional (raise if the .so lacks them).
+    // grim_plant namespace; symbols are optional (raise if the .so lacks them).
 
     void require_plant(void* fn, const char* name) const {
         if (!fn) throw std::runtime_error(
             std::string("this robot .so does not export ") + name +
-            " (grid_plant surface not generated for it). Re-register with a "
+            " (grim_plant surface not generated for it). Re-register with a "
             "build that includes the plant namespace.");
     }
 
@@ -1870,8 +1869,8 @@ public:
                                          : std::string(" (see cudaError_t)"));
     }
 
-    // Decode a nonzero grid_rbd_* C-ABI return code into ONE actionable message.
-    // rc contract (bindings/grid_rbd/wrapper_template.cu): 1 bad argument or
+    // Decode a nonzero grim_* C-ABI return code into ONE actionable message.
+    // rc contract (bindings/grim/wrapper_template.cu): 1 bad argument or
     // failed runtime-arena init; 2 batch > compiled max_batch; 3 algorithm not
     // in this .so (rc3_hint carries the per-algo advice and is returned
     // VERBATIM — subset errors must keep the "not built into this robot .so"
@@ -1989,8 +1988,8 @@ public:
             "set_inertia_params not available in this .so: register the robot with "
             "runtime_inertia=True (and force_rebuild=True) to enable the mutable "
             "inertia table.");
-        // num_bodies_ is the device-table body count (grid::NUM_BODIES). It is
-        // resolved from the optional grid_rbd_num_bodies symbol; for any
+        // num_bodies_ is the device-table body count (grim::NUM_BODIES). It is
+        // resolved from the optional grim_num_bodies symbol; for any
         // runtime_inertia .so it is present (that surface postdates num_bodies).
         const int n_bodies = num_bodies_ > 0 ? num_bodies_ : num_joints_;
         const int want = 10 * n_bodies;
@@ -2002,7 +2001,7 @@ public:
                 ", size=" + std::to_string(params.size()));
         }
         const CT *pdata = params.data();
-        int rc; { GridNoGil nogil; rc = fn_set_inertia_params_(ctx_id_, pdata); }
+        int rc; { GrimNoGil nogil; rc = fn_set_inertia_params_(ctx_id_, pdata); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "set_inertia_params", nullptr));
     }
 
@@ -2027,7 +2026,7 @@ public:
                 ", size=" + std::to_string(params.size()));
         }
         const CT *pdata = params.data();
-        int rc; { GridNoGil nogil; rc = fn_set_transform_params_(ctx_id_, pdata); }
+        int rc; { GrimNoGil nogil; rc = fn_set_transform_params_(ctx_id_, pdata); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "set_transform_params", nullptr));
     }
 
@@ -2052,7 +2051,7 @@ public:
                 ", size=" + std::to_string(params.size()));
         }
         const CT *pdata = params.data();
-        int rc; { GridNoGil nogil; rc = fn_set_jd_params_(ctx_id_, pdata); }
+        int rc; { GrimNoGil nogil; rc = fn_set_jd_params_(ctx_id_, pdata); }
         if (rc != 0) throw std::runtime_error(rc_message(rc, "set_joint_dynamics_params", nullptr));
     }
 
@@ -2069,7 +2068,7 @@ private:
     }
 
     // Optional symbol: returns nullptr if absent (no throw). Used for the
-    // grid_plant ABI, which an older .so may not export.
+    // grim_plant ABI, which an older .so may not export.
     void* opt_sym(const char* name) {
         dlerror();
         void* sym = dlsym(handle_, name);
@@ -2131,7 +2130,7 @@ private:
         if (f_ext_opt.is_none()) return nullptr;
         if (num_bodies_ <= 0) {
             throw std::runtime_error(
-                "f_ext: this robot .so does not export grid_rbd_num_bodies "
+                "f_ext: this robot .so does not export grim_num_bodies "
                 "(built before the external-force surface). Re-register with "
                 "force_rebuild=True.");
         }
@@ -2218,7 +2217,7 @@ private:
     fn_integrator_t fn_integrator_mujoco_ = nullptr;  // floating-base mjx integrator (optional)
     fn_integrator_t fn_integrator_grad_ = nullptr;
     fn_integrator_t fn_integrator_grad_mujoco_ = nullptr;  // floating mjx (optional)
-    // grid_plant surface (optional symbols)
+    // grim_plant surface (optional symbols)
     fn_plant_cost_t    fn_plant_state_cost_  = nullptr;
     fn_plant_cost_t    fn_plant_input_cost_  = nullptr;
     fn_plant_barrier_t fn_plant_pos_barrier_ = nullptr;
@@ -2279,7 +2278,7 @@ private:
 // Register a Runner specialization (float -> "Runner", double -> "RunnerF64").
 // Both classes expose the IDENTICAL Python surface; the only difference is the
 // numpy element type of inputs/outputs (float32 vs float64) and the dtype of
-// the per-robot .so each one dlopens (the build flag -DGRID_WRAPPER_T_DOUBLE).
+// the per-robot .so each one dlopens (the build flag -DGRIM_WRAPPER_T_DOUBLE).
 template <class CT>
 static void register_runner(py::module_& m, const char* cls_name) {
     using R = RunnerT<CT>;
@@ -2311,11 +2310,11 @@ static void register_runner(py::module_& m, const char* cls_name) {
             "ee_pose_hessian, idsva_so, fdsva_so). -1 if the key is unknown/not-built "
             "or the .so predates this symbol; the FFI autotune treats -1 as 'infer'.")
         .def("set_threads_for", &R::set_threads_for, py::arg("algo"), py::arg("n"),
-            "E6 per-algo threads overlay: force n threads for the GridAlgo at index "
+            "E6 per-algo threads overlay: force n threads for the GrimAlgo at index "
             "`algo` (n=0 clears to the baked default). Raises if the .so predates the "
             "overlay. The global set_threads_per_block override still takes precedence.")
         .def("algo_count", &R::algo_count,
-            "GridAlgo enum size (per-algo overlay index bound); 0 if the .so predates it.")
+            "GrimAlgo enum size (per-algo overlay index bound); 0 if the .so predates it.")
         .def("set_threads_for_n", &R::set_threads_for_n,
             py::arg("algo"), py::arg("threshold"), py::arg("n_small"),
             "E6 batch-switch: launch `algo` with n_small threads whenever a call's "
@@ -2338,7 +2337,7 @@ static void register_runner(py::module_& m, const char* cls_name) {
             "Must run before the first kernel call; base_ptr=0 uninstalls. The slab "
             "must stay alive until close.")
         .def("close_arena", &R::close_arena,
-            "Free the device/host arena (grid_rbd_close; tools/runtime tables "
+            "Free the device/host arena (grim_close; tools/runtime tables "
             "reset); the next call re-inits lazily. Retains any owned slab and "
             "rejects resets while multiple handles share the runtime.")
         .def("device_pool_used", &R::device_pool_used,
@@ -2501,7 +2500,7 @@ static void register_runner(py::module_& m, const char* cls_name) {
         .def("integrator_gradient_mujoco", &R::integrator_gradient_mujoco,
              py::arg("q"), py::arg("qd"), py::arg("u"),
              py::arg("dt"), py::arg("it") = 0, py::arg("gravity") = -9.81f)
-        // ─── grid_plant surface (G1) ──────────────────────────────────────
+        // ─── grim_plant surface (G1) ──────────────────────────────────────
         .def("quadratic_state_cost", &R::quadratic_state_cost,
              py::arg("x"), py::arg("x_des"), py::arg("Q"))
         .def("quadratic_input_cost", &R::quadratic_input_cost,
@@ -2629,10 +2628,10 @@ static void register_runner(py::module_& m, const char* cls_name) {
 
 
 PYBIND11_MODULE(_core, m) {
-    m.doc() = "grid-rbd internal: pybind11 Runner that dlopens a per-robot "
+    m.doc() = "grim internal: pybind11 Runner that dlopens a per-robot "
               "compiled .so and dispatches numpy calls through its C ABI. "
               "Runner = fp32 buffers; RunnerF64 = fp64 buffers (loads a "
-              ".so built with -DGRID_WRAPPER_T_DOUBLE).";
+              ".so built with -DGRIM_WRAPPER_T_DOUBLE).";
     register_runner<float>(m, "Runner");
     register_runner<double>(m, "RunnerF64");
 }

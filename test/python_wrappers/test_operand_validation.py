@@ -17,7 +17,7 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO))
-grid_rbd = pytest.importorskip("grid_rbd")
+grim = pytest.importorskip("grim")
 from ._subset_artifacts import register_subset, cache_key as _cache_key, random_state as _state  # noqa: E402
 
 pytestmark = pytest.mark.python_wrappers
@@ -88,7 +88,7 @@ def test_numpy_refuses_a_broadcast_force_and_the_padded_width(iiwa, go2):
 
 def test_torch_native_checks(iiwa):
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     tv = gt.TorchRobotHandle(iiwa, _cache_key(iiwa), iiwa._so_path)
     q, qd, u = (torch.as_tensor(x, device="cuda") for x in _state(iiwa))
     with pytest.raises(RuntimeError, match="batch must be >= 1"):
@@ -114,7 +114,7 @@ def test_torch_native_checks(iiwa):
 
 def test_jax_python_checks(iiwa, go2):
     jax = pytest.importorskip("jax")
-    import jax.numpy as jnp, grid_rbd.jax as gj
+    import jax.numpy as jnp, grim.jax as gj
     jv = gj.JaxRobotHandle(iiwa, _cache_key(iiwa), iiwa._so_path)
     q, qd, u = (jnp.asarray(x) for x in _state(iiwa))
     with pytest.raises(ValueError, match="batch"):
@@ -136,9 +136,9 @@ def test_jax_python_checks(iiwa, go2):
 
 def test_jax_native_handler_checks_every_operand(iiwa):
     jax = pytest.importorskip("jax")
-    import jax.numpy as jnp, grid_rbd.jax as gj
+    import jax.numpy as jnp, grim.jax as gj
     key = _cache_key(iiwa)
-    target = gj._register_method_target(iiwa._so_path, key, "forward_dynamics", "grid_rbd_jax_forward_dynamics")
+    target = gj._register_method_target(iiwa._so_path, key, "forward_dynamics", "grim_jax_forward_dynamics")
     nj, nb = iiwa.nq, iiwa.num_bodies
     q, qd, u = (jnp.asarray(x) for x in _state(iiwa))
     fe = jnp.zeros((4, 6 * nb), jnp.float32)
@@ -168,7 +168,7 @@ def plant():
     """The plant smoke's artifact (same registration → cache hit)."""
     if shutil.which("nvcc") is None:
         pytest.skip("nvcc not on PATH")
-    h = grid_rbd.register_robot(name="iiwa14_plant_smoke", urdf_path=str(_REPO / "config/robot_assets/iiwa14.urdf"),
+    h = grim.register_robot(name="iiwa14_plant_smoke", urdf_path=str(_REPO / "config/robot_assets/iiwa14.urdf"),
                                 floating_base=False, max_batch_size=8)
     yield h
     h.close()
@@ -183,7 +183,7 @@ def test_plant_operands_must_carry_the_leading_batch(plant):
     with pytest.raises((ValueError, RuntimeError), match="batch"):
         plant.joint_position_barrier(np.zeros((4, plant.nq), np.float32), lo, hi, 1.0)
     torch = pytest.importorskip("torch")
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     tv = gt.TorchRobotHandle(plant, _cache_key(plant), plant._so_path)
     t = lambda a: torch.as_tensor(a, device="cuda")
     with pytest.raises(RuntimeError, match="must equal the leading operand's batch"):
@@ -191,7 +191,7 @@ def test_plant_operands_must_carry_the_leading_batch(plant):
     with pytest.raises(RuntimeError, match="must equal the leading operand's batch"):
         tv.joint_position_barrier(t(np.zeros((4, plant.nq), np.float32)), t(lo), t(hi), 1.0)
     jax = pytest.importorskip("jax")
-    import jax.numpy as jnp, grid_rbd.jax as gj
+    import jax.numpy as jnp, grim.jax as gj
     jv = gj.JaxRobotHandle(plant, _cache_key(plant), plant._so_path)
     with pytest.raises(ValueError, match="batch"):
         jv.quadratic_state_cost(jnp.asarray(x), jnp.asarray(x_des), jnp.asarray(Q))

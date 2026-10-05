@@ -23,7 +23,7 @@ file closes the three remaining gaps:
 Oracle construction
 -------------------
 The 10-param vector is ``[m, hx, hy, hz, Ixx, Ixy, Ixz, Iyy, Iyz, Izz]`` in the
-frozen GRiD/URDF regressor basis (``Link.get_inertia_params``). The device rebuild
+frozen GRiM/URDF regressor basis (``Link.get_inertia_params``). The device rebuild
 (``_topology_helpers._emit_runtime_inertia_rebuild``) scatters it into the 6x6 as::
 
     I(pi) = [[ I_O,        skew(h) ],
@@ -66,10 +66,10 @@ from config import robot_urdf
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it",
+    pytest.skip("nvcc not on PATH; grim register_robot requires it",
                 allow_module_level=True)
 
 _IIWA = robot_urdf("iiwa14")
@@ -94,7 +94,7 @@ def _parse(urdf_path, floating_base):
 def _spatial_inertia_from_params(p):
     """Rebuild the spatial 6x6 from a 10-param row exactly as the device does.
 
-    Mirrors grid_codegen/helpers/_topology_helpers._emit_runtime_inertia_rebuild:
+    Mirrors grim_codegen/helpers/_topology_helpers._emit_runtime_inertia_rebuild:
         p = [m, hx, hy, hz, Ixx, Ixy, Ixz, Iyy, Iyz, Izz]
         I = [[ I_O,        skew(h) ],
              [ skew(h)^T,  m*I3    ]]
@@ -156,7 +156,7 @@ def _max_rel_err(a, b):
 
 @pytest.fixture(scope="module")
 def iiwa_rt():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_runtime_inertia_pytest",
         urdf_path=str(_IIWA),
         floating_base=False,
@@ -207,20 +207,20 @@ def test_mutated_table_matches_oracle_fp32(iiwa_rt, iiwa_samples):
     iiwa_rt.set_inertia_params(perturbed.astype(np.float32))
 
     q, qd = iiwa_samples["q"], iiwa_samples["qd"]
-    grid_c = iiwa_rt.inverse_dynamics(q, qd)
-    grid_M = iiwa_rt.crba(q)
+    grim_c = iiwa_rt.inverse_dynamics(q, qd)
+    grim_M = iiwa_rt.crba(q)
     for i, (qi, qdi) in enumerate(zip(q, qd)):
         c_ref, *_ = oracle.inverse_dynamics(qi.astype(np.float64),
                                             qdi.astype(np.float64), GRAVITY=-9.81)
         M_ref = oracle.crba(qi.astype(np.float64))
-        assert _max_rel_err(grid_c[i], c_ref) < 5e-3, f"RNEA mismatch sample {i}"
-        assert _max_rel_err(grid_M[i], M_ref) < 5e-3, f"CRBA mismatch sample {i}"
+        assert _max_rel_err(grim_c[i], c_ref) < 5e-3, f"RNEA mismatch sample {i}"
+        assert _max_rel_err(grim_M[i], M_ref) < 5e-3, f"CRBA mismatch sample {i}"
 
     # and the perturbed result is genuinely different from the baked one (guards
     # against a no-op set_inertia_params that would trivially "match").
     iiwa_rt.set_inertia_params(iiwa_rt.inertia_params)
     baked_c = iiwa_rt.inverse_dynamics(q, qd)
-    assert _max_rel_err(grid_c, baked_c) > 1e-2, "perturbation had no effect"
+    assert _max_rel_err(grim_c, baked_c) > 1e-2, "perturbation had no effect"
 
 
 # ─── 2. fp64 + runtime_inertia ───────────────────────────────────────────────
@@ -228,7 +228,7 @@ def test_mutated_table_matches_oracle_fp32(iiwa_rt, iiwa_samples):
 
 @pytest.fixture(scope="module")
 def iiwa_rt_f64():
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_runtime_inertia_f64_pytest",
         urdf_path=str(_IIWA),
         floating_base=False,
@@ -245,7 +245,7 @@ def test_mutated_table_matches_oracle_fp64(iiwa_rt_f64):
     Tolerance is 1e-7 relative — ~100,000x tighter than the fp32 path's 5e-3,
     proving the double set_inertia_params + RunnerF64 compute path. (A perturbed
     CRBA/RNEA in fp64 lands around a few×1e-8 rel vs the oracle, dominated by the
-    differing accumulation order between GRiD's on-device reduction and
+    differing accumulation order between GRiM's on-device reduction and
     RBDReference's numpy — both genuinely double precision; an fp32 path would
     miss by ~1e-3.)"""
     assert iiwa_rt_f64.dtype == "float64"
@@ -258,14 +258,14 @@ def test_mutated_table_matches_oracle_fp64(iiwa_rt_f64):
     oracle = _build_perturbed_oracle(_IIWA, False, perturbed)
     iiwa_rt_f64.set_inertia_params(perturbed)                    # double path
 
-    grid_c = iiwa_rt_f64.inverse_dynamics(q, qd)
-    grid_M = iiwa_rt_f64.crba(q)
-    assert grid_c.dtype == np.float64
+    grim_c = iiwa_rt_f64.inverse_dynamics(q, qd)
+    grim_M = iiwa_rt_f64.crba(q)
+    assert grim_c.dtype == np.float64
     for i, (qi, qdi) in enumerate(zip(q, qd)):
         c_ref, *_ = oracle.inverse_dynamics(qi, qdi, GRAVITY=-9.81)
         M_ref = oracle.crba(qi)
-        assert _max_rel_err(grid_c[i], c_ref) < 1e-7, f"fp64 RNEA mismatch sample {i}"
-        assert _max_rel_err(grid_M[i], M_ref) < 1e-7, f"fp64 CRBA mismatch sample {i}"
+        assert _max_rel_err(grim_c[i], c_ref) < 1e-7, f"fp64 RNEA mismatch sample {i}"
+        assert _max_rel_err(grim_M[i], M_ref) < 1e-7, f"fp64 CRBA mismatch sample {i}"
 
 
 # ─── 3. floating-base runtime_inertia ────────────────────────────────────────
@@ -275,7 +275,7 @@ def test_mutated_table_matches_oracle_fp64(iiwa_rt_f64):
 def go2_rt():
     if not _GO2.exists():
         pytest.skip(f"go2 URDF not present at {_GO2}")
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="go2_floating_runtime_inertia_pytest",
         urdf_path=str(_GO2),
         floating_base=True,
@@ -287,7 +287,7 @@ def go2_rt():
 
 
 def _floating_q(handle, seed):
-    """Floating-base q for the grid_rbd binding: q is packed (B, num_joints) ==
+    """Floating-base q for the grim binding: q is packed (B, num_joints) ==
     (B, num_pos) (the wrapper's pack_q_qd_u is NUM_POS-wide for q/qd/u alike)."""
     rng = np.random.default_rng(seed)
     return rng.standard_normal((3, handle.num_joints)).astype(np.float32)
@@ -297,7 +297,7 @@ def test_floating_runtime_inertia_metadata(go2_rt):
     assert go2_rt.floating_base is True
     assert go2_rt.runtime_inertia is True
     # FLOATING base: the device d_inertia_params table is sized by num_bodies
-    # (the inertia-body count = grid::NUM_BODIES), NOT num_joints (== num_pos).
+    # (the inertia-body count = grim::NUM_BODIES), NOT num_joints (== num_pos).
     # go2: num_bodies=13 < num_joints=19. Regression guard for the binding fix
     # (the table/validation used to use 10*num_joints and reject the only valid
     # (num_bodies,10) table).
@@ -309,13 +309,13 @@ def test_floating_runtime_inertia_metadata(go2_rt):
 # ------------------------------------
 # A *value* cross-check of floating-base CRBA/RNEA against RBDReference is blocked
 # by a PRE-EXISTING binding floating-base-layout gap that is independent of
-# runtime-inertia: the grid_rbd binding packs q/qd/u NUM_POS-wide and returns
+# runtime-inertia: the grim binding packs q/qd/u NUM_POS-wide and returns
 # velocity-space matrices NUM_POS×NUM_POS (go2: 19×19, quaternion-derivative
 # columns), whereas RBDReference works in the NUM_VEL tangent space (18×18). The
 # two don't line up without a quaternion→tangent reconciliation that the binding
 # doesn't yet expose (same class of issue as the floating-base EE-pose-gradient
 # convention note). So the floating-base runtime-inertia tests below validate the
-# runtime-inertia MECHANISM device-side (GRiD-vs-GRiD self-consistency + the
+# runtime-inertia MECHANISM device-side (GRiM-vs-GRiM self-consistency + the
 # trunk/base-body index mapping) rather than vs the oracle. The fixed-base
 # fp32/fp64 tests above already prove the on-device 6×6 rebuild is *physically*
 # correct vs the oracle; floating base adds only the base-body index mapping,
@@ -394,7 +394,7 @@ def RBDReference_unmutated(urdf_path, floating_base):
 def iiwa_baked():
     # the plain baked .so (runtime_inertia=False) — the oracle for the §5.2
     # output-parity gate; currently the only registration without runtime_inertia.
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name="iiwa14_baked_inertia_pytest", urdf_path=str(_IIWA),
         floating_base=False, runtime_inertia=False, max_batch_size=8)
 
@@ -410,15 +410,15 @@ def test_inertia_poke_seen_across_surfaces():
     test_runtime_joint_dynamics::test_poke_seen_across_surfaces, and the end-to-end
     check that the jax/torch runtime_inertia exposure threads the shared table.
     Skips if jax/torch unavailable."""
-    gj = pytest.importorskip("grid_rbd.jax")
+    gj = pytest.importorskip("grim.jax")
     pytest.importorskip("jax")
-    gt = pytest.importorskip("grid_rbd.torch")
+    gt = pytest.importorskip("grim.torch")
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device not available for torch")
     common = dict(urdf_path=str(_IIWA), floating_base=False, max_batch_size=8,
                   runtime_inertia=True)
-    hn = _grid_rbd.register_robot(name="iiwa14_rti_ffi_pytest", force_rebuild=True, **common)
+    hn = _grim.register_robot(name="iiwa14_rti_ffi_pytest", force_rebuild=True, **common)
     hj = gj.register_robot(name="iiwa14_rti_ffi_pytest", **common)
     ht = gt.register_robot(name="iiwa14_rti_ffi_pytest", **common)
     nj = hn.num_joints

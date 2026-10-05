@@ -1,7 +1,7 @@
 """Wave A' (P2/P3, 2026-09-11): replay recorded header content keys CPU-side.
 
 test/gpu-proof-header-keys.json (aggregated by run_split_suite from the A4
-sidecars) records, per cuda shard, every grid.cuh the shard generated: the
+sidecars) records, per cuda shard, every grim.cuh the shard generated: the
 recipe evidence (flagship robot/base/algorithm-list, or a direct
 gen_all_code call's bound kwargs + generator-ctor state + env snapshot) and
 the emitted header's CONTENT sha256. At SPLIT_REFRESH time, when the
@@ -90,7 +90,7 @@ def _flagship_content(record: dict) -> tuple[str | None, str]:
             model = build_project_adapter(
                 specs[0], resolved, base_mode=record.get("base_mode"))
             with tempfile.TemporaryDirectory(prefix="hk_replay_") as td:
-                header, _key = cuda_harness._generate_grid_header(
+                header, _key = cuda_harness._generate_grim_header(
                     model, resolved, Path(td), None,
                     codegen_algorithm_list=record.get("algorithm_list"))
                 return _sha(header), "flagship regenerated"
@@ -122,7 +122,7 @@ def _direct_content(record: dict) -> tuple[str | None, str]:
             # the URDF asset itself changed — a genuine codegen-input rotation
             return "__urdf_rotated__", "urdf bytes differ from record"
         from URDFParser import URDFParser
-        from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
+        from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
         kwargs = dict(record.get("kwargs") or {})
         kwargs.pop("output_path", None)
         for k in opaque:
@@ -132,7 +132,7 @@ def _direct_content(record: dict) -> tuple[str | None, str]:
                 contextlib.redirect_stderr(devnull):
             robot = URDFParser().parse(
                 str(urdf), floating_base=bool(record.get("floating")))
-            gen = GRiDCodeGenerator(
+            gen = GRiMCodeGenerator(
                 robot,
                 DEBUG_MODE=ctor.get("DEBUG_MODE", False),
                 NEED_PRINT_MAT=ctor.get("gen_print_mat", False),
@@ -144,13 +144,13 @@ def _direct_content(record: dict) -> tuple[str | None, str]:
                 # fp64: reconstruct the ctor dtype from the recorded resolved
                 # T byte size (old records lack the key -> 4 -> "float", which
                 # matches how every pre-audit record was generated). When the
-                # record's env carries GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES,
+                # record's env carries GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES,
                 # _apply_env re-applies it and the env override wins, exactly
                 # as it did at record time.
                 dtype=("double" if int(ctor.get("t_bytes", 4)) == 8 else "float"),
             )
             with tempfile.TemporaryDirectory(prefix="hk_replay_") as td:
-                out = Path(td) / "grid.cuh"
+                out = Path(td) / "grim.cuh"
                 gen.gen_all_code(output_path=str(out), **kwargs)
                 return _sha(out), "direct regenerated"
     except Exception as exc:

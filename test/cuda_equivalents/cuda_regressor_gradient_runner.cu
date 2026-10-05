@@ -2,7 +2,7 @@
 //
 // Mirrors `cuda_regressor_smoke_runner.cu` and invokes
 // `inverse_dynamics_regressor_gradient` (host launcher). The output d_dY_dx is a
-// gridData field (2*nv*nv x 10*NUM_BODIES per timestep: dq block then dqd block,
+// grimData field (2*nv*nv x 10*NUM_BODIES per timestep: dq block then dqd block,
 // each direction c a row-major nv x 10NB matrix); the host copies it back into
 // hd_data->h_dY_dx, which this runner reads directly. Used by
 // `test_cuda_regressor_gradient` to validate the CUDA emission against
@@ -15,10 +15,10 @@
 #include <iostream>
 #include <string>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_CUDA_REGRESSOR_GRADIENT_TEST_THREADS
-#define GRID_CUDA_REGRESSOR_GRADIENT_TEST_THREADS 64
+#ifndef GRIM_CUDA_REGRESSOR_GRADIENT_TEST_THREADS
+#define GRIM_CUDA_REGRESSOR_GRADIENT_TEST_THREADS 64
 #endif
 
 template <typename T>
@@ -51,26 +51,26 @@ template <typename T>
 int run() {
     const T gravity = static_cast<T>(-9.81);
     const dim3 block_dimms(1, 1, 1);
-    const int _req_threads = GRID_CUDA_REGRESSOR_GRADIENT_TEST_THREADS;
-    const int _nthreads = _req_threads < grid::MAX_PERF_LEVEL_THREADS ? _req_threads : grid::MAX_PERF_LEVEL_THREADS;
+    const int _req_threads = GRIM_CUDA_REGRESSOR_GRADIENT_TEST_THREADS;
+    const int _nthreads = _req_threads < grim::MAX_PERF_LEVEL_THREADS ? _req_threads : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(_nthreads, 1, 1);
 
-    const int nv = grid::NUM_VEL;
-    const int nb = grid::NUM_BODIES;
+    const int nv = grim::NUM_VEL;
+    const int nb = grim::NUM_BODIES;
     const int cols = 10 * nb;
     const int rows = 2 * nv * nv;   // dq half then dqd half, nv directions x nv rows each
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     // q|qd|qdd canonical layout (Q_QD_U_STRIDE == 3*NUM_POS): q@0, qd@NUM_POS,
     // qdd@2*NUM_POS (matches the kernel's s_q_qd_qdd slots).
-    read_vector(hd_data->h_q_qd_u, grid::NUM_POS);
-    read_vector(&hd_data->h_q_qd_u[grid::NUM_POS], grid::NUM_VEL);
-    read_vector(&hd_data->h_q_qd_u[2 * grid::NUM_POS], grid::NUM_VEL);
+    read_vector(hd_data->h_q_qd_u, grim::NUM_POS);
+    read_vector(&hd_data->h_q_qd_u[grim::NUM_POS], grim::NUM_VEL);
+    read_vector(&hd_data->h_q_qd_u[2 * grim::NUM_POS], grim::NUM_VEL);
 
-    grid::inverse_dynamics_regressor_gradient<T>(
+    grim::inverse_dynamics_regressor_gradient<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
@@ -85,16 +85,16 @@ int run() {
     }
 
     T config[5];
-    config[0] = static_cast<T>(grid::NUM_POS);
-    config[1] = static_cast<T>(grid::NUM_VEL);
-    config[2] = static_cast<T>(grid::NUM_BODIES);
-    config[3] = static_cast<T>(grid::NUM_JOINTS);
-    config[4] = static_cast<T>(grid::INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+    config[0] = static_cast<T>(grim::NUM_POS);
+    config[1] = static_cast<T>(grim::NUM_VEL);
+    config[2] = static_cast<T>(grim::NUM_BODIES);
+    config[3] = static_cast<T>(grim::NUM_JOINTS);
+    config[4] = static_cast<T>(grim::INVERSE_DYNAMICS_REGRESSOR_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
 
     print_flat("regressor_gradient_config", config, 1, 5);
     print_flat("regressor_gradient", h_dY_dx, rows, cols);
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
     return 0;
 }
 

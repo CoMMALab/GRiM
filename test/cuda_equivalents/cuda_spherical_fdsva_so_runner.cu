@@ -6,19 +6,19 @@
 // world inner for any robot with a spherical joint (predicate _fdsva_so_use_world_idsva).
 //
 // nq != nv: a spherical joint carries a 4-wide unit-quaternion q-block + 3 v-slots,
-// so the per-timestep INPUT slot is NQ(=grid::NUM_POS)-wide (the canonical 3*NUM_POS
+// so the per-timestep INPUT slot is NQ(=grim::NUM_POS)-wide (the canonical 3*NUM_POS
 // pack: q@0, qd@nq, u@2*nq). The fdsva_so output is the four nv^3 tensors
 // [daba_dqdq | daba_dvdq | daba_dvdv | daba_dtdq] = SECOND_ORDER_TENSOR_SIZE total
 // (the RBDReference.fdsva_so return order; NOT the idsva_so order).
 //
-// Drives the dispatching HOST batch wrapper `fdsva_so<T, GRID_DATA_ALL>` over a
+// Drives the dispatching HOST batch wrapper `fdsva_so<T, GRIM_DATA_ALL>` over a
 // B-timestep trajectory of IDENTICAL inputs (the §1e per-timestep nq-stride path the
 // bindings use). It emits BOTH the first batch row ("fdsva_so", the canonical single
 // result) AND every batch row ("fdsva_so_batch_k"); the test asserts every row matches
 // the WORLD-routed oracle and the rows are mutually identical (§1e self-consistency),
 // and sweeps argv[1] thread counts for invariance.
 //
-// A4 (surgical cold spill): GRID_CUDA_TARGET_SHARED_MEM_BYTES forces select_shared_
+// A4 (surgical cold spill): GRIM_CUDA_TARGET_SHARED_MEM_BYTES forces select_shared_
 // tier_3way to pick the idsva_cold rung even on this small robot, so the runner can
 // exercise the COLD_IN_SMEM=false world-inner path (cold trio Xdown/v_w/a_w spilled to
 // the SO-temp d_workspace region) without a big-robot compile.
@@ -30,7 +30,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 int g_num_threads = 32;
 
@@ -61,12 +61,12 @@ template <typename T>
 void run() {
     const T gravity = static_cast<T>(-9.81);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
 
-    const int nq = grid::NUM_JOINTS;   // == nq for this codegen
-    const int nv = grid::NUM_VEL;
-    const int so_len = grid::SECOND_ORDER_TENSOR_SIZE;   // 4*nv^3
+    const int nq = grim::NUM_JOINTS;   // == nq for this codegen
+    const int nv = grim::NUM_VEL;
+    const int so_len = grim::SECOND_ORDER_TENSOR_SIZE;   // 4*nv^3
 
     // ----- read inputs (q is nq-wide, qd / u are nv-wide) -----
     std::vector<T> h_q(nq);
@@ -81,10 +81,10 @@ void run() {
 
     // ----- dispatching HOST batch wrapper over B IDENTICAL timesteps -----
     // The per-timestep slot is NQ-wide for q, qd AND u (the canonical 3*NUM_POS pack:
-    // q@[0,nq), qd@[nq,2nq), u@[2nq,3nq)). grid::fdsva_so composes idsva_so_world_frame
+    // q@[0,nq), qd@[nq,2nq), u@[2nq,3nq)). grim::fdsva_so composes idsva_so_world_frame
     // for spherical (the predicate _fdsva_so_use_world_idsva).
     const int B = 4;
-    grid::gridData<T> *hd_data = grid::init_gridData<T, B>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, B>();
     for (int k = 0; k < B; ++k) {
         for (int i = 0; i < nq; ++i)
             hd_data->h_q_qd_u[k * 3 * nq + i] = h_q[i];                   // q @ [0, nq)
@@ -97,7 +97,7 @@ void run() {
     }
     const dim3 block_dimms(1, 1, 1);
     const dim3 thread_dimms(g_num_threads, 1, 1);
-    grid::fdsva_so<T, grid::GRID_DATA_ALL>(
+    grim::fdsva_so<T, grim::GRIM_DATA_ALL>(
         hd_data, d_robot_model, gravity, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
 
@@ -113,7 +113,7 @@ void run() {
         print_vector("fdsva_so_batch_" + std::to_string(k), row.data(), so_len);
     }
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -121,10 +121,10 @@ int main(int argc, char **argv) {
         int requested = std::atoi(argv[1]);
         g_num_threads = requested > 0 ? requested : 0;
     }
-    if (g_num_threads <= 0 || g_num_threads > grid::MAX_PERF_LEVEL_THREADS) {
-        g_num_threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (g_num_threads <= 0 || g_num_threads > grim::MAX_PERF_LEVEL_THREADS) {
+        g_num_threads = grim::MAX_PERF_LEVEL_THREADS;
     }
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

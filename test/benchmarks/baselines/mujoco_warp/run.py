@@ -4,7 +4,7 @@
 UNTESTED: there is no `mujoco_warp` package installed on this machine yet. This
 adapter is a first draft modeled byte-for-byte on baselines/mjx/run.py (the
 closest analog — also MuJoCo MJCF + GPU). It shells out to `timeMujocoWarp.py`
-and reuses the SAME shared helpers (parse_grid_output / fill_nulls /
+and reuses the SAME shared helpers (parse_grim_output / fill_nulls /
 build_metadata), so its JSON is drop-in compatible with generate_report.py under
 the baseline key "mujoco_warp".
 
@@ -41,7 +41,7 @@ THIS_DIR  = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from test.benchmarks.timing_parser import (  # noqa: E402
-    parse_grid_output, fill_nulls, build_metadata,
+    parse_grim_output, fill_nulls, build_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ from test.benchmarks.timing_parser import (  # noqa: E402
 #
 # CONFIRMED top-level exports: mjw.inverse, mjw.forward, mjw.kinematics, mjw.crb,
 # mjw.factor_m. `crba` is UNCERTAIN — crb+factor_m yields a factorization (qLD),
-# not a dense mass matrix like GRiD/Frax CRBA; included as the closest analog.
+# not a dense mass matrix like GRiM/Frax CRBA; included as the closest analog.
 # Derivative/Jacobian algos (inverse_dynamics_gradient / forward_dynamics_gradient)
 # use a GPU FINITE-DIFFERENCE Jacobian (wp.autograd.jacobian_fd) — mujoco_warp
 # ships enable_backward=False so the autodiff Jacobian is unavailable, but the FD
@@ -184,8 +184,8 @@ def main() -> None:
         print(f"  [mujoco_warp] ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # parse_grid_output handles the same label format that timeMujocoWarp.py emits.
-    timings = parse_grid_output(output, single_statistic="median")
+    # parse_grim_output handles the same label format that timeMujocoWarp.py emits.
+    timings = parse_grim_output(output, single_statistic="median")
     # Zero out algos that MJWarp doesn't support (so they appear as null, not absent).
     for algo in list(timings.keys()):
         if algo not in MUJOCO_WARP_ALGOS:

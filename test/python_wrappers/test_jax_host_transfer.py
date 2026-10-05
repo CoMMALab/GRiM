@@ -1,11 +1,11 @@
-"""`grid_rbd.jax.to_host` — pinned_host device->host transfer (2026-10-01).
+"""`grim.jax.to_host` — pinned_host device->host transfer (2026-10-01).
 
 Routes the copy through XLA's ``pinned_host`` memory kind (measured 3.5x faster than
 ``jax.device_get`` on 700 MB outputs; ``np.asarray`` of the moved array is zero-copy).
 Contract pinned here: values identical to ``device_get`` for a single array and for a
 pytree (the idsva_so NamedTuple), results are numpy, ``pinned=False`` is the plain path,
 and the memory kind actually used is ``pinned_host`` when the device offers it.
-Skips if jax, grid_rbd, CUDA or the URDF fixture aren't available.
+Skips if jax, grim, CUDA or the URDF fixture aren't available.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 jax = pytest.importorskip("jax", reason="jax not installed")
 if jax.devices()[0].platform != "gpu":
     pytest.skip("jax GPU backend not available", allow_module_level=True)
@@ -32,7 +32,7 @@ if not _URDF.exists():
 
 pytestmark = pytest.mark.python_wrappers
 
-import grid_rbd.jax as gj  # noqa: E402
+import grim.jax as gj  # noqa: E402
 
 
 @pytest.fixture(scope="module")

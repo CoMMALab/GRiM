@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 static int g_num_threads = 64;
 
@@ -52,45 +52,45 @@ void run() {
     const dim3 block_dimms(1, 1, 1);
     const dim3 thread_dimms(g_num_threads, 1, 1);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
-    read_vector(hd_data->h_q, grid::NUM_JOINTS);
-    read_vector(&hd_data->h_q_qd[grid::NUM_JOINTS], grid::NUM_JOINTS);
-    read_vector(&hd_data->h_q_qd_u[2 * grid::NUM_JOINTS], grid::NUM_JOINTS);
-    read_vector(hd_data->h_qdd, grid::NUM_JOINTS);
+    read_vector(hd_data->h_q, grim::NUM_JOINTS);
+    read_vector(&hd_data->h_q_qd[grim::NUM_JOINTS], grim::NUM_JOINTS);
+    read_vector(&hd_data->h_q_qd_u[2 * grim::NUM_JOINTS], grim::NUM_JOINTS);
+    read_vector(hd_data->h_qdd, grim::NUM_JOINTS);
 
-    for (int i = 0; i < grid::NUM_JOINTS; ++i) {
+    for (int i = 0; i < grim::NUM_JOINTS; ++i) {
         hd_data->h_q_qd[i] = hd_data->h_q[i];
         hd_data->h_q_qd_u[i] = hd_data->h_q[i];
-        hd_data->h_q_qd_u[i + grid::NUM_JOINTS] = hd_data->h_q_qd[i + grid::NUM_JOINTS];
+        hd_data->h_q_qd_u[i + grim::NUM_JOINTS] = hd_data->h_q_qd[i + grim::NUM_JOINTS];
     }
 
-    print_vector("input_q", hd_data->h_q, grid::NUM_JOINTS);
-    print_vector("input_qd", &hd_data->h_q_qd[grid::NUM_JOINTS], grid::NUM_JOINTS);
-    print_vector("input_u", &hd_data->h_q_qd_u[2 * grid::NUM_JOINTS], grid::NUM_JOINTS);
-    print_vector("input_qdd", hd_data->h_qdd, grid::NUM_JOINTS);
+    print_vector("input_q", hd_data->h_q, grim::NUM_JOINTS);
+    print_vector("input_qd", &hd_data->h_q_qd[grim::NUM_JOINTS], grim::NUM_JOINTS);
+    print_vector("input_u", &hd_data->h_q_qd_u[2 * grim::NUM_JOINTS], grim::NUM_JOINTS);
+    print_vector("input_qdd", hd_data->h_qdd, grim::NUM_JOINTS);
 
     // inverse_dynamics: tau = ID(q, qd, qdd) with USE_QDD_FLAG=true so the
     // Tier-B forward (S*qdd) + mxS branches run on the branching topology.
-    grid::inverse_dynamics<T, true>(hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams);
+    grim::inverse_dynamics<T, true>(hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
-    print_vector("inverse_dynamics", hd_data->h_c, grid::NUM_JOINTS);
+    print_vector("inverse_dynamics", hd_data->h_c, grim::NUM_JOINTS);
 
-    grid::minv<T, true>(hd_data, d_robot_model, 1, block_dimms, thread_dimms, streams);
+    grim::minv<T, true>(hd_data, d_robot_model, 1, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
-    print_matrix_col_major("minv", hd_data->h_Minv, grid::NUM_JOINTS, grid::NUM_JOINTS);
+    print_matrix_col_major("minv", hd_data->h_Minv, grim::NUM_JOINTS, grim::NUM_JOINTS);
 
-    grid::aba<T>(hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams);
+    grim::aba<T>(hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
-    print_vector("aba", hd_data->h_qdd, grid::NUM_JOINTS);
+    print_vector("aba", hd_data->h_qdd, grim::NUM_JOINTS);
 
-    grid::crba<T, true>(hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams);
+    grim::crba<T, true>(hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
-    print_matrix_col_major("crba", hd_data->h_M, grid::NUM_JOINTS, grid::NUM_JOINTS);
+    print_matrix_col_major("crba", hd_data->h_M, grim::NUM_JOINTS, grim::NUM_JOINTS);
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
 }
 
 int main() {

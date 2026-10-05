@@ -1,14 +1,14 @@
-"""Legacy ptxas -v diagnostic — compare GRiD HEAD (GLASS linalg) vs the
+"""Legacy ptxas -v diagnostic — compare GRiM HEAD (GLASS linalg) vs the
 pre-GLASS reference at commit d2c0d18 for the four regression cells:
 
   Pattern 1: go2_fixed FD + ABA  (1.11×-1.18× regression at N=16/256)
   Pattern 2: g1_fixed  EE_POSE_GRADIENT (1.14-1.18× at N=16/256)
 
-Generates grid.cuh from both repos, compiles each with `-Xptxas -v`,
+Generates grim.cuh from both repos, compiles each with `-Xptxas -v`,
 parses register counts + spill stores + smem, writes diff report.
 
-Requires a sibling worktree at $GRID_PRE_GLASS_REPO (default:
-sibling of this repo named GRiD-A2R-pre-glass) checked out at the
+Requires a sibling worktree at $GRIM_PRE_GLASS_REPO (default:
+sibling of this repo named GRiM-A2R-pre-glass) checked out at the
 pre-GLASS commit. Same setup as
 test/benchmarks/run_multi_version.py's --columns pre_glass path.
 
@@ -29,8 +29,8 @@ import sys
 from pathlib import Path
 
 HEAD_REPO       = Path(__file__).resolve().parents[2]
-PRE_GLASS_REPO  = Path(os.environ.get("GRID_PRE_GLASS_REPO",
-                                       str(HEAD_REPO.parent / "GRiD-A2R-pre-glass")))
+PRE_GLASS_REPO  = Path(os.environ.get("GRIM_PRE_GLASS_REPO",
+                                       str(HEAD_REPO.parent / "GRiM-A2R-pre-glass")))
 URDF_DIR        = Path.home() / ".cache/robot_descriptions"
 URDFS = {
     "go2":    URDF_DIR / "unitree_ros/robots/go2_description/urdf/go2_description.urdf",
@@ -41,9 +41,9 @@ URDFS = {
 CUDA_ARCH = "120"
 NVCC = "/usr/local/cuda/bin/nvcc"
 
-# The per-exe bench cutover retired HEAD's monolithic timeGRiD_batch.cu. A per_algo_bench solo TU is an
-# equivalent ptxas -v driver (it instantiates every kernel via init_grid_kernel_attrs). Materialize one for
-# the HEAD_glass variant; the pre_glass variant still uses its frozen worktree's timeGRiD.cu, unchanged.
+# The per-exe bench cutover retired HEAD's monolithic timeGRiM_batch.cu. A per_algo_bench solo TU is an
+# equivalent ptxas -v driver (it instantiates every kernel via init_grim_kernel_attrs). Materialize one for
+# the HEAD_glass variant; the pre_glass variant still uses its frozen worktree's timeGRiM.cu, unchanged.
 HEAD_BENCH_DIR = HEAD_REPO / "test/benchmarks/baselines/grid"
 sys.path.insert(0, str(HEAD_REPO / "test/benchmarks"))
 from per_algo_bench import _solo_batch_tu_source  # noqa: E402
@@ -51,18 +51,18 @@ _HEAD_DRIVER = Path("/tmp/glass_vs_pre_glass_head_driver.cu")
 _HEAD_DRIVER.write_text(_solo_batch_tu_source("inverse_dynamics"))
 
 
-def gen_grid_cuh(repo: Path, robot: str, urdf: Path, out_dir: Path) -> None:
-    """Run codegen using the given repo's URDFParser + GRiDCodeGenerator."""
+def gen_grim_cuh(repo: Path, robot: str, urdf: Path, out_dir: Path) -> None:
+    """Run codegen using the given repo's URDFParser + GRiMCodeGenerator."""
     out_dir.mkdir(parents=True, exist_ok=True)
     code = f"""
 import sys
 sys.path.insert(0, "{repo}")
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 p = URDFParser()
 r = p.parse("{urdf}", floating_base=False)
-cg = GRiDCodeGenerator(r, 0, FILE_NAMESPACE="grid")
-cg.gen_all_code(output_path="{out_dir}/grid.cuh")
+cg = GRiMCodeGenerator(r, 0, FILE_NAMESPACE="grid")
+cg.gen_all_code(output_path="{out_dir}/grim.cuh")
 """
     venv_py = HEAD_REPO / ".venv/bin/python"
     rc = subprocess.run([str(venv_py), "-c", code], capture_output=True, text=True)
@@ -71,35 +71,35 @@ cg.gen_all_code(output_path="{out_dir}/grid.cuh")
             f"codegen failed for {robot} with {repo}:\n{rc.stdout}\n{rc.stderr}")
 
 
-def compile_ptxas_v(grid_cuh: Path, batch_cu: Path, glass_root: Path | None,
+def compile_ptxas_v(grim_cuh: Path, batch_cu: Path, glass_root: Path | None,
                     linalg_backend: str, build_dir: Path, ee_frame: str = "") -> str:
-    """Compile timeGRiD_batch.cu with -Xptxas -v. Returns captured stderr."""
+    """Compile timeGRiM_batch.cu with -Xptxas -v. Returns captured stderr."""
     build_dir.mkdir(parents=True, exist_ok=True)
     obj = build_dir / "batch.o"
 
     cmd = [
         NVCC, "-std=c++17", "-c", "-o", str(obj), str(batch_cu),
-        f"-DGRID_HEADER_FILE=\"{grid_cuh}\"",
+        f"-DGRIM_HEADER_FILE=\"{grim_cuh}\"",
         f"-gencode=arch=compute_{CUDA_ARCH},code=sm_{CUDA_ARCH}",
         "-O3", "-ftz=true", "-prec-div=false", "-prec-sqrt=false",
         f"-I{batch_cu.parent}",
-        f"-I{HEAD_BENCH_DIR}",   # timeGRiD_common.h for the HEAD solo driver (pre_glass -I wins for its own)
-        f"-I{grid_cuh.parent}",
+        f"-I{HEAD_BENCH_DIR}",   # timeGRiM_common.h for the HEAD solo driver (pre_glass -I wins for its own)
+        f"-I{grim_cuh.parent}",
         "-Xptxas", "-v",
         "-Wno-deprecated-gpu-targets",
     ]
     if linalg_backend == "glass":
-        cmd.append("-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS")
+        cmd.append("-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS")
         if glass_root:
             cmd.extend([f"-I{glass_root}", f"-I{glass_root / 'src'}"])
     elif linalg_backend == "pre_glass":
         # pre_glass has its own builtin linalg (no GLASS); no extra defines.
         pass
 
-    # GRID_TIMING_TEST_ITERS macro to make the .cu instantiate; default in the
+    # GRIM_TIMING_TEST_ITERS macro to make the .cu instantiate; default in the
     # batch source is 1, but its templates only fire when called. The TU also
     # needs IS_TIMING. Let's just match what the bench passes.
-    cmd.append("-DGRID_TIMING_TEST_ITERS=1")
+    cmd.append("-DGRIM_TIMING_TEST_ITERS=1")
 
     rc = subprocess.run(cmd, capture_output=True, text=True)
     log = (build_dir / "ptxas.stderr.log")
@@ -195,8 +195,8 @@ def main():
              "glass"),
             ("pre_glass",
              PRE_GLASS_REPO,
-             # pre_glass had a single timeGRiD.cu — not split into _single/_batch
-             PRE_GLASS_REPO / "test/benchmarks/baselines/grid/timeGRiD.cu",
+             # pre_glass had a single timeGRiM.cu — not split into _single/_batch
+             PRE_GLASS_REPO / "test/benchmarks/baselines/grid/timeGRiM.cu",
              "pre_glass"),
         ]:
             if not batch_cu.exists():
@@ -206,10 +206,10 @@ def main():
             cell_dir = work / label
             cell_dir.mkdir(exist_ok=True)
             try:
-                gen_grid_cuh(repo, robot, urdf, cell_dir)
+                gen_grim_cuh(repo, robot, urdf, cell_dir)
                 glass_root_local = (repo / "external" / "GLASS") if (repo / "external" / "GLASS").exists() else None
                 stderr = compile_ptxas_v(
-                    cell_dir / "grid.cuh",
+                    cell_dir / "grim.cuh",
                     batch_cu,
                     glass_root_local,
                     linalg,

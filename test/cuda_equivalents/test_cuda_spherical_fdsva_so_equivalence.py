@@ -18,7 +18,7 @@ A4 (this PR): fdsva_so gained a surgical cold rung that routes ONLY the composed
 WORLD idsva_so inner's cold trio (Xdown/v_w/a_w) to the SO-temp d_workspace region
 (COLD_IN_SMEM=false) while the hot pool stays in smem, sitting between the
 'outputs->global' rung and the all-or-nothing pool->global rung. This test forces
-that rung on these small robots via GRID_CUDA_TARGET_SHARED_MEM_BYTES (a ~576-byte
+that rung on these small robots via GRIM_CUDA_TARGET_SHARED_MEM_BYTES (a ~576-byte
 window where global_tensors no longer fits but idsva_cold does) so the spilled-
 cold-trio code path is exercised without a 20-min big-robot compile.
 
@@ -27,7 +27,7 @@ NQ=4 (unit quaternion xyzw), so NQ != NV; q is consumed ONLY by load_update_XIma
 (spherical-aware via the quaternion substitution). qd/u are nv-tangent; the outputs
 are nv^3 tangent.
 
-It drives the dispatching HOST batch wrapper `fdsva_so<T, GRID_DATA_ALL>` over a
+It drives the dispatching HOST batch wrapper `fdsva_so<T, GRIM_DATA_ALL>` over a
 4-timestep trajectory of IDENTICAL inputs (the per-timestep NQ-wide input-slot path
 the bindings use). Every batch row must equal the WORLD-routed oracle AND the rows
 must be mutually identical (the §1e nq-stride self-consistency check), swept over
@@ -48,7 +48,7 @@ import pytest
 
 from URDFParser import URDFParser
 from RBDReference import RBDReference
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -66,7 +66,7 @@ QUAT_START = {"spherical_arm.urdf": 0, "mixed_spherical_arm.urdf": 1}
 # The CUDA s_df2 packs the four nv^3 blocks in RBDReference.fdsva_so return order.
 FDSVA_BLOCK_NAMES = ("daba_dqdq", "daba_dvdq", "daba_dvdv", "daba_dtdq")
 
-# A4 forced-cold-rung targets: GRID_CUDA_TARGET_SHARED_MEM_BYTES where
+# A4 forced-cold-rung targets: GRIM_CUDA_TARGET_SHARED_MEM_BYTES where
 # select_shared_tier_3way picks the idsva_cold rung (PERF=LITE=idsva_cold). Found
 # empirically (the ~576-byte window between global_tensors and idsva_cold arenas).
 # None -> default PERF (full smem, no cold spill).
@@ -79,14 +79,14 @@ def _parse(name):
 
 
 def _generate_header(robot, build_dir, shared_mem_target=None):
-    header = build_dir / "grid.cuh"
-    # The shared-mem target is read by GRiDCodeGenerator.__init__ from the env at
+    header = build_dir / "grim.cuh"
+    # The shared-mem target is read by GRiMCodeGenerator.__init__ from the env at
     # construction time, so set it around the construct + emit.
-    prev = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES")
+    prev = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES")
     if shared_mem_target is not None:
-        os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = shared_mem_target
+        os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = shared_mem_target
     try:
-        codegen = GRiDCodeGenerator(
+        codegen = GRiMCodeGenerator(
             robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
         )
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -100,9 +100,9 @@ def _generate_header(robot, build_dir, shared_mem_target=None):
             )
     finally:
         if prev is None:
-            os.environ.pop("GRID_CUDA_TARGET_SHARED_MEM_BYTES", None)
+            os.environ.pop("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", None)
         else:
-            os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
+            os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
     return header
 
 
@@ -116,8 +116,8 @@ def _compile_runner(build_dir):
     exe = build_dir / "cuda_spherical_fdsva_so_runner.exe"
     cmd = [
         nvcc, "-std=c++17", "-O0",
-        "-DGRID_CUDA_FLOATING_BASE=0",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        "-DGRIM_CUDA_FLOATING_BASE=0",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(exe), str(runner_copy),
@@ -136,7 +136,7 @@ def _run(exe, q, qd, u, threads=32, dtype="float"):
         return " ".join(f"{x:.9g}" for x in np.asarray(v, dtype=np.float64))
     stdin = "\n".join([row(q), row(qd), row(u)]) + "\n"
     env = dict(os.environ)
-    env["GRID_EQUIV_T"] = dtype  # "float" (fp32) or "double" (fp64)
+    env["GRIM_EQUIV_T"] = dtype  # "float" (fp32) or "double" (fp64)
     result = subprocess.run(
         [str(exe), str(threads)], input=stdin, cwd=exe.parent,
         capture_output=True, text=True, env=env

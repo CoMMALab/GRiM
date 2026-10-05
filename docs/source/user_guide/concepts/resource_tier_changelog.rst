@@ -64,8 +64,8 @@ sections):
      - h1_2 fixed/floating — the inner is 160-441 KB, physically can't fit a
        100 KB box, so this is unavoidable
 
-The sub-offsets are ``GRID_INTEGRATOR_DU_DAB_OFFSET_BYTES`` and
-``GRID_INTEGRATOR_DU_INNER_OFFSET_BYTES`` (Dqdd sits at offset 0); the
+The sub-offsets are ``GRIM_INTEGRATOR_DU_DAB_OFFSET_BYTES`` and
+``GRIM_INTEGRATOR_DU_INNER_OFFSET_BYTES`` (Dqdd sits at offset 0); the
 placement per tier is exposed via ``INTEGRATOR_DU_{D_QDD,DAB}_IN_SMEM<TIER>``
 and ``INTEGRATOR_DU_INNER_LEVEL<TIER>``. The gradient scaffold that feeds the
 final dAB assembly (``s_dc_du`` / ``s_vaf`` / ``s_Minv``) always stays in smem.
@@ -105,7 +105,7 @@ above were the final pieces):
     (``baselines/{grid,pinocchio,mjx,frax}/run.py``).
   - **Per-algo runtime skip**: ``baselines/grid/run.py``'s
     ``PER_ALGO_SPECS`` (the single source of truth for each algo's bench
-    call) wires ``GRID_SKIP_*`` macros for every measured kernel. When ``grid_kernel_fits_device(SHARED_BYTES)``
+    call) wires ``GRIM_SKIP_*`` macros for every measured kernel. When ``grim_kernel_fits_device(SHARED_BYTES)``
     is false, the measure function prints a parseable ``... SKIPPED``
     line and returns. ``timing_parser.py`` ignores the SKIPPED line and
     ``fill_nulls`` populates the algo with null —
@@ -117,7 +117,7 @@ above were the final pieces):
 
 **Chunk 2: 3-way spill picker infrastructure** (shipped, dormant)
   - ``cuda_target_lite_shared_mem_bytes`` (default 48 KB, env-overridable)
-    added to ``GRiDCodeGenerator.__init__``.
+    added to ``GRiMCodeGenerator.__init__``.
   - ``select_shared_tier_3way(*t_counts)`` returns
     ``(perf_pick, lite_pick, minimal_pick)`` indices into the algorithm's
     spill-level list. SHARED picks the lowest-spill fitting
@@ -238,10 +238,10 @@ emits 2 or 3 specialized bodies inside ``if constexpr`` branches.
 **L2 cache pinning (default-ON in v2.0; flipped to default-OFF 2026-09-15
 on measurement)**
 
-``GRID_CUDA_ENABLE_L2_PERSISTING`` originally defaulted to 1: the
-``init_gridData`` wrapper calls ``grid_begin_l2_persisting`` on
+``GRIM_CUDA_ENABLE_L2_PERSISTING`` originally defaulted to 1: the
+``init_grimData`` wrapper calls ``grim_begin_l2_persisting`` on
 ``d_workspace`` once at allocation time (paired with
-``grid_end_l2_persisting`` in ``close_grid``), intending spilled hot
+``grim_end_l2_persisting`` in ``close_grim``), intending spilled hot
 buffers (Minv-F at 3a, FD's Minv-F at 3b, ABA's scratch at 3c,
 FDSVA_SO's df_du/Minv at 3e) to live in persisting L2.
 
@@ -250,13 +250,13 @@ FDSVA_SO's df_du/Minv at 3e) to live in persisting L2.
 h1_2-floating; two prebuilt arms, 4 ABBA reps, spreads ≤0.7%): 0 cells
 helped, 17 of 51 hurt (OFF faster up to 23% — integrator family across
 all robots, h1_2 crba −18 %, minv −9/−10 %, h1_2 idsva_so −3.8 %),
-34 neutral. Because the window is installed at ``init_gridData``, it
+34 neutral. Because the window is installed at ``init_grimData``, it
 taxes every kernel on the stream — including non-spilling ones — and the
 hitRatio-0.6 persisting carve evicts more useful L2 traffic than it
 saves; the plain L2 already caches the spilled band. The generated
 default is now ``0``; the begin/end helpers remain, so a workload that
 measures a win can opt back in with
-``-DGRID_CUDA_ENABLE_L2_PERSISTING=1``. Raw data:
+``-DGRIM_CUDA_ENABLE_L2_PERSISTING=1``. Raw data:
 ``test/benchmarks/results/l2pin_ab_20260915/``.
 
 **Phase 3a + 3b + 3c + 3d + 3e shipped — Minv + FD + ABA + END_EFFECTOR_POSE_GRADIENT + FDSVA_SO L4-5 spill landed**
@@ -283,7 +283,7 @@ measures a win can opt back in with
 
 * **Phase 3e (FDSVA_SO Level 4 + 5)**: extends the existing 4-level spill machinery
   with two new top levels. Level 4 pushes ``s_df_du`` (2*NV²) to a new
-  ``GRID_FDSVA_SO_SPILL_OFFSET_BYTES`` workspace section past grad + SO;
+  ``GRIM_FDSVA_SO_SPILL_OFFSET_BYTES`` workspace section past grad + SO;
   Level 5 also pushes ``s_Minv`` (NV²). The new workspace section is
   sized only when MINIMAL (or any tier) picks ≥ 4 (so iiwa14 doesn't pay
   the allocation). Per-(algo, robot) picks:
@@ -339,7 +339,7 @@ Status (commits ``da831dd`` + ``0795442``):
 
 * External call sites updated to pass ``d_workspace``:
 
-  - ``bindings/grid_rbd/wrapper_template.cu`` (Python FFI surface)
+  - ``bindings/grim/wrapper_template.cu`` (Python FFI surface)
   - ``test/cuda_equivalents/cuda_equivalence_runner.cu`` (CUDA equivalence harness)
 
 * Composition: FDSVA_SO's device + kernel paths internally compose Minv
@@ -351,7 +351,7 @@ inner-temp buffer — e.g. Minv's ``s_F`` — into a separate ``s_F`` /
 ``d_workspace`` parameter, re-base the other offsets to 0, and pick the
 placement per tier via ``select_shared_tier_3way``) is the same one the
 integrator and idsva_so now follow. See the per-algo ``gen_*`` functions in
-``grid_codegen/algorithms/`` for the concrete signatures.
+``grim_codegen/algorithms/`` for the concrete signatures.
 
 LITE 48 KB smem target — shipped; value tuning remains
 -------------------------------------------------------
@@ -388,7 +388,7 @@ run:
 
 **Coverage**
 
-* **GRiD across tiers**: SHARED, LITE (post-48KB-target), MINIMAL.
+* **GRiM across tiers**: SHARED, LITE (post-48KB-target), MINIMAL.
   Each tier × each algo × each robot.
 * **Baselines**:
     - Pinocchio (CPU, cppadcodegen-accelerated, multi-threaded — the
@@ -415,10 +415,10 @@ Existing entry points to extend:
 
 * ``test/benchmarks/run_multi_version.py`` — multi-column driver;
   add a ``--tiers perf lite minimal`` argument that fans out the
-  GRiD column 3-way. Each tier is a separate run of the GRiD
+  GRiM column 3-way. Each tier is a separate run of the GRiM
   harness with the appropriate template-arg-specifying compile flag
   (TIER_SHARED default, TIER_LITE/MINIMAL via a new ``--resource-tier``
-  passthrough on the GRiD harness).
+  passthrough on the GRiM harness).
 * Each cell's ``try`` block in the runner needs to catch all
   ``Exception`` (including ``cudaError`` surfacing as Python
   exceptions, OOM, codegen failures, timeout) and write a placeholder
@@ -429,9 +429,9 @@ Existing entry points to extend:
 The result lands as a dated, committed snapshot
 ``test/benchmarks/tier_validation_matrix_<ts>.md`` (e.g.
 ``tier_validation_matrix_20260523_2200.md``). Same row × column structure as the existing
-``benchmark_multi_version_sm120_5090_full.md`` but with GRiD split
-into three tier columns (``grid_shared``, ``grid_lite``,
-``grid_minimal``).
+``benchmark_multi_version_sm120_5090_full.md`` but with GRiM split
+into three tier columns (``grim_shared``, ``grim_lite``,
+``grim_minimal``).
 
 **Threshold tuning** (the reason this is a sweep, not just
 correctness verification):
@@ -441,12 +441,12 @@ correctness verification):
 * Are there ``if constexpr`` branches whose perf cost is too high?
   E.g. on iiwa14 where everything fits SHARED, LITE/MINIMAL aliases
   should be byte-equivalent — verify no regression.
-* Pinocchio absolute baseline: GRiD-SHARED / Pinocchio-CPU and
-  GRiD-MINIMAL / Pinocchio-CPU ratios. Even at MINIMAL, GRiD on GPU
+* Pinocchio absolute baseline: GRiM-SHARED / Pinocchio-CPU and
+  GRiM-MINIMAL / Pinocchio-CPU ratios. Even at MINIMAL, GRiM on GPU
   should beat Pinocchio CPU for batch ≥ ~16. If MINIMAL drops below
   Pinocchio at small batches, the downgrade design is too aggressive.
 * Frax comparison: with GPU acceleration available on both sides,
-  GRiD should beat Frax GPU at the dynamics kernels GRiD is
+  GRiM should beat Frax GPU at the dynamics kernels GRiM is
   specialized for (RNEA, FD, gradients, SO). Frax GPU may win on
   end-effector pose (no SIMT specialization). Use this to calibrate
   expectations.

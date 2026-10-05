@@ -9,7 +9,7 @@ Quick start
 -----------
 
 After the :doc:`source installation <../user_guide/getting_started/installation>`,
-run from the GRiD repository root:
+run from the GRiM repository root:
 
 .. code-block:: python
 

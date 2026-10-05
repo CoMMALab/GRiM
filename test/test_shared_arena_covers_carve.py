@@ -14,7 +14,7 @@ the smem budget?" using the same under-counted number, so it happily picks TIER_
 does not actually fit.
 
 WHAT THIS CHECKS. Purely static, on the GENERATED header -- no compile, no GPU, no blast radius on
-codegen. `gen_declare_shared_arena` already emits every carve as a `// GRID shared arena layout` comment
+codegen. `gen_declare_shared_arena` already emits every carve as a `// GRIM shared arena layout` comment
 block listing each region and its element count. So for every __global__ kernel we sum the regions it
 actually carves and assert the macro that sizes its launch is >= that sum, at EVERY tier.
 
@@ -60,17 +60,17 @@ _CASES = [
 # for them separately, via its own topology/linalg arguments).
 _NON_T_REGION = re.compile(r"^//\s+(int|bytes)\s")
 _T_REGION = re.compile(r"^//\s+T\s+(\w+)\[([^\]]+)\]")
-_ARENA_START = re.compile(r"^//\s*GRID shared arena layout\s*$")
+_ARENA_START = re.compile(r"^//\s*GRIM shared arena layout\s*$")
 _KERNEL_DEF = re.compile(r"\b__global__\b")
 _FUNC_NAME = re.compile(r"\bvoid\s+(\w+)\s*\(")
-# grid_shared_arena_bytes<T>(<T_COUNT>, TOPOLOGY_HELPERS_COUNT, <linalg bytes>)
+# grim_shared_arena_bytes<T>(<T_COUNT>, TOPOLOGY_HELPERS_COUNT, <linalg bytes>)
 _MACRO_DEF = re.compile(r"\b(\w+)_DYNAMIC_SHARED_MEM_BYTES\s*\(\)")
-_ARENA_BYTES_CALL = re.compile(r"grid_shared_arena_bytes<T>\(\s*([0-9]+)\s*,")
+_ARENA_BYTES_CALL = re.compile(r"grim_shared_arena_bytes<T>\(\s*([0-9]+)\s*,")
 
 
 def _generate(robot_id: str, floating: bool, out: Path, runtime_transform: bool = False) -> Path:
     from URDFParser import URDFParser
-    from grid_codegen import GRiDCodeGenerator
+    from grim_codegen import GRiMCodeGenerator
     urdf = robot_urdf(robot_id)
     if not urdf.exists():
         pytest.skip(f"{robot_id}.urdf not found")
@@ -78,7 +78,7 @@ def _generate(robot_id: str, floating: bool, out: Path, runtime_transform: bool 
         robot = URDFParser().parse(str(urdf), floating_base=floating)
         if robot is None:
             pytest.skip(f"{robot_id} URDF parse failed")
-        GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+        GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
             codegen_profile="all", output_path=str(out), runtime_transform=runtime_transform)
     return out
 
@@ -86,7 +86,7 @@ def _generate(robot_id: str, floating: bool, out: Path, runtime_transform: bool 
 def _macro_tier_counts(text: str) -> dict[str, list[int]]:
     """ALGO -> [T-counts, one per tier branch] from the *_DYNAMIC_SHARED_MEM_BYTES definitions.
 
-    A non-tiered macro has a single grid_shared_arena_bytes call; a tiered one has three (SHARED /
+    A non-tiered macro has a single grim_shared_arena_bytes call; a tiered one has three (SHARED /
     LITE / MINIMAL). We keep them all and later require the macro to cover the carve at EVERY tier
     where the carve applies -- an under-count on ONE tier is exactly the §1t failure mode.
     """
@@ -170,7 +170,7 @@ def _kernel_carves(text: str) -> list[tuple[str, int | None, int, int]]:
 
 @pytest.mark.parametrize(("robot_id", "floating", "runtime_transform"), _CASES)
 def test_shared_mem_macro_covers_kernel_carve(robot_id, floating, runtime_transform, tmp_path):
-    header = _generate(robot_id, floating, tmp_path / "grid.cuh", runtime_transform)
+    header = _generate(robot_id, floating, tmp_path / "grim.cuh", runtime_transform)
     text = header.read_text()
     macros = _macro_tier_counts(text)
     carves = _kernel_carves(text)

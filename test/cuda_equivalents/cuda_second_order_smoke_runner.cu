@@ -5,18 +5,18 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 // Default block thread count when main() gets no argv[1]. The test passes the
 // count at RUNTIME (argv[1]) so a per-session random count never re-keys the
 // content-keyed executable cache (it used to be a -D flag: every session was a
 // guaranteed nvcc miss for the biggest SO builds).
-#ifndef GRID_CUDA_SECOND_ORDER_TEST_THREADS
-#define GRID_CUDA_SECOND_ORDER_TEST_THREADS 64
+#ifndef GRIM_CUDA_SECOND_ORDER_TEST_THREADS
+#define GRIM_CUDA_SECOND_ORDER_TEST_THREADS 64
 #endif
 
-#ifndef GRID_CUDA_SECOND_ORDER_ENABLE_FDSVA
-#define GRID_CUDA_SECOND_ORDER_ENABLE_FDSVA 1
+#ifndef GRIM_CUDA_SECOND_ORDER_ENABLE_FDSVA
+#define GRIM_CUDA_SECOND_ORDER_ENABLE_FDSVA 1
 #endif
 
 template <typename T>
@@ -52,39 +52,39 @@ int run(const int req_threads) {
     // resolved dynamically from the generated header) so a swept count above the
     // bound doesn't fail with cudaErrorInvalidValue.
     const int _req_threads = req_threads;
-    const int _nthreads = _req_threads < grid::MAX_PERF_LEVEL_THREADS ? _req_threads : grid::MAX_PERF_LEVEL_THREADS;
+    const int _nthreads = _req_threads < grim::MAX_PERF_LEVEL_THREADS ? _req_threads : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(_nthreads, 1, 1);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     // Canonical per-timestep input layout (matches the binding pack_q_qd_u and the
     // q_qd_u kernel slots): each field gets a NUM_POS(=nq)-wide slot -> q@0, qd@nq,
     // qdd@2*nq, stride 3*nq. (Fixed-base nq==nv makes this byte-identical to the old
     // nv-based qdd@nq+nv; floating nq>nv needs the nq-based 2*NUM_POS offset.)
-    read_vector(hd_data->h_q_qd_u, grid::NUM_POS);
-    read_vector(&hd_data->h_q_qd_u[grid::NUM_POS], grid::NUM_VEL);
-    read_vector(&hd_data->h_q_qd_u[2 * grid::NUM_POS], grid::NUM_VEL);
+    read_vector(hd_data->h_q_qd_u, grim::NUM_POS);
+    read_vector(&hd_data->h_q_qd_u[grim::NUM_POS], grim::NUM_VEL);
+    read_vector(&hd_data->h_q_qd_u[2 * grim::NUM_POS], grim::NUM_VEL);
 
-    grid::idsva_so_body_frame<T>(
+    grim::idsva_so_body_frame<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
 
-#if GRID_CUDA_SECOND_ORDER_ENABLE_FDSVA
-    grid::fdsva_so<T>(
+#if GRIM_CUDA_SECOND_ORDER_ENABLE_FDSVA
+    grim::fdsva_so<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
 #endif
 
-    const int tensor_count = grid::SECOND_ORDER_TENSOR_SIZE;
+    const int tensor_count = grim::SECOND_ORDER_TENSOR_SIZE;
     // h_df2 exists only when the generated header actually BUILT fdsva_so. Two
     // different flags govern that and they are NOT interchangeable:
-    //   GRID_CUDA_SECOND_ORDER_ENABLE_FDSVA - this runner's -D, "call fdsva_so"
-    //   GRID_HAS_FDSVA_SO                   - codegen, "hd_data->h_df2 was malloc'd"
-    // gen_init_gridData wraps the h_df2/d_df2 allocations in `#if GRID_HAS_FDSVA_SO`,
+    //   GRIM_CUDA_SECOND_ORDER_ENABLE_FDSVA - this runner's -D, "call fdsva_so"
+    //   GRIM_HAS_FDSVA_SO                   - codegen, "hd_data->h_df2 was malloc'd"
+    // gen_init_grimData wraps the h_df2/d_df2 allocations in `#if GRIM_HAS_FDSVA_SO`,
     // so when the caller generates a header WITHOUT fdsva_so (the floating diagnostic
     // passes algorithm_list="idsva_so_body_frame") h_df2 is never allocated. Writing
     // tensor_count zeros through it then segfaults on the HOST before a single line of
@@ -94,13 +94,13 @@ int run(const int req_threads) {
     // So: keep emitting a well-formed zero-filled "fdsva_so" block (the parser expects
     // it, and the test asserts GENERATES_FDSVA_SO==0 separately), but source it from a
     // buffer that is guaranteed to exist.
-#if GRID_HAS_FDSVA_SO
+#if GRIM_HAS_FDSVA_SO
     T *fdsva_out = hd_data->h_df2;
 #else
     std::vector<T> fdsva_zeros(static_cast<size_t>(tensor_count), static_cast<T>(0));
     T *fdsva_out = fdsva_zeros.data();
 #endif
-#if GRID_HAS_FDSVA_SO && !GRID_CUDA_SECOND_ORDER_ENABLE_FDSVA
+#if GRIM_HAS_FDSVA_SO && !GRIM_CUDA_SECOND_ORDER_ENABLE_FDSVA
     // Built but deliberately not called: zero it so the block is defined, not stale.
     for (int i = 0; i < tensor_count; ++i) {
         fdsva_out[i] = static_cast<T>(0);
@@ -128,31 +128,31 @@ int run(const int req_threads) {
     }
 
     T config[12];
-    config[0] = static_cast<T>(grid::IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>());
-    config[1] = static_cast<T>(grid::FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>());
-    config[2] = static_cast<T>(grid::GRID_IDSVA_SO_USES_GLOBAL_OUTPUT);
-    config[3] = static_cast<T>(grid::GRID_FDSVA_SO_USES_GLOBAL_TENSORS);
-    config[4] = static_cast<T>(grid::GRID_FDSVA_SO_USES_WORKSPACE_TEMP);
-    config[5] = static_cast<T>(grid::GRID_GENERATES_IDSVA_SO_BODY_FRAME);
-    config[6] = static_cast<T>(grid::GRID_GENERATES_FDSVA_SO);
-    config[7] = static_cast<T>(grid::NUM_POS);
-    config[8] = static_cast<T>(grid::NUM_VEL);
-    config[9] = static_cast<T>(grid::NUM_BODIES);
-    config[10] = static_cast<T>(grid::Q_QD_U_STRIDE);
+    config[0] = static_cast<T>(grim::IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>());
+    config[1] = static_cast<T>(grim::FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T>());
+    config[2] = static_cast<T>(grim::GRIM_IDSVA_SO_USES_GLOBAL_OUTPUT);
+    config[3] = static_cast<T>(grim::GRIM_FDSVA_SO_USES_GLOBAL_TENSORS);
+    config[4] = static_cast<T>(grim::GRIM_FDSVA_SO_USES_WORKSPACE_TEMP);
+    config[5] = static_cast<T>(grim::GRIM_GENERATES_IDSVA_SO_BODY_FRAME);
+    config[6] = static_cast<T>(grim::GRIM_GENERATES_FDSVA_SO);
+    config[7] = static_cast<T>(grim::NUM_POS);
+    config[8] = static_cast<T>(grim::NUM_VEL);
+    config[9] = static_cast<T>(grim::NUM_BODIES);
+    config[10] = static_cast<T>(grim::Q_QD_U_STRIDE);
     config[11] = static_cast<T>(tensor_count);
 
     print_flat("second_order_config", config, 12);
     print_flat("idsva_so_body_frame", hd_data->h_idsva_so, tensor_count);
     print_flat("fdsva_so", fdsva_out, tensor_count);
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
     return 0;
 }
 
 int main(int argc, char **argv) {
     // Optional argv[1] = requested block thread count (clamped in run<T>() to the
     // robot's MAX_PERF_LEVEL_THREADS). Non-positive or absent -> the compiled default.
-    int req_threads = GRID_CUDA_SECOND_ORDER_TEST_THREADS;
+    int req_threads = GRIM_CUDA_SECOND_ORDER_TEST_THREADS;
     if (argc > 1) {
         const int requested = std::atoi(argv[1]);
         if (requested > 0) {

@@ -48,7 +48,7 @@ an earlier caller import. Four simultaneous fresh Python processes each loaded
 the extension twice successfully, without rebuilding.
 
 **This fix is inside the `external/RBDReference` submodule.** Its local changes
-must be committed/pushed there and the GRiD gitlink updated when preparing the
+must be committed/pushed there and the GRiM gitlink updated when preparing the
 release; a parent-repository commit alone will not transport this fix.
 
 ## Fixed: URDF transform simplification imposed a precision floor
@@ -76,7 +76,7 @@ The diagnostic established causality before changing the parser:
   sample's world-frame RNEA Hessian error from about `1.06e-4` to `5.57e-12`.
 
 The generated-source cache detects the parser change. After rebuilding, all
-**45/45 GRiD core cells** and **120/120 wrapper cells** pass. The iiwa14/go2
+**45/45 GRiM core cells** and **120/120 wrapper cells** pass. The iiwa14/go2
 generated core artifacts deduplicated to the same binaries. All 24 wrapper jobs
 retain byte-identical input values across the fix. The fp64 G1 FDSVA GPU replay
 now passes all entries: maximum error falls from `0.01545` to `4.25e-9`, with
@@ -84,12 +84,12 @@ maximum block relative L2 `3.14e-13`. This confirms the preprocessing bug was
 responsible for the fp64 error floor.
 
 **This is a second submodule change**, in `external/URDFParser`; include its
-commit and updated GRiD gitlink when transporting the fix.
+commit and updated GRiM gitlink when transporting the fix.
 
 ## FD investigation: precision sensitivity, not a cleared fp32 gate
 
 The validation-only `diagnose_precision` module replays deterministic fp32
-input values through fp32/fp64 GRiD NumPy kernels against the existing fp64
+input values through fp32/fp64 GRiM NumPy kernels against the existing fp64
 oracle. It does not collect timing or change the release collector's dtype.
 All four FDSVA output blocks remain checked.
 
@@ -150,7 +150,7 @@ Saved arrays and per-block metrics are in:
 ## Readiness
 
 All **135/135 core cells** passed across robots and batches; after the parser
-fix, the affected GRiD subset was rechecked with **45/45 passing** and all
+fix, the affected GRiM subset was rechecked with **45/45 passing** and all
 **120/120 wrapper cells** passed again. The CPU suite passes **124 tests plus
 two subtests**. Fresh datasets contain source/build/input hashes; these separate
 diagnostic runs must not be spliced together into performance figures.
@@ -160,7 +160,7 @@ The expanded-table policy is now reviewed and implemented. Collect it with
 checks. The new seven-operation, all-robot/backend B=16 smoke sweep completed
 in `results/release-table-warning-smoke-20260925/`: 47 strict passes, 16 retained
 accuracy warnings, two validation failures, and 82 explicit unavailable jobs.
-All 21 GRiD cells were retained (16 strict passes and five accuracy warnings).
+All 21 GRiM cells were retained (16 strict passes and five accuracy warnings).
 The two failures are G1 MJX FD and grad FD: resident/host output comparisons
 exceed the unchanged entrywise gate. The investigation below supports bounded
 reduction-order numerical variation, not a missing frame adapter. These captures
@@ -297,7 +297,7 @@ including the two submodule fixes noted above.
 
 Artifacts under `test/benchmarks/results/`:
 
-- `grid_mjx_diagnostic_20260925.py` (validation-only reproducer; SHA-256
+- `grim_mjx_diagnostic_20260925.py` (validation-only reproducer; SHA-256
   `42134d90f0df091695f1c38798a2cc68847deb28a67766dda06df5d833c17e08`).
 - `release-mjx-g1-fp32-audit-20260925/` (stock fp32).
 - `release-mjx-g1-fp64-audit-20260925/` (stock fp64 diagnostic).
@@ -353,7 +353,7 @@ against the smoke samples). None of the runs had been launched.
   every backend; the value is recorded in `plan.json` and each capture.
 
 Also: gradients validated as two blocks; the native C ABI loop no longer
-zero-fills its output inside the timer; new `grid_cuda` backend (GRiD's own
+zero-fills its output inside the timer; new `grim_cuda` backend (GRiM's own
 C++ host calls, compute-only and with-memory, bitwise-checked against NumPy)
-so the report can decompose GRiD's wrapper costs; CPU/tensor baselines on the
+so the report can decompose GRiM's wrapper costs; CPU/tensor baselines on the
 core operations get their own collection command. CPU suite: 62 tests pass.

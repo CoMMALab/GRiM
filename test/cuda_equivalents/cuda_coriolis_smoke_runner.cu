@@ -1,13 +1,13 @@
 // Test runner for the CUDA full Coriolis matrix C(q, qd).
 //
 // Mirrors cuda_energy_regressor_smoke_runner.cu and invokes the host launcher
-// `coriolis_matrix`. The output lives in gridData (hd_data->d_coriolis, nv*nv);
+// `coriolis_matrix`. The output lives in grimData (hd_data->d_coriolis, nv*nv);
 // the host copies it back into hd_data->h_coriolis, which this runner reads
 // directly. Used by `test_cuda_coriolis` to validate the CUDA emission against
 // RBDReference._EnergyMixin.coriolis_matrix and the identity C qd + g == nle.
 //
 // Accepts an optional argv[1] = block thread count (for the thread-invariance
-// sweep). Defaults to the compile-time GRID_CUDA_CORIOLIS_TEST_THREADS. Both are
+// sweep). Defaults to the compile-time GRIM_CUDA_CORIOLIS_TEST_THREADS. Both are
 // clamped to MAX_PERF_LEVEL_THREADS (the kernel __launch_bounds__ cap).
 
 #include <cmath>
@@ -16,10 +16,10 @@
 #include <iostream>
 #include <string>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
-#ifndef GRID_CUDA_CORIOLIS_TEST_THREADS
-#define GRID_CUDA_CORIOLIS_TEST_THREADS 64
+#ifndef GRIM_CUDA_CORIOLIS_TEST_THREADS
+#define GRIM_CUDA_CORIOLIS_TEST_THREADS 64
 #endif
 
 template <typename T>
@@ -50,30 +50,30 @@ void print_flat(const std::string &name, const T *data, int rows, int cols) {
 
 template <typename T>
 int run(int req_threads) {
-    // Unified gravity convention: GRiD and the RBDReference oracle both use -9.81.
+    // Unified gravity convention: GRiM and the RBDReference oracle both use -9.81.
     const T gravity = static_cast<T>(-9.81);
     const dim3 block_dimms(1, 1, 1);
-    const int _nthreads = req_threads < grid::MAX_PERF_LEVEL_THREADS ? req_threads : grid::MAX_PERF_LEVEL_THREADS;
+    const int _nthreads = req_threads < grim::MAX_PERF_LEVEL_THREADS ? req_threads : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(_nthreads, 1, 1);
 
-    const int nv = grid::NUM_VEL;
+    const int nv = grim::NUM_VEL;
     const int C_size = nv * nv;
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     // q|qd|qdd into the q_qd_u host buffer, floating-aware layout:
     //   q (NUM_POS) | qd (NUM_VEL) | qdd (NUM_VEL), total Q_QD_U_STRIDE.
-    read_vector(hd_data->h_q_qd_u, grid::NUM_POS);
-    read_vector(&hd_data->h_q_qd_u[grid::NUM_POS], grid::NUM_VEL);
-    read_vector(&hd_data->h_q_qd_u[grid::NUM_POS + grid::NUM_VEL], grid::NUM_VEL);
+    read_vector(hd_data->h_q_qd_u, grim::NUM_POS);
+    read_vector(&hd_data->h_q_qd_u[grim::NUM_POS], grim::NUM_VEL);
+    read_vector(&hd_data->h_q_qd_u[grim::NUM_POS + grim::NUM_VEL], grim::NUM_VEL);
     // The coriolis host reads the compressed buffers hd_data->h_q_qd (non-compressed
     // branch uses h_q_qd_u). Mirror q|qd into h_q_qd so both code paths agree.
-    for (int i = 0; i < grid::NUM_JOINTS; ++i) hd_data->h_q_qd[i] = hd_data->h_q_qd_u[i];
-    for (int i = 0; i < grid::NUM_VEL; ++i) hd_data->h_q_qd[grid::NUM_JOINTS + i] = hd_data->h_q_qd_u[grid::NUM_POS + i];
+    for (int i = 0; i < grim::NUM_JOINTS; ++i) hd_data->h_q_qd[i] = hd_data->h_q_qd_u[i];
+    for (int i = 0; i < grim::NUM_VEL; ++i) hd_data->h_q_qd[grim::NUM_JOINTS + i] = hd_data->h_q_qd_u[grim::NUM_POS + i];
 
-    grid::coriolis_matrix<T>(
+    grim::coriolis_matrix<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
@@ -90,20 +90,20 @@ int run(int req_threads) {
     }
 
     T config[4];
-    config[0] = static_cast<T>(grid::NUM_POS);
-    config[1] = static_cast<T>(grid::NUM_VEL);
-    config[2] = static_cast<T>(grid::NUM_BODIES);
-    config[3] = static_cast<T>(grid::NUM_JOINTS);
+    config[0] = static_cast<T>(grim::NUM_POS);
+    config[1] = static_cast<T>(grim::NUM_VEL);
+    config[2] = static_cast<T>(grim::NUM_BODIES);
+    config[3] = static_cast<T>(grim::NUM_JOINTS);
 
     print_flat("coriolis_config", config, 1, 4);
     print_flat("coriolis", h_C, nv, nv);
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
     return 0;
 }
 
 int main(int argc, char **argv) {
-    int req_threads = GRID_CUDA_CORIOLIS_TEST_THREADS;
+    int req_threads = GRIM_CUDA_CORIOLIS_TEST_THREADS;
     if (argc > 1) req_threads = std::atoi(argv[1]);
     return run<float>(req_threads);
 }

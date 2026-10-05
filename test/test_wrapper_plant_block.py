@@ -1,19 +1,19 @@
-"""Drift referee for the GENERATED grid_plant op tails of wrapper_template.cu.
+"""Drift referee for the GENERATED grim_plant op tails of wrapper_template.cu.
 
 M2 (canonical plan 2026-09-13): the five gated plant ops (plant_step,
 plant_step_gradient, ee_pos_cost, com_cost, momentum_cost) are emitted for
-BOTH the jax-FFI and torch surfaces by grid_codegen/wrapper_plant_gen.py —
+BOTH the jax-FFI and torch surfaces by grim_codegen/wrapper_plant_gen.py —
 one PLANT_STEP_OPS / COST_OPS row per op. Since the 2026-09-15 wrapper
 window the regions are delimited by explicit BEGIN/END GENERATED marker
 comments (house style; the markers themselves are hand-written and sit
 OUTSIDE the emitted region). This referee enforces the do-not-hand-edit
 contract: the emitter output must equal the checked-in text between the
 markers byte-for-byte. On a legitimate change, edit the table / emitter and
-run `.venv/bin/python -m grid_codegen.wrapper_plant_gen`.
+run `.venv/bin/python -m grim_codegen.wrapper_plant_gen`.
 """
 from pathlib import Path
 
-from grid_codegen.wrapper_plant_gen import (
+from grim_codegen.wrapper_plant_gen import (
     _TEMPLATE,
     gen_jax_plant_tail,
     gen_torch_plant_tail,
@@ -30,14 +30,14 @@ def _file_slice(surface: str) -> str:
 def test_jax_plant_tail_matches_emitter():
     assert _file_slice("jax") == gen_jax_plant_tail(), (
         "jax plant tail drifted from wrapper_plant_gen — regenerate with "
-        ".venv/bin/python -m grid_codegen.wrapper_plant_gen (or fix the table)"
+        ".venv/bin/python -m grim_codegen.wrapper_plant_gen (or fix the table)"
     )
 
 
 def test_torch_plant_tail_matches_emitter():
     assert _file_slice("torch") == gen_torch_plant_tail(), (
         "torch plant tail drifted from wrapper_plant_gen — regenerate with "
-        ".venv/bin/python -m grid_codegen.wrapper_plant_gen (or fix the table)"
+        ".venv/bin/python -m grim_codegen.wrapper_plant_gen (or fix the table)"
     )
 
 

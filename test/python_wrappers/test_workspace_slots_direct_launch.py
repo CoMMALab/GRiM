@@ -3,13 +3,13 @@
 test_cuda_workspace_slots.py proves the slot clamp for the standalone CUDA exe
 path (generated host wrappers). This is its bindings twin: the jax/torch
 handlers in wrapper_template.cu launch kernels DIRECTLY (no host wrapper), so
-they carry their own grid clamp (grid_rbd_grid_for). Before 2026-08-09 they
-launched dim3(batch) unclamped — when init_gridData fits fewer slots than the
-batch (forced here via GRID_WORKSPACE_TIMESTEP_SLOTS), blocks aliased live
+they carry their own grid clamp (grim_grim_for). Before 2026-08-09 they
+launched dim3(batch) unclamped — when init_grimData fits fewer slots than the
+batch (forced here via GRIM_WORKSPACE_TIMESTEP_SLOTS), blocks aliased live
 workspace and produced silent wrong results.
 
 Each arm runs in a SUBPROCESS because workspace_timestep_slots is fixed at
-grid_rbd_init time (env read inside init_gridData). Outputs must be
+grim_init time (env read inside init_grimData). Outputs must be
 BIT-IDENTICAL between the full-slots and slots=2 arms: per-timestep work is
 independent and fixed-order, so the clamped grid (grid-stride over timesteps)
 changes scheduling, not arithmetic.
@@ -39,10 +39,10 @@ import numpy as np
 backend = sys.argv[1]
 out_path = sys.argv[2]
 URDF_PATH = sys.argv[3]
-# GRID_WORKSPACE_TIMESTEP_SLOTS is inherited from the parent env (or absent).
+# GRIM_WORKSPACE_TIMESTEP_SLOTS is inherited from the parent env (or absent).
 
-import grid_rbd
-h = grid_rbd.register_robot(
+import grim
+h = grim.register_robot(
     "iiwa14_slots_ab", URDF_PATH, backend=backend)
 
 rng = np.random.default_rng(1234)
@@ -73,9 +73,9 @@ h.close()
 
 def _run_arm(backend: str, slots: str | None, out: Path) -> None:
     env = dict(os.environ)
-    env.pop("GRID_WORKSPACE_TIMESTEP_SLOTS", None)
+    env.pop("GRIM_WORKSPACE_TIMESTEP_SLOTS", None)
     if slots is not None:
-        env["GRID_WORKSPACE_TIMESTEP_SLOTS"] = slots
+        env["GRIM_WORKSPACE_TIMESTEP_SLOTS"] = slots
     proc = subprocess.run(
         [sys.executable, "-c", _CHILD, backend, str(out), str(URDF)],
         env=env, capture_output=True, text=True, timeout=1800,

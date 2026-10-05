@@ -49,9 +49,9 @@ def main():
         capture.update(fixture=fixture.metadata, inputs_sha256=digest(fixture_path),
             input_values_sha256=hashlib.sha256(b"".join(x.tobytes() for x in
                 (fixture.q, fixture.v, fixture.a, fixture.u))).hexdigest())
-        if args.backend.startswith("grid_"):
-            from .grid_adapter import GridAdapter
-            adapter = GridAdapter(args.backend, args.operation, fixture, max(args.batches), args.output.parent)
+        if args.backend.startswith("grim_"):
+            from .grim_adapter import GrimAdapter
+            adapter = GrimAdapter(args.backend, args.operation, fixture, max(args.batches), args.output.parent)
         else:
             from .competitors import make_adapter
             adapter = make_adapter(args.backend, args.operation, fixture, args.output.parent,
@@ -60,14 +60,14 @@ def main():
         blocks = (lambda v: gradient_blocks(v, fixture.nv)) if args.operation.endswith("_gradient") else (lambda v: v)
         def check(actual, expected, **kw):
             return agreement(blocks(actual), blocks(expected), **kw)
-        bridged = args.backend in {"grid_native", "grid_cuda"}
+        bridged = args.backend in {"grim_native", "grim_cuda"}
         for batch in args.batches:
             cell = {"batch": batch, "status": "error", "comparison_eligible": False}
             try:
                 adapter.prepare(batch)
                 cell["adapter"] = dict(adapter.metadata)
                 if args.prepare_only:
-                    if args.backend == "grid_native":
+                    if args.backend == "grim_native":
                         adapter.native_library()
                     for call in (adapter.host, adapter.resident):
                         if call is not None:
@@ -98,7 +98,7 @@ def main():
                 if bridged:
                     # Native loops time the SAME artifact outside Python; their
                     # outputs must be bitwise the NumPy wrapper's, never "close".
-                    if args.backend == "grid_native":
+                    if args.backend == "grim_native":
                         host_time, native_out = adapter.native_time(batch, args.warmups, args.iterations, args.warm_seconds)
                     else:
                         host_time, resident_time, native_out, kernel_out = adapter.kernel_time(

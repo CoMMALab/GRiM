@@ -18,14 +18,14 @@ from pathlib import Path
 
 import numpy as np
 
-from grid_codegen.abi_specs import ABI_SPECS
+from grim_codegen.abi_specs import ABI_SPECS
 
 _GUARD = np.uint32(0xDEADBEEF)
 _PAD = 4096                      # guard words after the output
 
 
 def _header_constants(handle):
-    src = (Path(handle._so_path).parent / "grid.cuh").read_text()
+    src = (Path(handle._so_path).parent / "grim.cuh").read_text()
     return {m.group(1): int(m.group(2)) for m in re.finditer(r"const int (\w+) = (\d+);", src)}
 
 
@@ -34,11 +34,11 @@ def direct_keys():
 
 
 def guarded_call(handle, key, q, qd, u, *, mjx=False):
-    """Call grid_rbd_<key>[_mujoco] straight through the C ABI. Returns
+    """Call grim_<key>[_mujoco] straight through the C ABI. Returns
     (rc, unwritten_output_words, overwritten_guard_words, output)."""
     spec = ABI_SPECS[key]
     consts = _header_constants(handle)
-    size = int(eval(spec.out_size_expr.replace("grid::", ""), {"__builtins__": {}}, consts))
+    size = int(eval(spec.out_size_expr.replace("grim::", ""), {"__builtins__": {}}, consts))
     batch = q.shape[0]
     words = np.full(batch * size + _PAD, _GUARD, np.uint32)
     fp = ctypes.POINTER(ctypes.c_float)
@@ -57,7 +57,7 @@ def guarded_call(handle, key, q, qd, u, *, mjx=False):
         else:
             array = {"q": q, "qd": qd}.get(name, u)                              # u / qdd / qdd_opt
             values.append(np.ascontiguousarray(array, np.float32).ctypes.data_as(fp)); types.append(fp)
-    fn = getattr(ctypes.CDLL(str(handle._so_path)), "grid_rbd_" + (spec.abi_stem or key) + ("_mujoco" if mjx else ""))
+    fn = getattr(ctypes.CDLL(str(handle._so_path)), "grim_" + (spec.abi_stem or key) + ("_mujoco" if mjx else ""))
     fn.argtypes, fn.restype = types, ctypes.c_int
     rc = fn(*values)
     out, guard = words[:batch * size], words[batch * size:]

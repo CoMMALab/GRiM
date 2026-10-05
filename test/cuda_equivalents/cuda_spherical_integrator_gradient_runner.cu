@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 int g_num_threads = 0;
 
@@ -57,25 +57,25 @@ void print_vector(const std::string &name, const T *data, int count) {
     std::cout << "\nEND " << name << "\n";
 }
 
-template <typename T, grid::IntegratorType IT>
+template <typename T, grim::IntegratorType IT>
 void run_one(const std::string &prefix,
-             grid::gridData<T> *hd_data,
-             grid::robotModel<T> *d_robotModel,
+             grim::grimData<T> *hd_data,
+             grim::robotModel<T> *d_robotModel,
              cudaStream_t *streams,
              const dim3 &block_dimms,
              const dim3 &thread_dimms,
              const T *original_q_qd_u,
              T gravity, T dt) {
-    const int input_count = 3 * grid::NUM_POS;   // canonical nq-wide slots
-    const int x_kp1_count = grid::NUM_POS + grid::NUM_VEL;
-    const int nv = grid::NUM_VEL;
+    const int input_count = 3 * grim::NUM_POS;   // canonical nq-wide slots
+    const int x_kp1_count = grim::NUM_POS + grim::NUM_VEL;
+    const int nv = grim::NUM_VEL;
 
     std::memcpy(hd_data->h_q_qd_u, original_q_qd_u, input_count * sizeof(T));
-    grid::integrator_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
+    grim::integrator_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
     print_matrix_col_major(prefix + "_dAB", hd_data->h_dAB, 2 * nv, 3 * nv);
 
     std::memcpy(hd_data->h_q_qd_u, original_q_qd_u, input_count * sizeof(T));
-    grid::integrator_with_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
+    grim::integrator_with_gradient<T, IT>(hd_data, d_robotModel, gravity, dt, 1, block_dimms, thread_dimms, streams);
     print_vector(prefix + "_x_kp1_with_dAB", hd_data->h_x_kp1, x_kp1_count);
     print_matrix_col_major(prefix + "_dAB_with_x_kp1", hd_data->h_dAB, 2 * nv, 3 * nv);
 }
@@ -84,16 +84,16 @@ template <typename T>
 void run() {
     const T gravity = static_cast<T>(-9.81);
     const dim3 block_dimms(1, 1, 1);
-    const int requested = g_num_threads > 0 ? g_num_threads : grid::MAX_PERF_LEVEL_THREADS;
-    const int nthreads = requested < grid::MAX_PERF_LEVEL_THREADS ? requested : grid::MAX_PERF_LEVEL_THREADS;
+    const int requested = g_num_threads > 0 ? g_num_threads : grim::MAX_PERF_LEVEL_THREADS;
+    const int nthreads = requested < grim::MAX_PERF_LEVEL_THREADS ? requested : grim::MAX_PERF_LEVEL_THREADS;
     const dim3 thread_dimms(nthreads, 1, 1);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
-    const int nq = grid::NUM_POS;
-    const int nv = grid::NUM_VEL;
+    const int nq = grim::NUM_POS;
+    const int nv = grim::NUM_VEL;
     std::vector<T> h_q(nq), h_qd(nv), h_u(nv);
     read_vector(h_q.data(), nq);
     read_vector(h_qd.data(), nv);
@@ -117,11 +117,11 @@ void run() {
         original[2 * nq + i] = h_u[i];
     }
 
-    run_one<T, grid::IntegratorType::EULER>("integrator_euler", hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
-    run_one<T, grid::IntegratorType::SEMI_IMPLICIT_EULER>("integrator_si_euler", hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
-    run_one<T, grid::IntegratorType::CONSTANT_ACCELERATION>("integrator_constant_acceleration", hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
+    run_one<T, grim::IntegratorType::EULER>("integrator_euler", hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
+    run_one<T, grim::IntegratorType::SEMI_IMPLICIT_EULER>("integrator_si_euler", hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
+    run_one<T, grim::IntegratorType::CONSTANT_ACCELERATION>("integrator_constant_acceleration", hd_data, d_robotModel, streams, block_dimms, thread_dimms, original.data(), gravity, dt);
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
         int requested = std::atoi(argv[1]);
         g_num_threads = requested > 0 ? requested : 0;
     }
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

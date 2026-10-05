@@ -1,6 +1,6 @@
 """CUDA FD-oracle gate for the SELF-collision rows (GATO ask 2026-08-01).
 
-`grid_cc_config_free` was boolean-only for robot-vs-robot; these emits are the self-pair
+`grim_cc_config_free` was boolean-only for robot-vs-robot; these emits are the self-pair
 analogue of the env collision_distance[_gradient] family so a solver can bind self-collision
 to its constraint-row mechanisms: `self_collision_distance[_gradient]` (per-sphere reduced-min
 over the baked adjacency-excluded pair set + argmin-partner freeze seam) and
@@ -25,14 +25,14 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._collision import collision_spec_from_urdf
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._collision import collision_spec_from_urdf
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf
-COLLISION_INCLUDE = REPO_ROOT / "grid_codegen" / "collision"
+COLLISION_INCLUDE = REPO_ROOT / "grim_codegen" / "collision"
 RUNNER_SOURCE = Path(__file__).with_name("cuda_collision_selfcc_rows_runner.cu")
 
 
@@ -51,10 +51,10 @@ def test_self_collision_rows_fd(tmp_path):
         spec = collision_spec_from_urdf(robot, str(urdf), resolution=0.06)
         build_dir = tmp_path / "collision_selfcc_rows"
         build_dir.mkdir()
-        header = build_dir / "grid.cuh"
+        header = build_dir / "grim.cuh"
         # SPLIT codegen: collision emission is collision_spec-driven; the list only
         # needs one ee key to satisfy the include_any_kinematics gate.
-        GRiDCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
+        GRiMCodeGenerator(robot, FILE_NAMESPACE="grid").gen_all_code(
             codegen_profile="kinematics", output_path=str(header), collision_spec=spec)
 
     nvcc = shutil.which("nvcc")

@@ -3,7 +3,7 @@
 The damping/friction feature is validated fixed-base end-to-end by
 `test/python_wrappers/test_joint_dynamics.py` (value + gradient vs the damped
 oracle), but the FLOATING root-skip path (the 6 root velocity slots carry no
-damping) had no CUDA gate — and the grid_rbd binding can't provide one (its
+damping) had no CUDA gate — and the grim binding can't provide one (its
 floating q packing is NUM_POS-wide vs the oracle's NUM_VEL tangent space). This
 gate goes through the CUDA-equivalence runner instead, which reconciles the
 floating layout: codegen iiwa14-FLOATING with USE_JOINT_DYNAMICS=True and
@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference import RBDReference
 from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
@@ -95,8 +95,8 @@ def test_floating_damped_cuda_matches_damped_oracle(tmp_path):
     )
 
     # damped codegen (USE_JOINT_DYNAMICS=True): id/fd/aba bias + id-gradient diag
-    header = tmp_path / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = tmp_path / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=True,
         FILE_NAMESPACE="grid", USE_JOINT_DYNAMICS=True,
     )
@@ -109,7 +109,7 @@ def test_floating_damped_cuda_matches_damped_oracle(tmp_path):
     executable, compile_cmd = _compile_runner(
         tmp_path,
         floating_base=True,
-        # The runner key is content-hashed from tmp_path/grid.cuh, so the
+        # The runner key is content-hashed from tmp_path/grim.cuh, so the
         # damped header can never collide with the undamped flagship cache
         # entries for the same robot (different bytes, different key).
         run_tokens=_RUN_TOKENS,

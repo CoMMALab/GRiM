@@ -22,7 +22,7 @@ Probe design (deliberately damping-immune where it matters):
                  friction modeling, not inertia)
 
 Semantics pinned in the metadata: FIXED base, gravity -9.81 z-down (world),
-zero external wrench, NO joint damping/friction (the GRiD default — the
+zero external wrench, NO joint damping/friction (the GRiM default — the
 USE_JOINT_DYNAMICS/runtime toggle path is deliberately outside schema 1), URDF
 identified by sha256. The iiwa14 probe states are copied VERBATIM from GATO's
 table (f32-rounded decimals) so the two tables compare state-for-state; other
@@ -93,8 +93,8 @@ def generate_table():
         "semantics": {
             "quantity": "forward-dynamics qdd(q, qd, u), fixed base, f_ext = 0",
             "gravity": -9.81,
-            "joint_dynamics": "none (no viscous damping / dry friction — the GRiD default path)",
-            "source": "GRiD RBDReference numpy oracle (pinocchio-validated), float64",
+            "joint_dynamics": "none (no viscous damping / dry friction — the GRiM default path)",
+            "source": "GRiM RBDReference numpy oracle (pinocchio-validated), float64",
             "guidance": "per-joint |qdd_yours/qdd_ref| on the inertia_j probes: "
                         "1.00+-0.05 = aligned; >1.5 on any joint = effective-inertia "
                         "mismatch (check armature/rotor/link inertia). inertia_j "

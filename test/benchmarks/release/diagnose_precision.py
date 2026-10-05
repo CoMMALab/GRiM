@@ -4,7 +4,7 @@ python -m test.benchmarks.release.diagnose_precision --robot iiwa14 \
   --output /tmp/grid-precision-replay
 
 The release collector remains fp32. This diagnostic keeps its inputs and gate
-fixed, changing only GRiD arithmetic precision to test numerical sensitivity.
+fixed, changing only GRiM arithmetic precision to test numerical sensitivity.
 """
 from __future__ import annotations
 import argparse
@@ -23,7 +23,7 @@ def main():
     args = ap.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     from .fixtures import Fixture
-    from .grid_adapter import GridAdapter
+    from .grim_adapter import GrimAdapter
     f = Fixture(args.robot, args.batch)
     inputs = args.output / "inputs.npz"
     np.savez(inputs, q=f.q, v=f.v, a=f.a, u=f.u)
@@ -34,7 +34,7 @@ def main():
         expected = f.expected(op, args.batch)
         for dtype in args.dtypes:
             print(f"{args.robot} {op} {dtype}: preparing", flush=True)
-            adapter = GridAdapter("grid_numpy", op, f, args.batch, args.output, dtype=dtype)
+            adapter = GrimAdapter("grim_numpy", op, f, args.batch, args.output, dtype=dtype)
             adapter.prepare(args.batch)
             actual = adapter.normalize(adapter.host())
             check = agreement(actual, expected)

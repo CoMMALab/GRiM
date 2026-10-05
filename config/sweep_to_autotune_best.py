@@ -8,10 +8,10 @@ Why this exists: the incremental autotune producers (today
 ``results/autotune_best_<host>.json`` (read-modify-write), so over many runs it
 accumulates STALE per-robot entries and mixed key conventions. For a trustworthy
 launch-config bake you want exactly ONE run's picks. This reads every
-``*_grid_glass.json`` under a sweep dir, pulls ``results[robot][base].algo_picks``,
+``*_grim_glass.json`` under a sweep dir, pulls ``results[robot][base].algo_picks``,
 and emits a fresh autotune_best containing ONLY that run's valid (non-null) picks.
 
-Algo keys are kept as emitted by the sweep (the long GRiD symbol, e.g.
+Algo keys are kept as emitted by the sweep (the long GRiM symbol, e.g.
 ``forward_dynamics``); ``config/autotune_to_launch_config.py`` maps them to the
 short launch-config key at bake time and accepts either convention.
 
@@ -37,13 +37,13 @@ def _host() -> str:
 
 
 def build_best(sweep_dir: Path) -> tuple[dict, list[str]]:
-    """Return ({best, metadata}, warnings) from a sweep dir's grid_glass JSONs."""
+    """Return ({best, metadata}, warnings) from a sweep dir's grim_glass JSONs."""
     best: dict = {}
     meta: dict = {}
     warns: list[str] = []
-    jsons = sorted(sweep_dir.rglob("*_grid_glass.json"))
+    jsons = sorted(sweep_dir.rglob("*_grim_glass.json"))
     if not jsons:
-        warns.append(f"no *_grid_glass.json under {sweep_dir}")
+        warns.append(f"no *_grim_glass.json under {sweep_dir}")
     for j in jsons:
         try:
             doc = json.loads(j.read_text())

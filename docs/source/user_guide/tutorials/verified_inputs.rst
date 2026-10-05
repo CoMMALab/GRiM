@@ -33,7 +33,7 @@ Constructing a regressor parameter vector
 --------------------------------------------------
 
 Read the parser's merged body inertias, not the original XML link order.
-The example extracts mass, first moment and body-origin inertia into GRiD's
+The example extracts mass, first moment and body-origin inertia into GRiM's
 ``[m, hx, hy, hz, Ixx, Ixy, Ixz, Iyy, Iyz, Izz]`` order:
 
 .. literalinclude:: ../../../examples/model_inputs.py

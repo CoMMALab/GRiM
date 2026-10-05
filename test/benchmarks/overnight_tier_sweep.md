@@ -1,4 +1,4 @@
-# GRiD Multi-Version Benchmark Comparison
+# GRiM Multi-Version Benchmark Comparison
 
 **Machine**: plancher-omen-26  
 **GPU**: NVIDIA GeForce RTX 5090 (cc 12.0, CUDA 13.2)  
@@ -10,18 +10,18 @@
 All times in **µs**.
 
 Columns:
-- **pre_glass**: GRiD at the pre-GLASS reference. Fixed-base only (pre_glass harness does not support floating-base).
-- **glass**: GRiD HEAD with the pure-SIMT GLASS backend.
+- **pre_glass**: GRiM at the pre-GLASS reference. Fixed-base only (pre_glass harness does not support floating-base).
+- **glass**: GRiM HEAD with the pure-SIMT GLASS backend.
 - **pin**: Pinocchio CPU reference (codegen where available).
 - **mjx**: MuJoCo MJX (JAX) GPU reference. Subset of algos only (id / fd / ee_pose / id_du); others render `—`.
 - **frax_cpu / frax_gpu**: Frax (JAX) reference (https://github.com/danielpmorton/frax) timed separately on JAX's CPU and CUDA backends — Frax advertises both as fast. Subset of algos only (id / fd / crba / minv); others render `—`.
 - **glass/pre**: N=256 compute-only ratio. **> 1.00× = HEAD is faster**; **< 1.00× = HEAD regressed**.
 
-Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N=256**. Same backend columns + ratio in each. Values are median (or mean) µs. GRiD/MJX/Frax numbers are batch compute-only; Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).
+Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N=256**. Same backend columns + ratio in each. Values are median (or mean) µs. GRiM/MJX/Frax numbers are batch compute-only; Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).
 
-> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU — expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). The large GRiD speedup here is expected.
+> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU — expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). The large GRiM speedup here is expected.
 
-> **Note (FDSVA_SO)**: No Pinocchio equivalent — GRiD numbers only.
+> **Note (FDSVA_SO)**: No Pinocchio equivalent — GRiM numbers only.
 
 ## Core Dynamics
 

@@ -3,13 +3,12 @@ requires = ["setuptools>=61", "pybind11>=2.11"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Single distribution for the whole repo. `GRiD-RBD` (the codegen toolkit) and
-# `grid-rbd` (the runtime Python wrapper) normalize to the SAME PEP 503 name and
-# the wrapper hard-imports the codegen tree at register_robot time, so they were
-# always one distribution — now folded into one editable install.
-name = "grid-rbd"
+# Single distribution for the whole repo: the codegen toolkit (`grim_codegen`) and
+# the runtime Python wrapper (`grim`), which hard-imports the codegen tree at
+# register_robot time.
+name = "grim"
 version = "0.5.0"
-description = "GPU-Accelerated Rigid Body Dynamics"
+description = "GPU-accelerated rigid body dynamics and motion generation"
 readme = "README.md"
 # 3.10 floor: the runtime wrapper + its pybind11 _core ext require it; codegen
 # is 3.9-compatible but there is no reason to ship the split floor.
@@ -39,7 +38,7 @@ dependencies = [
     "beautifulsoup4>=4.9.3",
     "lxml>=4.2.1",
     # collision codegen: mesh <collision> elements are voxel-filled into spheres
-    # (grid_codegen/algorithms/_spherize.py); iiwa14 and most robot assets have them
+    # (grim_codegen/algorithms/_spherize.py); iiwa14 and most robot assets have them
     "trimesh>=4",
     # runtime wrapper (cache dirs; nvcc invoked at register_robot time)
     "platformdirs>=4.0",
@@ -58,20 +57,20 @@ torch = [
 # Both backend surfaces in one shot (recursive self-extras). NO dev/benchmark
 # weight here, and NO cuRobo — cuRobo installs last via the bench channel.
 all = [
-    "grid-rbd[jax]",
-    "grid-rbd[torch]",
+    "grim[jax]",
+    "grim[torch]",
 ]
-# Test deps for the bindings suite (imports grid_rbd.jax / grid_rbd.torch to
+# Test deps for the bindings suite (imports grim.jax / grim.torch to
 # exercise the jax<->torch parity + autograd paths). The optional real-MuJoCo
 # cross-check is importorskip-guarded, so `mujoco` stays optional. The heavy
 # comparator/oracle stack (pinocchio/mjx/frax) lives in install/requirements-dev.txt.
 dev = [
-    "grid-rbd[all]",
+    "grim[all]",
     "pytest>=7.0",
 ]
 
 [project.scripts]
-grid-generate = "grid_codegen.cli:main"
+grim-generate = "grim_codegen.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/A2R-Lab/GRiD"
@@ -79,22 +78,23 @@ Repository = "https://github.com/A2R-Lab/GRiD"
 Documentation = "https://a2r-lab.github.io/GRiD/"
 
 [tool.setuptools]
-# The runtime wrapper ships a C++ extension (grid_rbd._core); a minimal root
+# The runtime wrapper ships a C++ extension (grim._core); a minimal root
 # setup.py owns the Extension declaration. include-package-data ships the
 # wrapper template + py.typed markers below.
 include-package-data = true
 
 [tool.setuptools.packages.find]
-# grid_codegen at ./, grid_rbd under ./bindings, peer products under ./external.
+# grim_codegen at ./, grim under ./bindings, peer products under ./external.
 where = [".", "bindings", "external"]
-include = ["grid_codegen*", "grid_rbd*", "URDFParser*", "RBDReference*"]
+include = ["grim_codegen*", "grim*", "URDFParser*", "RBDReference*"]
 
 [tool.setuptools.package-data]
 # py.typed (PEP 561): ship inline type annotations so consumers' type checkers /
-# IDEs honor them (grid_rbd is a typed package, no separate .pyi).
-grid_rbd = ["wrapper_template.cu", "py.typed"]
-"grid_rbd.jax" = ["py.typed"]
-"grid_rbd.torch" = ["py.typed"]
+# IDEs honor them (grim is a typed package, no separate .pyi).
+grim = ["wrapper_template.cu", "py.typed"]
+"grim.jax" = ["py.typed"]
+"grim.torch" = ["py.typed"]
+"grim.motion" = ["kernels/*.cuh", "kernels/*.cu", "kernels/*/*.cu"]
 
 [tool.black]
 line-length = 88  # Sets the maximum line length; default is 88, but you can adjust it if needed.
@@ -122,15 +122,15 @@ exclude = '''
 # scratchpad/*/_test.py produced 10 collection errors in a full-tree run, 2026-09-24).
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "scratchpad"]
 markers = [
-    "pinocchio_equivalence: Pinocchio equivalence coverage for GRiD reference code.",
+    "pinocchio_equivalence: Pinocchio equivalence coverage for GRiM reference code.",
     "developer_only: Optional developer-only tests that require extra dependencies.",
     "floating_base: Tests that exercise floating-base model paths.",
     "robot_smoke: Smoke-tier robot coverage.",
     "robot_curated: Curated-tier robot coverage.",
     "robot_nightly: Nightly-tier robot coverage.",
-    "cuda_equivalence: CUDA executable equivalence coverage for generated GRiD code.",
-    "python_wrappers: grid-rbd Python wrapper coverage; requires CUDA + grid-rbd installed.",
-    "notebooks: Executable example notebooks (run via nbval-lax); requires CUDA + grid-rbd installed.",
+    "cuda_equivalence: CUDA executable equivalence coverage for generated GRiM code.",
+    "python_wrappers: grim Python wrapper coverage; requires CUDA + grim installed.",
+    "notebooks: Executable example notebooks (run via nbval-lax); requires CUDA + grim installed.",
     "gpu_proof: Test outcomes recorded in the signed pytest-gpu-proof receipt (auto-applied to cuda_equivalence + python_wrappers by test/conftest.py).",
 ]
 
@@ -145,13 +145,13 @@ required_marker = "gpu_proof"
 # alone does NOT detect changed code. Docs/figures stay outside this scope so
 # presentation-only descendant commits can reuse a completed receipt.
 fingerprint_paths = [
-    "grid_codegen", "bindings/grid_rbd", "bindings/src",
+    "grim_codegen", "bindings/grim", "bindings/src",
     "external/GLASS", "external/RBDReference", "external/URDFParser",
     "config", "pyproject.toml", "setup.py",
     "test/cuda_equivalents", "test/python_wrappers", "test/conftest.py",
     "test/helpers.py", "test/run_gpu_proof.sh", "test/run_split_suite.py",
     "test/compile_sched.py", "test/prewarm_cuda_flagship.py",
-    "test/codegen_neutrality.py", "test/header_key_replay.py",
+    "test/codegen_neutrality.py", "test/header_key_replay.py", "test/motion",
 ]
 max_age_days = 30
 require_gpu = true

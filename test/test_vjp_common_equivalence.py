@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 from functools import partial
 
-from grid_codegen.abi_specs import ABI_SPECS
-from grid_rbd._vjp_common import _contract, _configuration_cotangent, vjp_backward as _vjp_backward
+from grim_codegen.abi_specs import ABI_SPECS
+from grim._vjp_common import _contract, _configuration_cotangent, vjp_backward as _vjp_backward
 
 B, NV, NQ, NEE, NB = 3, 8, 9, 2, 9  # free-flyer: 7 positions, 6 tangent DOFs
 LAYOUT = (("floating", 0, 0, 7, 6), ("euclidean", 7, 6, 2, 2))

@@ -2,7 +2,7 @@
 
 This is the committed coverage for the warp/thread batched-FK surface
 (`ee_pose_inner_{thread,warp}` + `ee_pose_fk_batched_kernel`/`_host` +
-`grid_rbd.fk_batched`). It was previously validated only ad-hoc by the
+`grim.fk_batched`). It was previously validated only ad-hoc by the
 implementing agent with no committed test; this closes that gap.
 
 What it covers
@@ -25,11 +25,11 @@ What it covers
 
 Editable-install workaround
 ---------------------------
-The venv's editable `grid_rbd` shadows to the MAIN repo. To exercise THIS
+The venv's editable `grim` shadows to the MAIN repo. To exercise THIS
 clone instead, build the `_core` extension in-place here
 (`python bindings/setup.py build_ext --inplace`) and run with
-`PYTHONPATH=<clone>/bindings` prepended so this clone's `grid_rbd` package (and,
-via `grid_rbd._compile.repo_root()`, this clone's GRiDCodeGenerator +
+`PYTHONPATH=<clone>/bindings` prepended so this clone's `grim` package (and,
+via `grim._compile.repo_root()`, this clone's GRiMCodeGenerator +
 wrapper_template.cu) win import resolution.
 
 Run with:
@@ -46,7 +46,7 @@ import pytest
 
 
 # Repo root is parent of `test/`. Insert FIRST so this clone's submodules
-# (URDFParser / RBDReference / GRiDCodeGenerator) and `bindings/` package win.
+# (URDFParser / RBDReference / GRiMCodeGenerator) and `bindings/` package win.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_REPO_ROOT / "bindings"), str(_REPO_ROOT)):
     if _p not in sys.path:
@@ -56,18 +56,18 @@ from config import ROBOT_ASSETS_DIR
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (build bindings/ _core)")
+_grim = pytest.importorskip("grim", reason="grim not installed (build bindings/ _core)")
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
-# Guard: make sure we resolved THIS clone's grid_rbd, not the MAIN-repo shadow.
+# Guard: make sure we resolved THIS clone's grim, not the MAIN-repo shadow.
 # (If a sibling agent's editable install wins, fk_batched coverage would be
 # meaningless for this branch.)
-_GRID_RBD_DIR = Path(_grid_rbd.__file__).resolve().parent
-if _REPO_ROOT not in _GRID_RBD_DIR.parents:
+_GRIM_DIR = Path(_grim.__file__).resolve().parent
+if _REPO_ROOT not in _GRIM_DIR.parents:
     pytest.skip(
-        f"grid_rbd resolved to {_GRID_RBD_DIR} (not this clone under {_REPO_ROOT}); "
+        f"grim resolved to {_GRIM_DIR} (not this clone under {_REPO_ROOT}); "
         "set PYTHONPATH=<clone>/bindings and build _core in-place",
         allow_module_level=True,
     )
@@ -132,7 +132,7 @@ def _register(name, urdf):
     urdf_path = _ASSETS / urdf
     if not urdf_path.exists():
         pytest.skip(f"{urdf} fixture not present at {urdf_path}")
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name=f"fk_batched_pytest_{name}",
         urdf_path=str(urdf_path),
         floating_base=False,
@@ -254,7 +254,7 @@ def test_fk_batched_floating_base_matches_reference():
     urdf_path = _ASSETS / "iiwa14.urdf"
     if not urdf_path.exists():
         pytest.skip("iiwa14 fixture not present")
-    handle = _grid_rbd.register_robot(
+    handle = _grim.register_robot(
         name="fk_batched_pytest_iiwa14_floating",
         urdf_path=str(urdf_path),
         floating_base=True,

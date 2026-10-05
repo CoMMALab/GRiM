@@ -1,6 +1,6 @@
 """F2 binding coverage: centroidal / energy / general-frame kinematics.
 
-Exercises the grid_rbd handle methods newly bound in F2 and asserts numerical
+Exercises the grim handle methods newly bound in F2 and asserts numerical
 agreement with the RBDReference numpy oracle at float32 precision:
 
   com / ccrba / energy / generalized_gravity / nonlinear_effects
@@ -23,7 +23,7 @@ import pytest
 
 
 # Repo root is parent of `test/`. Insert FIRST so this clone's submodules
-# (URDFParser / RBDReference / GRiDCodeGenerator) and `bindings/` win import.
+# (URDFParser / RBDReference / GRiMCodeGenerator) and `bindings/` win import.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_REPO_ROOT / "bindings"), str(_REPO_ROOT)):
     if _p not in sys.path:
@@ -33,15 +33,15 @@ from config import ROBOT_ASSETS_DIR
 
 # ─── skip preconditions ─────────────────────────────────────────────────────
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (build bindings/ _core)")
+_grim = pytest.importorskip("grim", reason="grim not installed (build bindings/ _core)")
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
-_GRID_RBD_DIR = Path(_grid_rbd.__file__).resolve().parent
-if _REPO_ROOT not in _GRID_RBD_DIR.parents:
+_GRIM_DIR = Path(_grim.__file__).resolve().parent
+if _REPO_ROOT not in _GRIM_DIR.parents:
     pytest.skip(
-        f"grid_rbd resolved to {_GRID_RBD_DIR} (not this clone under {_REPO_ROOT}); "
+        f"grim resolved to {_GRIM_DIR} (not this clone under {_REPO_ROOT}); "
         "set PYTHONPATH=<clone>/bindings and build _core in-place",
         allow_module_level=True,
     )
@@ -66,7 +66,7 @@ def _register(name, urdf):
     urdf_path = _ASSETS / urdf
     if not urdf_path.exists():
         pytest.skip(f"{urdf} fixture not present at {urdf_path}")
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name=f"{name}_f2_centroidal_pytest",
         urdf_path=str(urdf_path),
         floating_base=False,
@@ -245,7 +245,7 @@ def test_osc_inertia(robot):
     # Lambda = (J Minv J^T)^-1 only exists when the task matrix is full-rank.
     # A branched robot whose leaf chain has < 6 DoF (e.g. go2's 3-DoF leg) gives
     # a rank-deficient task matrix → the 6x6 inverse blows up identically-but-
-    # differently in float32 GRiD vs float64 oracle. Gate on conditioning
+    # differently in float32 GRiM vs float64 oracle. Gate on conditioning
     # (mirrors the S1 host test's cond < 1e8 guard); only well-conditioned
     # samples carry a meaningful comparison. float32 round-trip through the 6x6
     # inverse is looser than the value surfaces (5e-3, per the S1 gate).

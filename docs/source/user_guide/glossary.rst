@@ -17,7 +17,7 @@ doc.
       unqualified.**
 
    precompile variants
-      The OTHER historical use of "tier": ``grid_rbd.precompile(...,
+      The OTHER historical use of "tier": ``grim.precompile(...,
       tiers=...)`` builds several pre-compiled ``.so`` option-variants of one
       robot. Unrelated to resource tiers — prefer calling these *variants*.
 
@@ -38,7 +38,7 @@ doc.
       :doc:`concepts/codegen_architecture`.
 
    mjx / twin / pin
-      *pin* = Pinocchio-convention (GRiD-native) kernels and I/O. *mjx* =
+      *pin* = Pinocchio-convention (GRiM-native) kernels and I/O. *mjx* =
       MuJoCo-convention (wxyz quaternion, global-linear free-joint velocity).
       A *twin* is the mjx variant of a kernel (``MUJOCO_OUTPUT=true``
       instantiation), emitted only for floating-base non-mimic/skew robots.

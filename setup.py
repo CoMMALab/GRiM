@@ -1,4 +1,4 @@
-"""Root build shim for grid-rbd's pybind11 Runner extension.
+"""Root build shim for grim's pybind11 Runner extension.
 
 All project metadata lives in pyproject.toml; this file exists only to declare
 the C++ extension (setuptools has no pyproject-native way to declare a pybind11
@@ -17,7 +17,7 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 
 ext_modules = [
     Pybind11Extension(
-        "grid_rbd._core",
+        "grim._core",
         sources=["bindings/src/_core.cpp"],
         cxx_std=17,
         # The Runner dlopens the per-robot .so; needs to link libdl on Linux.

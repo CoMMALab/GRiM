@@ -10,7 +10,7 @@ hessian inners were already immune (single-buffer s_Xworld BFS), which is
 exactly why the existing named-target wrapper test — gradient/hessian only —
 never fired.
 
-This test drives grid::end_effector_pose_target_device on the device and
+This test drives grim::end_effector_pose_target_device on the device and
 compares the [xyz; rpy] pose against the RBDReference oracle at random floating
 configurations. With the pre-fix codegen the xyz rows are the constant
 base-relative imu offset and fail immediately.
@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -67,8 +67,8 @@ def test_cuda_ee_named_depth1_pose_matches_reference(tmp_path, robot_id, base_mo
 
     build_dir = tmp_path / f"{robot_id}_{base_mode}_{target_name}"
     build_dir.mkdir()
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(algorithm_list=["end_effector_pose"],
                              fixed_target_name=target_name,

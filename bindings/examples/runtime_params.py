@@ -1,4 +1,4 @@
-"""grid-rbd runtime params: mutate the model WITHOUT recompiling.
+"""grim runtime params: mutate the model WITHOUT recompiling.
 
 Two opt-in, runtime-mutable parameter tables let you change the robot model after compile,
 with NO new .so build — the entry points for system-identification, domain randomization,
@@ -47,14 +47,14 @@ def main() -> None:
     if not urdf.exists():
         sys.exit(f"URDF not found: {urdf} (pass --urdf)")
 
-    import grid_rbd
+    import grim
 
     B = args.batch
 
     # ── 1. runtime-mutable INERTIA (sysID / payload / domain randomization) ──
     # Register with runtime_inertia=True: the .so carries a d_inertia_params
     # table + an on-device 6x6 rebuild + a host mutator. numpy backend only.
-    h = grid_rbd.register_robot("iiwa14_runtime_inertia", str(urdf),
+    h = grim.register_robot("iiwa14_runtime_inertia", str(urdf),
                                 runtime_inertia=True, max_batch_size=max(B, 8))
     nq, nv = h.num_joints, h.num_vel
     print(f"runtime_inertia={h.runtime_inertia}  nq={nq} nv={nv} num_bodies={h.num_bodies}")
@@ -99,7 +99,7 @@ def main() -> None:
     # ── 2. runtime-mutable joint-frame TRANSFORM (kinematic calibration) ─────
     # Register with runtime_transform=True: the .so carries a d_transform_params
     # table (per-joint <origin>) + a host mutator. numpy backend only.
-    ht = grid_rbd.register_robot("iiwa14_runtime_transform", str(urdf),
+    ht = grim.register_robot("iiwa14_runtime_transform", str(urdf),
                                  runtime_transform=True, max_batch_size=max(B, 8))
     print(f"\nruntime_transform={ht.runtime_transform}")
     baked_T = ht.transform_params.copy()     # (num_joints, 6) = [x,y,z,roll,pitch,yaw]

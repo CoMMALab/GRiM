@@ -2,7 +2,7 @@
 
 Cuda shards' NARROW fingerprints deliberately cover only test-side files
 (member modules + runner .cu + cuda_harness) so test edits never force a
-multi-day cuda re-run. The generator inputs — grid_codegen/**, the URDF
+multi-day cuda re-run. The generator inputs — grim_codegen/**, the URDF
 assets, and the URDFParser submodule — are pinned at the RECEIPT level
 (repo.commit_sha) instead. That leaves refresh with a blind spot: a carried
 cuda shard's proof was produced against the OLD tree's emitted headers, and
@@ -34,7 +34,7 @@ so the refresh demotes exactly their carried shards; header-key replay,
 when records exist, catches the same class per-shard and stays
 authoritative.
 
-Escape hatch: GRID_REFRESH_ASSUME_NEUTRAL=1 skips the proof and carries
+Escape hatch: GRIM_REFRESH_ASSUME_NEUTRAL=1 skips the proof and carries
 anyway (loudly) — for a change KNOWN neutral where the ~2×matrix codegen
 cost is unwanted. Never the default.
 """
@@ -52,7 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Generator-input paths: a change here (vs the old receipt's commit) is what
 # triggers the proof. Submodule pin bumps for URDFParser show up in git diff
 # under its path.
-CODEGEN_INPUT_PATHS = ("grid_codegen", "config/robot_assets",
+CODEGEN_INPUT_PATHS = ("grim_codegen", "config/robot_assets",
                       "external/URDFParser")
 
 # (name, robot_id, floating_base, gen_all_code kwargs) — one row per
@@ -94,15 +94,15 @@ _GEN_SCRIPT = textwrap.dedent("""\
     import warnings; warnings.filterwarnings("ignore")
     from config import robot_urdf
     from external.URDFParser.URDFParser import URDFParser
-    from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
+    from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
     robot_id, floating, out_path = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
     kwargs = eval(sys.argv[4])
     robot = URDFParser().parse(str(robot_urdf(robot_id)), floating_base=floating)
     _cf_names = kwargs.pop("contact_frame_names", None)
     if _cf_names:
-        from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+        from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
         kwargs["contact_frames"] = contact_frames_from_urdf(robot, _cf_names)
-    g = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+    g = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as d, contextlib.redirect_stdout(d), \\
             contextlib.redirect_stderr(d):
         g.gen_all_code(output_path=out_path, **kwargs)
@@ -210,7 +210,7 @@ def prove_byte_neutrality(old_sha: str) -> tuple[bool, str]:
     surface it, don't carry)."""
     if not _submodule_pins_match(old_sha):
         return False, "submodule pins differ from the old receipt's commit"
-    with tempfile.TemporaryDirectory(prefix="grid_neutrality_") as td:
+    with tempfile.TemporaryDirectory(prefix="grim_neutrality_") as td:
         tmp = Path(td)
         wt = tmp / "old_tree"
         _git("worktree", "add", "--detach", "-q", str(wt), old_sha)
@@ -244,7 +244,7 @@ def cuda_carry_soundness(old_receipt: dict) -> tuple[bool, str]:
 
     Returns (carry_ok, reason). Carry is sound when the generator inputs are
     unchanged vs the old receipt's commit; otherwise it must be PROVEN
-    byte-neutral (or explicitly assumed via GRID_REFRESH_ASSUME_NEUTRAL=1).
+    byte-neutral (or explicitly assumed via GRIM_REFRESH_ASSUME_NEUTRAL=1).
     A dirty old receipt cannot anchor the proof → not carryable once inputs
     changed."""
     repo = old_receipt.get("repo") or {}
@@ -253,9 +253,9 @@ def cuda_carry_soundness(old_receipt: dict) -> tuple[bool, str]:
         return False, "old receipt records no commit_sha"
     if not codegen_inputs_changed(old_sha):
         return True, "generator inputs unchanged vs old receipt"
-    if os.environ.get("GRID_REFRESH_ASSUME_NEUTRAL") == "1":
+    if os.environ.get("GRIM_REFRESH_ASSUME_NEUTRAL") == "1":
         return True, ("generator inputs CHANGED — carried WITHOUT proof "
-                      "(GRID_REFRESH_ASSUME_NEUTRAL=1)")
+                      "(GRIM_REFRESH_ASSUME_NEUTRAL=1)")
     if repo.get("dirty"):
         return False, ("generator inputs changed and the old receipt was "
                        "built from a DIRTY tree — cannot reconstruct it for "

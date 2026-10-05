@@ -2,7 +2,7 @@
 """Per-algo isolated benchmark orchestrator (2026-07-15).
 
 WHY THIS EXISTS. The two pre-existing bench paths both funnel every algorithm through ONE process:
-  * monolithic timeGRiD_{batch,single}.cu -- one giant TU (24-36 GB cicc on big robots) AND one process,
+  * monolithic timeGRiM_{batch,single}.cu -- one giant TU (24-36 GB cicc on big robots) AND one process,
     so a single kernel's gpuErrchk exit() kills the whole sweep and loses every algo after it;
   * the "per-algo TU" path split the COMPILE into small TUs (good) but still LINKED them into one
     dispatcher binary, so a crash still takes down everything after it (observed: exit 188 on iiwa14 lost
@@ -14,10 +14,10 @@ This orchestrator makes each algorithm a SELF-CONTAINED .cu -> its OWN .exe -> i
   * RUN: each exe in isolation. A crash (nonzero exit / timeout / signal) is CONTAINED to that one algo
     and ATTRIBUTED to it -- every other algo still produces its numbers. No more "one kernel nukes the run".
   * SOURCE OF TRUTH: dispatch AND collection are driven by PER_ALGO_SPECS (reused from run.py) + the
-    generated-header GRID_HAS_* gate. Adding a benchable algo is one PER_ALGO_SPECS row; nothing here is
+    generated-header GRIM_HAS_* gate. Adding a benchable algo is one PER_ALGO_SPECS row; nothing here is
     hand-maintained per-algo.
 
-Timings are process-independent because timeGRiD_common.h now warms the GPU to its sustained boost clock
+Timings are process-independent because timeGRiM_common.h now warms the GPU to its sustained boost clock
 (time-based, ~1.5s) before timing -- proven to match the monolithic numbers from a cold process start
 (2026-07-15). See that header.
 
@@ -45,15 +45,15 @@ REPO_ROOT = THIS_DIR.parent.parent
 sys.path.insert(0, str(THIS_DIR))
 
 # Reuse the SINGLE source of truth + header generation from the existing harness -- do NOT duplicate.
-from baselines.grid import run as gridrun  # noqa: E402
-from timing_parser import parse_grid_output, build_metadata, fill_nulls, ALL_ALGOS  # noqa: E402
+from baselines.grid import run as grimrun  # noqa: E402
+from timing_parser import parse_grim_output, build_metadata, fill_nulls, ALL_ALGOS  # noqa: E402
 
 # Autotune mode reuses run.py's picker VERBATIM (schema-2 algo_picks, tie-breaks, SASS tier-dedup,
 # one-level refinement) so the wrapper's picks are structurally identical to the monolithic path by
 # construction -- that is exactly what the Phase-2 gate checks. We only feed it a per-algo {tier: exe}
 # dict instead of one linked binary per tier; each solo exe emits just its own algo, so the picker's
 # _present_algos_in_binary / _sweep_one_binary / dedup all operate correctly on it.
-_AUTOTUNE_TIERS = gridrun.AUTOTUNE_TIERS                       # ("shared", "lite", "minimal")
+_AUTOTUNE_TIERS = grimrun.AUTOTUNE_TIERS                       # ("shared", "lite", "minimal")
 _TIER_MACRO = {"shared": None, "lite": "TIER_LITE", "minimal": "TIER_MINIMAL"}  # shared == default (no -D)
 
 
@@ -61,29 +61,29 @@ _TIER_MACRO = {"shared": None, "lite": "TIER_LITE", "minimal": "TIER_MINIMAL"}  
 def _solo_batch_tu_source(algo_key: str) -> str:
     """A COMPLETE .cu for one algo: its measure entry + a main that runs only it, sweeping N.
 
-    Reuses `gridrun._per_algo_batch_tu_source` for the entry body (the measure_<algo>_batch_entry that
+    Reuses `grimrun._per_algo_batch_tu_source` for the entry body (the measure_<algo>_batch_entry that
     already encodes the exact PER_ALGO_SPECS call), then appends a self-contained main -- so each algo
     links to its own binary with no shared dispatcher.
     """
-    spec = gridrun.PER_ALGO_SPECS[algo_key]
+    spec = grimrun.PER_ALGO_SPECS[algo_key]
     gate = spec.get("gate")
     open_g = f"#if {gate}\n" if gate else ""
     close_g = "#endif\n" if gate else ""
-    entry = gridrun._per_algo_batch_tu_source(algo_key)  # includes timeGRiD_common.h + the entry
+    entry = grimrun._per_algo_batch_tu_source(algo_key)  # includes timeGRiM_common.h + the entry
     # Per-algo kernel-attr registration functor (P1 / Fix #1): the solo TU calls the
-    # run_all_tests overload that takes this functor + init_grid_streams, so it NEVER
-    # pulls in init_grid's monolith init_grid_kernel_attrs (which address-takes ALL ~35
+    # run_all_tests overload that takes this functor + init_grim_streams, so it NEVER
+    # pulls in init_grim's monolith init_grim_kernel_attrs (which address-takes ALL ~35
     # kernels -> whole-set instantiation -> ptxas OOM on big humanoids). Registers just
     # this algo (guarded, since it sits OUTSIDE the measure entry's own gate). Same
     # per-algo registration the measure entry does internally -- idempotent.
-    attr_init = f"[](){{ {gridrun._attr_init_call(algo_key, spec, guarded=True)} }}"
+    attr_init = f"[](){{ {grimrun._attr_init_call(algo_key, spec, guarded=True)} }}"
     # main: run_all_tests provides init/load/warmup/close; call only THIS algo's entry per N.
-    # If the algo is gated out for this header (GRID_HAS_* == 0), the entry does not exist, so the main
+    # If the algo is gated out for this header (GRIM_HAS_* == 0), the entry does not exist, so the main
     # must also be gated -- and we still emit a valid, do-nothing main so the exe builds and exits clean
     # (the wrapper then records the algo as "gated out", not as a failure).
-    # In-process thread sweep (2026-08-23): GRID_AUTOTUNE_THREAD_COUNT may be a
+    # In-process thread sweep (2026-08-23): GRIM_AUTOTUNE_THREAD_COUNT may be a
     # COMMA list — one exe run then times EVERY thread config in one CUDA
-    # context (each section prefixed by an ==GRID_AUTOTUNE_THREADS N== marker
+    # context (each section prefixed by an ==GRIM_AUTOTUNE_THREADS N== marker
     # for run.py's splitter), instead of one ~30 GB context create/destroy per
     # point — the churn that raced the driver's lazy vidmem free and froze the
     # box (guide §7.x). Single-value env keeps the historical behavior
@@ -92,15 +92,15 @@ def _solo_batch_tu_source(algo_key: str) -> str:
         "\n"
         "int main(int argc, const char **argv){\n"
         "    bool floating_base = parse_floating_base_arg(argc, argv);\n"
-        "    run_all_tests<float, 1024>(floating_base, [&](cudaStream_t *streams, grid::robotModel<float> *m, grid::gridData<float> *d){\n"
+        "    run_all_tests<float, 1024>(floating_base, [&](cudaStream_t *streams, grim::robotModel<float> *m, grim::grimData<float> *d){\n"
         "#if !TEST_FOR_EQUIVALENCE\n"
         f"{open_g}"
-        "        std::vector<int> _thread_list = grid_autotune_thread_list();\n"
+        "        std::vector<int> _thread_list = grim_autotune_thread_list();\n"
         "        if (_thread_list.empty()) _thread_list.push_back(0);  // 0 = keep resolved default, no marker\n"
         "        for (int _th : _thread_list) {\n"
         "            if (_th > 0) {\n"
-        "                grid_set_timing_threads(_th);\n"
-        "                printf(\"==GRID_AUTOTUNE_THREADS %d==\\n\", _th); fflush(stdout);\n"
+        "                grim_set_timing_threads(_th);\n"
+        "                printf(\"==GRIM_AUTOTUNE_THREADS %d==\\n\", _th); fflush(stdout);\n"
         "            }\n"
         "            for (int N : {16, 32, 64, 128, 256, 1024}) {\n"
         f"                measure_{algo_key}_batch_entry(N, streams, m, d);\n"
@@ -205,22 +205,22 @@ def _cgroup_wrap(cmd: list[str], cap_gb: float) -> list[str]:
 def _alloc_gate_flags(algo: str | None) -> list[str]:
     """2a (h2_plus OOM): per-algo alloc-gating -D flags for a solo exe. The header
     (generated with emit_alloc_gating=True) guards every LARGE per-algo buffer's
-    init_gridData alloc with (!defined(GRID_ALLOC_GATE) || GRID_ALLOC_<ALGO> || ...),
-    so defining GRID_ALLOC_GATE + only THIS algo's key makes the solo exe allocate
+    init_grimData alloc with (!defined(GRIM_ALLOC_GATE) || GRIM_ALLOC_<ALGO> || ...),
+    so defining GRIM_ALLOC_GATE + only THIS algo's key makes the solo exe allocate
     only its own buffers (at h2_plus nv=81 the full set sums past the card). The
     guard keys ARE the PER_ALGO_SPECS keys, uppercased — no per-algo table here."""
     if algo is None:
         return []
-    return ["-DGRID_ALLOC_GATE=1", f"-DGRID_ALLOC_{algo.upper()}=1"]
+    return ["-DGRIM_ALLOC_GATE=1", f"-DGRIM_ALLOC_{algo.upper()}=1"]
 
 
-# Workspace slots (formerly the bench-only -DGRID_WORKSPACE_CHUNK seam): the runtime
-# now auto-fits gridData.workspace_timestep_slots inside init_gridData (cudaMemGetInfo)
+# Workspace slots (formerly the bench-only -DGRIM_WORKSPACE_CHUNK seam): the runtime
+# now auto-fits grimData.workspace_timestep_slots inside init_grimData (cudaMemGetInfo)
 # and every workspace-using host wrapper clamps its launch grid to the slot count, so
 # big-robot SO cells fit at N=1024 with NO bench-side flags. Each solo exe prints its
-# actual `workspace_timestep_slots=<n>` (timeGRiD_common.h); we parse it into JSON
+# actual `workspace_timestep_slots=<n>` (timeGRiM_common.h); we parse it into JSON
 # metadata so a slot-clamped timing cell is never silently compared to an unclamped
-# one. Force a slot count for A/B via the GRID_WORKSPACE_TIMESTEP_SLOTS env var.
+# one. Force a slot count for A/B via the GRIM_WORKSPACE_TIMESTEP_SLOTS env var.
 _SOLO_EXE_N = 1024   # run_all_tests<float, 1024> — the compile-time NUM_TIMESTEPS of every solo exe
 
 
@@ -230,16 +230,16 @@ def _nvcc_cmd(src: Path, exe: Path, header_file: Path, arch: str, tier: str | No
     cmd = [
         nvcc, "-std=c++17", "-O3", f"-arch=sm_{arch}",
         "-I", str(header_file.parent), "-I", str(REPO_ROOT), "-I", str(THIS_DIR / "baselines" / "grid"),
-        "-DGRID_HEADER_FILE=" + f'"{header_file}"',   # generate_header names it <robot>_<base>.cuh, not grid.cuh
+        "-DGRIM_HEADER_FILE=" + f'"{header_file}"',   # generate_header names it <robot>_<base>.cuh, not grim.cuh
     ]
     macro = _TIER_MACRO.get(tier)
     if macro is not None:   # shared == default => no flag (byte-identical to run.py's TIER_SHARED)
-        cmd.append(f"-DGRID_DEFAULT_RESOURCE_TIER={macro}")
+        cmd.append(f"-DGRIM_DEFAULT_RESOURCE_TIER={macro}")
     cmd += _alloc_gate_flags(alloc_gate_algo)
     # A/B seam: extra nvcc flags from the environment (e.g. the L2-pin A/B's
-    # -DGRID_CUDA_ENABLE_L2_PERSISTING=0 arm). Also mixed into the content
+    # -DGRIM_CUDA_ENABLE_L2_PERSISTING=0 arm). Also mixed into the content
     # stamp (_compile_one) so arms never alias a cached exe.
-    cmd += shlex.split(os.environ.get("GRID_BENCH_EXTRA_NVCC_FLAGS", ""))
+    cmd += shlex.split(os.environ.get("GRIM_BENCH_EXTRA_NVCC_FLAGS", ""))
     cmd += ["-o", str(exe), str(src)]
     return cmd
 
@@ -250,12 +250,12 @@ def _compile_one(algo: str, build_dir: Path, header_file: Path, arch: str,
     """Write the algo's self-contained .cu and compile it to an .exe. Returns (algo, exe|None, log).
 
     The .cu is tier-independent (the resource tier is a compile-time -D flag, not source), so the source
-    text is shared across tiers -- only the .exe differs. `tier` selects the -DGRID_DEFAULT_RESOURCE_TIER
+    text is shared across tiers -- only the .exe differs. `tier` selects the -DGRIM_DEFAULT_RESOURCE_TIER
     macro + the exe suffix; None/'shared' = the default tier (timing path)."""
     sfx = _tier_suffix(tier)
     src = build_dir / f"solo_batch_{algo}.cu"
     src_txt = _solo_batch_tu_source(algo)
-    gridrun._write_if_changed(src, src_txt)
+    grimrun._write_if_changed(src, src_txt)
     exe = build_dir / f"solo_batch_{algo}{sfx}.exe"
     stamp = build_dir / f"solo_batch_{algo}{sfx}.stamp"
     # CONTENT-keyed compile cache. generate_header rewrites the .cuh (fresh mtime) on EVERY run -- even
@@ -267,7 +267,7 @@ def _compile_one(algo: str, build_dir: Path, header_file: Path, arch: str,
     key = hashlib.sha1(
         (src_txt + "\0" + str(_TIER_MACRO.get(tier)) + "\0"
          + " ".join(_alloc_gate_flags(gate_algo)) + "\0"
-         + os.environ.get("GRID_BENCH_EXTRA_NVCC_FLAGS", "") + "\0"
+         + os.environ.get("GRIM_BENCH_EXTRA_NVCC_FLAGS", "") + "\0"
          + header_file.read_text()).encode()
     ).hexdigest()
     if exe.exists() and stamp.exists() and stamp.read_text().strip() == key:
@@ -293,7 +293,7 @@ def _run_one(algo: str, exe: Path, base: str, timeout_s: float) -> tuple[str, di
 
     status is one of:
       "ok"     -- produced timing rows
-      "gated"  -- clean exit, NO rows: the algo is GATED OUT of this header (GRID_HAS_* == 0), which is
+      "gated"  -- clean exit, NO rows: the algo is GATED OUT of this header (GRIM_HAS_* == 0), which is
                   NORMAL (e.g. an opt-in family the robot wasn't generated with). NOT a failure.
       "crash"  -- nonzero exit (e.g. 188). CONTAINED to this algo + attributed; the sweep continues.
       "timeout"/"error" -- likewise contained.
@@ -308,9 +308,9 @@ def _run_one(algo: str, exe: Path, base: str, timeout_s: float) -> tuple[str, di
     # progress, not wall-clock); a positive timeout escalates SIGTERM → wait —
     # and if the exe ignores that, we mark it "hung" and LEAVE it (a loud stuck
     # process beats a wedged driver).
-    # Driver-teardown settle gate (see gridrun.settle_gpu_before_launch): never
+    # Driver-teardown settle gate (see grimrun.settle_gpu_before_launch): never
     # launch onto a GPU still lazily freeing the previous exe's allocation.
-    gridrun.settle_gpu_before_launch(f"{exe.name} ({algo})")
+    grimrun.settle_gpu_before_launch(f"{exe.name} ({algo})")
     try:
         if timeout_s and timeout_s > 0:
             proc = subprocess.Popen([str(exe), base], stdout=subprocess.PIPE,
@@ -340,7 +340,7 @@ def _run_one(algo: str, exe: Path, base: str, timeout_s: float) -> tuple[str, di
     if proc.returncode != 0:
         return algo, {}, "crash", (f"CRASH rc={proc.returncode} (isolated -- other algos unaffected)\n"
                                    f"stderr tail:\n{proc.stderr[-800:]}"), slots
-    got = {k: v for k, v in parse_grid_output(proc.stdout).items() if v}
+    got = {k: v for k, v in parse_grim_output(proc.stdout).items() if v}
     if got:
         note = f" [workspace slots {slots}/{_SOLO_EXE_N} (runtime-clamped)]" if slots is not None and slots < _SOLO_EXE_N else ""
         return algo, got, "ok", f"ok ({len(got)} row group(s)){note}", slots
@@ -431,7 +431,7 @@ def _run_autotune(algos: list[str], build_dir: Path, header: Path, arch: str, ba
     compile is paid once. Each solo exe emits only its own algo, so the picker's SASS tier-dedup,
     thread sweep + one-level refinement all operate correctly per-algo. The picker runs the exes
     SERIALLY within an algo, and we loop algos serially -- so no two timing launches overlap."""
-    max_perf = gridrun._read_max_perf_level_threads(header)
+    max_perf = grimrun._read_max_perf_level_threads(header)
     print(f"[autotune] MAX_PERF_LEVEL_THREADS={max_perf} | tiers={list(tiers)} | N={autotune_N} "
           f"| thread grid={list(thread_grid)}")
     # Compile every (algo, tier) exe up front, one tier at a time so a tier's SO-monster compiles
@@ -448,7 +448,7 @@ def _run_autotune(algos: list[str], build_dir: Path, header: Path, arch: str, ba
         if not binaries:
             print(f"  [autotune] {algo}: no tier exe built -- skipped")
             continue
-        picks = gridrun._autotune_pick_winners(
+        picks = grimrun._autotune_pick_winners(
             binaries, base, thread_grid=thread_grid, autotune_N=autotune_N,
             max_perf_level_threads=max_perf, mode="batch")
         if algo in picks:
@@ -478,7 +478,7 @@ def _repick_from_sweep(pick: dict) -> dict:
     (first-encountered on ties) matches the sweep-time pick exactly."""
     by_tier = {t: {int(th): float(us) for th, us in s.items()}
                for t, s in pick.get("sweep", {}).items()}
-    best = gridrun._argmin_tier_threads(by_tier)
+    best = grimrun._argmin_tier_threads(by_tier)
     if best is None:
         return pick
     wtier, wthreads, wus = best
@@ -505,7 +505,7 @@ def _emit_tier_analysis(robot: str, base: str, algo_picks: dict[str, dict]) -> s
 
     lines = [
         f"# Autotune tier analysis — {robot}-{base}", "",
-        f"Best-achievable us per tier (min over the thread sweep at N={gridrun.DEFAULT_AUTOTUNE_N}); "
+        f"Best-achievable us per tier (min over the thread sweep at N={grimrun.DEFAULT_AUTOTUNE_N}); "
         "ratios are tier/shared (>1.0 = tier slower). `opt` = the joint (tier, threads) argmin.", "",
         "| Algo | opt tier | opt thr | opt us | shared | lite | minimal | lite/shd | min/shd |",
         "|---|---|---|---|---|---|---|---|---|",
@@ -545,7 +545,7 @@ def main() -> None:
                     help="autotune only: sweep = build+time+write (needs a quiet GPU); analyze = re-pick "
                          "from an EXISTING sweep JSON + emit the tier table, NO timing (CPU-only); "
                          "both = sweep then analyze")
-    ap.add_argument("--autotune-N", type=int, default=gridrun.DEFAULT_AUTOTUNE_N,
+    ap.add_argument("--autotune-N", type=int, default=grimrun.DEFAULT_AUTOTUNE_N,
                     help="batch size the autotune minimizes over (default 256)")
     ap.add_argument("--tiers", type=str, default=None,
                     help="comma-separated resource tiers for autotune (default: shared,lite,minimal)")
@@ -588,14 +588,14 @@ def main() -> None:
                          "multi_target_position{,_gradient} time against the real (collision-sized) batch")
     ap.add_argument("--no-alloc-gate", action="store_true",
                     help="disable per-algo alloc gating (2a): by default each solo exe compiles with "
-                         "-DGRID_ALLOC_GATE + -DGRID_ALLOC_<ALGO> against a header generated with "
-                         "emit_alloc_gating=True, so init_gridData allocates ONLY that algo's large "
+                         "-DGRIM_ALLOC_GATE + -DGRIM_ALLOC_<ALGO> against a header generated with "
+                         "emit_alloc_gating=True, so init_grimData allocates ONLY that algo's large "
                          "buffers (h2_plus nv=81: the full set OOMs the card in every solo exe). "
                          "This flag restores the previous allocate-everything behavior.")
-    # (Workspace fitting needs no bench flag anymore: init_gridData auto-fits
-    # gridData.workspace_timestep_slots at runtime and each solo exe reports its
+    # (Workspace fitting needs no bench flag anymore: init_grimData auto-fits
+    # grimData.workspace_timestep_slots at runtime and each solo exe reports its
     # actual slot count, parsed into JSON metadata. Force a count for an A/B with
-    # the GRID_WORKSPACE_TIMESTEP_SLOTS env var.)
+    # the GRIM_WORKSPACE_TIMESTEP_SLOTS env var.)
     args = ap.parse_args()
     alloc_gate = not args.no_alloc_gate
 
@@ -603,12 +603,12 @@ def main() -> None:
     build_dir.mkdir(parents=True, exist_ok=True)
     tiers = tuple(t.strip() for t in args.tiers.split(",")) if args.tiers else _AUTOTUNE_TIERS
     thread_grid = (tuple(int(t) for t in args.thread_grid.split(","))
-                   if args.thread_grid else gridrun.DEFAULT_AUTOTUNE_THREAD_GRID)
+                   if args.thread_grid else grimrun.DEFAULT_AUTOTUNE_THREAD_GRIM)
 
     # ---- analyze-only fast path: re-pick from a saved sweep + emit the tier table. NO nvcc/GPU/header
     # (the whole point of --stage analyze: re-analyze a completed overnight sweep cheaply). ----
     if args.mode == "autotune" and args.stage == "analyze":
-        out = args.output or (build_dir / f"{args.robot}_{args.base}_grid_glass.json")
+        out = args.output or (build_dir / f"{args.robot}_{args.base}_grim_glass.json")
         if not out.exists():
             sys.exit(f"[analyze] no sweep JSON at {out} -- run --stage sweep first")
         payload = json.loads(out.read_text())
@@ -626,10 +626,10 @@ def main() -> None:
     floating = args.base == "floating"
 
     # 1. Generate the header ONCE (reuse the harness path -> same header the monolithic bench uses).
-    urdf = gridrun.get_urdf_path(args.robot)
-    ee_frame = gridrun.DEFAULT_EE_FRAMES.get(args.robot, "")
+    urdf = grimrun.get_urdf_path(args.robot)
+    ee_frame = grimrun.DEFAULT_EE_FRAMES.get(args.robot, "")
     print(f"[per-algo] generating header for {args.robot}-{args.base}...")
-    header = gridrun.generate_header(
+    header = grimrun.generate_header(
         urdf, args.robot, args.base, ee_frame, build_dir,
         runtime_inertia=args.runtime_inertia,
         runtime_transform=args.runtime_transform,
@@ -638,21 +638,21 @@ def main() -> None:
         emit_alloc_gating=alloc_gate)
 
     # Which algos are in scope for this robot/base (drops non-production + mimic-unsupported).
-    has_mimic = gridrun.robot_is_mimic(urdf)
+    has_mimic = grimrun.robot_is_mimic(urdf)
     # When the user names algos explicitly, don't dedup the dispatcher-redundant SO
     # row away — they may want to build exactly `idsva_so_world_frame` for an A/B.
-    algos = gridrun._algo_keys_in_registry_order(
+    algos = grimrun._algo_keys_in_registry_order(
         floating, has_mimic, dedup_dispatcher_redundant=not args.algos)
     if args.algos:
         want = {a.strip() for a in args.algos.split(",") if a.strip()}
         # Explicit --algos may name PER_ALGO_SPECS keys that are NOT in the registry-order
         # list (e.g. the mjx timing twins `<algo>_mjx`, which have no registry/descriptor row
         # -- they are bench-only). Keep registry order for the ones that are, then append any
-        # remaining requested keys that exist in PER_ALGO_SPECS (their per-header GRID_HAS_* /
-        # GRID_RBD_WITH_MUJOCO gate still decides whether they actually build).
+        # remaining requested keys that exist in PER_ALGO_SPECS (their per-header GRIM_HAS_* /
+        # GRIM_WITH_MUJOCO gate still decides whether they actually build).
         algos = [a for a in algos if a in want]
-        algos += [a for a in want if a not in algos and a in gridrun.PER_ALGO_SPECS]
-    arch = gridrun.detect_cuda_arch()
+        algos += [a for a in want if a not in algos and a in grimrun.PER_ALGO_SPECS]
+    arch = grimrun.detect_cuda_arch()
     print(f"[per-algo] {len(algos)} algos in scope: {', '.join(algos)}")
 
     jobs = args.compile_jobs or max(1, int(_ram_avail_gb() / args.ram_per_compile_gb))
@@ -691,7 +691,7 @@ def main() -> None:
         exes = _compile_algos(algos, build_dir, header, arch, args.ram_per_compile_gb, jobs, tier=args.tier,
                            cgroup_cap_gb=args.cgroup_cap_gb, alloc_gate=alloc_gate)
         results, gated, crashed, slots_by_algo = _run_isolated(algos, exes, args.base, args.per_exe_timeout)
-        out = args.output or (build_dir / f"{args.robot}_{args.base}_grid_per_algo.json")
+        out = args.output or (build_dir / f"{args.robot}_{args.base}_grim_per_algo.json")
         payload = {
             "metadata": {**build_metadata(include_gpu=True), "robot": args.robot, "base": args.base,
                          "bench_path": "per_algo_isolated", "resource_tier": args.tier or "shared",
@@ -714,7 +714,7 @@ def main() -> None:
     filled = fill_nulls(dict(results))   # ensure the ALL_ALGOS core keys exist as null when un-run
 
     print("[autotune] --- tier x thread pass (algo_picks) ---")
-    _ckpt_out = Path(args.output) if args.output else (build_dir / f"{args.robot}_{args.base}_grid_glass.json")
+    _ckpt_out = Path(args.output) if args.output else (build_dir / f"{args.robot}_{args.base}_grim_glass.json")
     _ckpt = _ckpt_out.with_suffix(".partial.json")
     algo_picks = _run_autotune(algos, build_dir, header, arch, args.base,
                                args.ram_per_compile_gb, jobs, thread_grid=thread_grid,
@@ -724,8 +724,8 @@ def main() -> None:
 
     # Assemble the run.py-faithful autotune payload: results[robot][base] = {"grid": filled,
     # "algo_picks": {...}} with a schema-2 autotune_threads metadata block. Column key stays "grid"
-    # exactly as run.py emits it; the grid->grid_glass RENAME is run_multi_version._rename_grid_key's
-    # job when this is wired into the hub (Phase 3). Default filename is the grid_glass name the
+    # exactly as run.py emits it; the grid->grim_glass RENAME is run_multi_version._rename_grim_key's
+    # job when this is wired into the hub (Phase 3). Default filename is the grim_glass name the
     # autotune consumers glob (build_autotune_matrix / sweep_to_autotune_best).
     meta = {**build_metadata(include_gpu=True), "robot": args.robot, "base": args.base,
             "bench_path": "per_algo_isolated",
@@ -733,7 +733,7 @@ def main() -> None:
             "workspace_slots": slots_by_algo,
             "autotune_threads": {"thread_grid": list(thread_grid), "autotune_N": int(args.autotune_N),
                                  "mode": "batch", "tiers": list(tiers), "schema": 2}}
-    out = args.output or (build_dir / f"{args.robot}_{args.base}_grid_glass.json")
+    out = args.output or (build_dir / f"{args.robot}_{args.base}_grim_glass.json")
     payload = {"metadata": meta,
                "results": {args.robot: {args.base: {"grid": filled, "algo_picks": algo_picks}}}}
     out.write_text(json.dumps(payload, indent=1))

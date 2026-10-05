@@ -439,7 +439,7 @@ void eePoseGradientThreaded(const pinocchio::Model *model, pinocchio::Data *data
 
 // ee_pose_hessian: pinocchio's analytic kinematic Hessian per joint, then
 // returned as a (6, nv, nv) Tensor in LOCAL_WORLD_ALIGNED frame to match
-// GRiD's d/dv tangent convention. computeForwardKinematicsDerivatives must
+// GRiM's d/dv tangent convention. computeForwardKinematicsDerivatives must
 // run first (it sets up the data state computeJointKinematicHessians needs);
 // then getJointKinematicHessian(model, data, joint_id, ref_frame, H_out)
 // extracts the analytic 3D tensor for a chosen joint.
@@ -769,7 +769,7 @@ inline bool needs_codegen(const std::string &enabled, const char *cg) {
     return false;
 }
 
-#ifndef GRID_RELEASE_PIN_HELPERS_ONLY
+#ifndef GRIM_RELEASE_PIN_HELPERS_ONLY
 template<typename T, int TEST_ITERS, int NUM_THREADS, int NUM_TIME_STEPS>
 void test(std::string urdf_filepath, bool floating_base, std::string frame_name = "", std::string enabled_algo = "all"){
     struct timespec start, end;
@@ -1389,4 +1389,4 @@ int main(int argc, const char ** argv){
     run_all_tests<float,TEST_ITERS_GLOBAL,CPU_THREADS_GLOBAL>(urdf_filepath, floating_base, frame_name, enabled_algo);
     return 0;
 }
-#endif // GRID_RELEASE_PIN_HELPERS_ONLY
+#endif // GRIM_RELEASE_PIN_HELPERS_ONLY

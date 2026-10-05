@@ -27,56 +27,56 @@
       "boundary_flags": 0
     },
     {
-      "backend": "grid_cuda",
+      "backend": "grim_cuda",
       "cells": 54,
       "host_flags": 0,
       "resident_flags": 0,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_jax",
+      "backend": "grim_jax",
       "cells": 54,
       "host_flags": 3,
       "resident_flags": 9,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_jax_prealloc",
+      "backend": "grim_jax_prealloc",
       "cells": 54,
       "host_flags": 5,
       "resident_flags": 0,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_native",
+      "backend": "grim_native",
       "cells": 36,
       "host_flags": 0,
       "resident_flags": 0,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_numpy",
+      "backend": "grim_numpy",
       "cells": 54,
       "host_flags": 0,
       "resident_flags": 0,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_numpy_prealloc",
+      "backend": "grim_numpy_prealloc",
       "cells": 36,
       "host_flags": 0,
       "resident_flags": 0,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_torch",
+      "backend": "grim_torch",
       "cells": 54,
       "host_flags": 0,
       "resident_flags": 0,
       "boundary_flags": 0
     },
     {
-      "backend": "grid_torch_prealloc",
+      "backend": "grim_torch_prealloc",
       "cells": 54,
       "host_flags": 0,
       "resident_flags": 0,
@@ -145,7 +145,7 @@
       }
     },
     "accepted_source_drift": [
-      "test/benchmarks/release/grid_adapter.py",
+      "test/benchmarks/release/grim_adapter.py",
       "test/benchmarks/release/pin_adapter.py",
       "test/benchmarks/release/protocol.py"
     ],

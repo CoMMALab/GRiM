@@ -22,7 +22,7 @@ The complete signature is::
          alpha_tie_breaker=None, joint_ordering="pinocchio_order",
          floating_base_convention="pinocchio", strict_inertial=False)
 
-Keep ``using_quaternion=True`` for the documented floating-base GRiD paths.
+Keep ``using_quaternion=True`` for the documented floating-base GRiM paths.
 
 ``joint_ordering`` controls how sibling joints under the same parent link are
 ordered in the depth-first walk that assigns joint ids:
@@ -101,7 +101,7 @@ Parse options and errors
 Installation
 ------------
 
-The parser is installed with GRiD's editable install. Standalone, it needs
+The parser is installed with GRiM's editable install. Standalone, it needs
 ``beautifulsoup4``, ``lxml``, ``numpy`` and ``sympy``:
 
 .. code:: shell

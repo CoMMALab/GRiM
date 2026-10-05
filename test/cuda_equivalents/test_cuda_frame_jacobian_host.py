@@ -2,11 +2,11 @@
 
 Complements `test_cuda_frame_jacobian.py` (which drives the `*_device` functions
 from a hand-written kernel) by exercising the BATCHED, launchable HOST surface
-end-to-end through the gridData output buffers:
+end-to-end through the grimData output buffers:
 
-  * grid::frame_jacobian      -> hd_data->d_frame_jacobian / h_frame_jacobian
-  * grid::frame_jacobian_dot  -> hd_data->d_frame_jacobian_dot / h_frame_jacobian_dot   (when emitted)
-  * grid::osc_inertia         -> hd_data->d_osc_inertia / h_osc_inertia                 (when emitted)
+  * grim::frame_jacobian      -> hd_data->d_frame_jacobian / h_frame_jacobian
+  * grim::frame_jacobian_dot  -> hd_data->d_frame_jacobian_dot / h_frame_jacobian_dot   (when emitted)
+  * grim::osc_inertia         -> hd_data->d_osc_inertia / h_osc_inertia                 (when emitted)
 
 The launchable surface bakes a fixed frame target (the leaf-EE joint) and the
 LOCAL_WORLD_ALIGNED reference frame, so this test cross-checks ONLY that
@@ -14,7 +14,7 @@ LOCAL_WORLD_ALIGNED reference frame, so this test cross-checks ONLY that
 to ~1e-14). float32 device -> float32-scale tolerance.
 
 Robots: iiwa14-fixed + go2-floating (override with
-GRID_CUDA_FRAME_JAC_HOST_ROBOTS="iiwa14:fixed,go2:floating").
+GRIM_CUDA_FRAME_JAC_HOST_ROBOTS="iiwa14:fixed,go2:floating").
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -50,7 +50,7 @@ def _robot_modes():
     # reduced v-slot, so the frame Jacobian + its Jdot fold the mimic body's column
     # alpha-weighted into the shared column (frame_jacobian_dot_device's fjc_alpha /
     # fjd_alpha path). Covers the analytic-CUDA-vs-analytic-oracle mimic transcription.
-    raw = os.environ.get("GRID_CUDA_FRAME_JAC_HOST_ROBOTS",
+    raw = os.environ.get("GRIM_CUDA_FRAME_JAC_HOST_ROBOTS",
                          "iiwa14:fixed,go2:floating,fr3:fixed,fr3:floating")
     out = []
     for tok in raw.split(","):
@@ -70,8 +70,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(algorithm_list=_ALGO_KEYS, output_path=str(header))
     return header
@@ -125,10 +125,10 @@ def test_cuda_frame_jacobian_host_matches_reference(tmp_path, robot_id, base_mod
     # The host runner gates the dot/Lambda surfaces on codegen-emitted markers; pass
     # the matching -D so the runner only calls what the header actually defines.
     defines = []
-    if "GRID_HAS_FRAME_JACOBIAN_DOT" in header_txt:
-        defines.append("GRID_HAS_FRAME_JACOBIAN_DOT")
-    if "GRID_HAS_OSC_INERTIA" in header_txt:
-        defines.append("GRID_HAS_OSC_INERTIA")
+    if "GRIM_HAS_FRAME_JACOBIAN_DOT" in header_txt:
+        defines.append("GRIM_HAS_FRAME_JACOBIAN_DOT")
+    if "GRIM_HAS_OSC_INERTIA" in header_txt:
+        defines.append("GRIM_HAS_OSC_INERTIA")
     executable, cmd = _compile_runner(build_dir, defines)
 
     robot = project_model.robot

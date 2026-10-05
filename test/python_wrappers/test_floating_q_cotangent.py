@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf  # noqa: E402
 
-grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
     pytest.skip("nvcc not on PATH", allow_module_level=True)
 _GO2 = robot_urdf("go2")
@@ -64,7 +64,7 @@ def _central_fd(f, x, eps=_EPS):
 def jax_go2():
     jax = pytest.importorskip("jax")
     jax.config.update("jax_enable_x64", True)
-    h = grid_rbd.register_robot("w01_go2_jax_fp64", str(_GO2), floating_base=True, backend="jax",
+    h = grim.register_robot("w01_go2_jax_fp64", str(_GO2), floating_base=True, backend="jax",
                                 algorithm_list=_ALGOS, enable_mujoco_kernels=False,
                                 dtype="float64")
     yield h
@@ -107,7 +107,7 @@ def test_jax_q_gradient_matches_ambient_finite_differences(jax_go2, method, unit
 @pytest.fixture(scope="module")
 def torch_go2():
     pytest.importorskip("torch")
-    h = grid_rbd.register_robot("w01_go2_torch_fp64", str(_GO2), floating_base=True, backend="torch",
+    h = grim.register_robot("w01_go2_torch_fp64", str(_GO2), floating_base=True, backend="torch",
                                 algorithm_list=_ALGOS, enable_mujoco_kernels=False,
                                 dtype="float64")
     yield h
@@ -144,7 +144,7 @@ def test_torch_q_gradient_matches_ambient_finite_differences(torch_go2, method, 
 # ---------------------------------------------------------------- mujoco convention (numpy driver)
 # The mjx twins differentiate in the mjx free-joint chart (linear WORLD, angular
 # LOCAL) with q = [pos, quat_wxyz, joints], and — unlike the pin kernels — do NOT
-# renormalize the quaternion (MuJoCo expects a unit one). The q cotangent GRiD
+# renormalize the quaternion (MuJoCo expects a unit one). The q cotangent GRiM
 # returns under output_convention="mujoco" is therefore the on-manifold pullback:
 # it agrees with ambient central differences on the TANGENTIAL subspace and has
 # zero radial component. Exercised through the shared driver with numpy arrays
@@ -152,7 +152,7 @@ def test_torch_q_gradient_matches_ambient_finite_differences(torch_go2, method, 
 # framework-agnostic transform is the same code path both surfaces call).
 @pytest.fixture(scope="module")
 def numpy_go2_mjx():
-    h = grid_rbd.register_robot("w01_probe_go2_mjx", str(_GO2), floating_base=True,
+    h = grim.register_robot("w01_probe_go2_mjx", str(_GO2), floating_base=True,
                                 algorithm_list=["inverse_dynamics", "inverse_dynamics_gradient",
                                                 "end_effector_pose", "end_effector_pose_gradient"],
                                 enable_mujoco_kernels=True, output_convention="mujoco",
@@ -163,7 +163,7 @@ def numpy_go2_mjx():
 
 @pytest.mark.parametrize("method", ["inverse_dynamics", "end_effector_pose"])
 def test_mujoco_convention_q_cotangent_is_the_on_manifold_pullback(numpy_go2_mjx, method):
-    from grid_rbd._vjp_common import _configuration_cotangent
+    from grim._vjp_common import _configuration_cotangent
     h = numpy_go2_mjx
     nq, nv = h.num_joints, h.num_vel
     rng = np.random.default_rng(5)
@@ -198,7 +198,7 @@ def test_mujoco_convention_q_cotangent_is_the_on_manifold_pullback(numpy_go2_mjx
 def spherical_handle(request):
     name, floating = request.param
     urdf = REPO_ROOT / "external/URDFParser/tests/fixtures" / f"{name}.urdf"
-    h = grid_rbd.register_robot(f"w01_{name}_{floating}_fp64", str(urdf),
+    h = grim.register_robot(f"w01_{name}_{floating}_fp64", str(urdf),
                                 floating_base=floating, algorithm_list=_ALGOS,
                                 enable_mujoco_kernels=False, max_batch_size=8, dtype="float64")
     yield h
@@ -211,7 +211,7 @@ def test_spherical_public_q_gradient(spherical_handle, backend, method):
     framework = pytest.importorskip(backend)
     if backend == "jax": framework.config.update("jax_enable_x64", True)
     base = spherical_handle
-    h = grid_rbd.get_robot(base.name, backend=backend)
+    h = grim.get_robot(base.name, backend=backend)
     rng = np.random.default_rng(81)
     q = rng.uniform(-.5, .5, base.num_joints)
     for kind, qi, vi, nq, nv in base.configuration_layout:
@@ -250,7 +250,7 @@ def test_spherical_public_q_gradient(spherical_handle, backend, method):
 def test_mujoco_public_autodiff_with_explicit_normalization(numpy_go2_mjx, backend, method):
     framework = pytest.importorskip(backend)
     if backend == "jax": framework.config.update("jax_enable_x64", True)
-    h = grid_rbd.get_robot(numpy_go2_mjx.name, backend=backend, output_convention="mujoco")
+    h = grim.get_robot(numpy_go2_mjx.name, backend=backend, output_convention="mujoco")
     q, qd, _ = _sample(h.num_joints, h.num_vel, False, seed=31)
     try:
         if backend == "jax":

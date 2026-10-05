@@ -176,7 +176,7 @@ def run_job(plan: dict, name: str) -> int:
             codegen_list = None
         build_dir = Path(tempfile.mkdtemp(prefix=f"prewarm_{robot}_{base}_"))
         try:
-            _, header_key = mod._generate_grid_header(
+            _, header_key = mod._generate_grim_header(
                 project_model, resolved, build_dir, None,
                 codegen_algorithm_list=codegen_list,
             )

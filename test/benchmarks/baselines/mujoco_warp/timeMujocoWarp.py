@@ -2,7 +2,7 @@
 """Time MuJoCo Warp (MJWarp) algorithms for one robot.
 
 Mirrors timeMJX.py's structure and emits the SAME label format so
-`parse_grid_output` can be reused. See the module docstring of `run.py` and
+`parse_grim_output` can be reused. See the module docstring of `run.py` and
 `docs/open-tasks/mujoco_warp_baseline_plan.md` for the validation checklist.
 
 MJWarp (https://github.com/google-deepmind/mujoco_warp) is the NVIDIA-Warp-based
@@ -23,7 +23,7 @@ Algorithm coverage:
     end_effector_pose  -> mjw.kinematics   (CONFIRMED export)
     crba (mass matrix) -> mjw.crb + mjw.factor_m  (UNCERTAIN: factor_m yields an
                           LTDL/LDL factorization in d.qLD, not a dense M like
-                          GRiD/Frax CRBA. Timed as the closest analog; verify the
+                          GRiM/Frax CRBA. Timed as the closest analog; verify the
                           output semantics before trusting the comparison.)
 Derivatives (inverse_dynamics_gradient / forward_dynamics_gradient): wired via the
     GPU FINITE-DIFFERENCE Jacobian wp.autograd.jacobian_fd (the mjd_transitionFD GPU
@@ -66,7 +66,7 @@ N_WARMUP_PASSES = 3
 
 
 # ---------------------------------------------------------------------------
-# Output helpers (same format as timeGRiD / timeMJX)
+# Output helpers (same format as timeGRiM / timeMJX)
 # ---------------------------------------------------------------------------
 
 def _print_stats(label: str, n: int, times: np.ndarray) -> None:
@@ -82,7 +82,7 @@ def _print_stats(label: str, n: int, times: np.ndarray) -> None:
 # ---------------------------------------------------------------------------
 # Warp timing primitives
 #
-# Discipline (mirrors timeGRiD on the C++ side + timeMJX on the JAX side):
+# Discipline (mirrors timeGRiM on the C++ side + timeMJX on the JAX side):
 #   1. Warmup: a few launches of the kernel to trigger Warp kernel codegen/JIT
 #      (module load + ptx) and stabilize the GPU clock. Discarded.
 #   2. Time the next N calls. Every timed launch is bracketed by wp.synchronize()
@@ -91,7 +91,7 @@ def _print_stats(label: str, n: int, times: np.ndarray) -> None:
 # COMPUTE ONLY: state already resident in device `Data`; just relaunch the kernel.
 # WITH MEMORY: regenerate host numpy state per-iter and copy it into the device
 #   Data arrays (wp.copy / .assign) inside the timed region, simulating the
-#   host->device transfer that the GRiD "with mem" timing includes.
+#   host->device transfer that the GRiM "with mem" timing includes.
 # ---------------------------------------------------------------------------
 
 def _sync():
@@ -196,7 +196,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Load model. Mirror timeMJX's collision/constraint disabling so the
     # model loads on every robot MJCF and we time the unconstrained
-    # articulated-body dynamics (apples-to-apples with GRiD).
+    # articulated-body dynamics (apples-to-apples with GRiM).
     # ------------------------------------------------------------------
     model = mujoco.MjModel.from_xml_path(mjcf_path)
     model.geom_contype[:]     = 0
@@ -360,7 +360,7 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # Derivative (gradient) timing: id_du + fd_du via the GPU FINITE-DIFFERENCE
-    # Jacobian wp.autograd.jacobian_fd — the mujoco_warp analogue of GRiD's
+    # Jacobian wp.autograd.jacobian_fd — the mujoco_warp analogue of GRiM's
     # analytic gradients and of MJX's jax.jacobian path. mujoco_warp ships
     # enable_backward=False so the AUTODIFF Jacobian is unavailable, but jacobian_fd
     # only needs the forward kernel (central-difference relaunches), so it works
@@ -368,7 +368,7 @@ def main() -> None:
     # mjw.inverse/forward in a plain Python fn whose differentiable inputs are bare
     # requires_grad warp arrays assigned into the captured Data before the launch.
     # id_du differentiates qfrc_inverse w.r.t. (qpos, qvel, qacc); fd_du
-    # differentiates qacc w.r.t. (qpos, qvel, qfrc_applied) (qfrc_applied = GRiD's
+    # differentiates qacc w.r.t. (qpos, qvel, qfrc_applied) (qfrc_applied = GRiM's
     # tau). Capped at DERIV_BATCH_SIZES because FD does O(nworld*nv) launches/input.
     # ------------------------------------------------------------------
     import warp.autograd as wa

@@ -25,7 +25,7 @@ THIS_DIR  = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from test.benchmarks.timing_parser import (  # noqa: E402
-    parse_grid_output, fill_nulls, build_metadata,
+    parse_grim_output, fill_nulls, build_metadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ from test.benchmarks.timing_parser import (  # noqa: E402
 FRAX_ALGOS = ["inverse_dynamics", "forward_dynamics", "crba", "minv"]
 
 # Frax loads from URDFs (not MJCF). Reuse the same robot_descriptions modules
-# that GRiD + Pinocchio use; same URDF_PATH attribute.
+# that GRiM + Pinocchio use; same URDF_PATH attribute.
 ROBOT_DESCRIPTION_MODULE: dict[str, str] = {
     "iiwa14": "robot_descriptions.iiwa14_description",
     "go2":    "robot_descriptions.go2_description",
@@ -159,7 +159,7 @@ def main() -> None:
             # Continue to the other device — partial results better than none.
             continue
 
-        timings = parse_grid_output(output, single_statistic="median")
+        timings = parse_grim_output(output, single_statistic="median")
         for algo in list(timings.keys()):
             if algo not in FRAX_ALGOS:
                 timings[algo] = None

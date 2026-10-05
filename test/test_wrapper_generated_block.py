@@ -1,14 +1,14 @@
 """Drift gate for the generated C-ABI block in wrapper_template.cu.
 
 The block between the BEGIN/END markers is CHECKED-IN generated text
-(grid_codegen/wrapper_body_gen.py, driven by ABI_SPECS). This test fails
+(grim_codegen/wrapper_body_gen.py, driven by ABI_SPECS). This test fails
 whenever the checked-in block differs from what the emitter produces —
 so editing either the table or the emitter without regenerating, or
 hand-editing the block, is caught in CI. CPU-only.
 """
 from __future__ import annotations
 
-from grid_codegen import wrapper_body_gen as g
+from grim_codegen import wrapper_body_gen as g
 
 
 def test_generated_block_matches_emitter():
@@ -20,15 +20,15 @@ def test_generated_block_matches_emitter():
         expected_inner = expected.split(begin, 1)[1].split(end, 1)[0]
         assert checked_in == expected_inner, (
             "generated region drifted — rerun: "
-            ".venv/bin/python -m grid_codegen.wrapper_body_gen")
+            ".venv/bin/python -m grim_codegen.wrapper_body_gen")
 
 
 def test_mjx_twin_scope():
     """Invariant for the generated mjx twin region: every twin row is within
     the emitter's modeled variance, twin docs cover every row that had one,
     and only the runtime-EE pair keeps the inner-gate + stub form."""
-    from grid_codegen.abi_specs import ABI_SPECS
-    from grid_codegen.wrapper_mjx_docs import MJX_DOC
+    from grim_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.wrapper_mjx_docs import MJX_DOC
     assert len(g.MJX_KEYS) == 30
     for key in g.MJX_KEYS:
         s = ABI_SPECS[key]
@@ -51,8 +51,8 @@ def test_ceil_rows_match_registry():
     is the descriptor table's key for that algo, the gate/enum derive from the
     short name (the emission invariant), and every row's overload list exists.
     The idsva_so dispatcher and the divider are the only non-uniform rows."""
-    from grid_codegen.algo_registry import descriptor_for, launch_config_descriptors
-    from grid_codegen.kernel_attrs import KERNEL_OVERLOADS
+    from grim_codegen.algo_registry import descriptor_for, launch_config_descriptors
+    from grim_codegen.kernel_attrs import KERNEL_OVERLOADS
     enum_keys = {d.key for d in launch_config_descriptors()}
     specials = 0
     for key, short in g.CEIL_ROWS:
@@ -60,7 +60,7 @@ def test_ceil_rows_match_registry():
             specials += 1
             continue
         assert short in KERNEL_OVERLOADS, short
-        assert short in enum_keys, f"{short}: no GRID_ALGO enum row"
+        assert short in enum_keys, f"{short}: no GRIM_ALGO enum row"
         assert key in descriptor_for(short).autotune_keys, (
             f"{short}: branch key {key!r} not in descriptor autotune_keys")
         assert g._ceil_sig(short), short
@@ -75,7 +75,7 @@ def test_generated_keys_within_emitter_scope():
     not model yet (bespoke bodies; f_ext "produces"). Sig-forks (2a), qdd
     forks + f_ext epilogues (2b), and IT dispatch + Xtool staging (3) ARE
     modeled — an IT-dispatch row must name its launcher in IT_LAUNCHER."""
-    from grid_codegen.abi_specs import ABI_SPECS
+    from grim_codegen.abi_specs import ABI_SPECS
     for key in g.GENERATED_KEYS:
         s = ABI_SPECS[key]
         assert not s.body_override, key

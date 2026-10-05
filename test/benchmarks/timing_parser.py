@@ -1,4 +1,4 @@
-"""Parse raw timing output from timeGRiD and timePinocchio into the unified JSON schema."""
+"""Parse raw timing output from timeGRiM and timePinocchio into the unified JSON schema."""
 
 from __future__ import annotations
 
@@ -32,30 +32,30 @@ _PIN_META_START = re.compile(r"=== BEGIN PINOCCHIO METADATA ===")
 _PIN_META_END   = re.compile(r"=== END PINOCCHIO METADATA ===")
 _PIN_META_LINE  = re.compile(r"^(?P<algo>\S+)\s+codegen:\s+(?P<val>true|false|null)$", re.IGNORECASE)
 
-# Batch sizes used in timeGRiD and timePinocchio
+# Batch sizes used in timeGRiM and timePinocchio
 BATCH_SIZES = [16, 32, 64, 128, 256, 1024]
 
 # ---------------------------------------------------------------------------
 # Label → JSON key mapping
 # ---------------------------------------------------------------------------
 
-# GRiD labels (derived from grid_codegen/algo_registry.py — single source of truth).
+# GRiM labels (derived from grim_codegen/algo_registry.py — single source of truth).
 # To add a new algorithm or alias, edit that file instead of these maps.
-from grid_codegen.algo_registry import (
-    build_single_label_map as _build_grid_single,
-    build_batch_with_mem_label_map as _build_grid_mem,
-    build_batch_compute_only_label_map as _build_grid_compute,
+from grim_codegen.algo_registry import (
+    build_single_label_map as _build_grim_single,
+    build_batch_with_mem_label_map as _build_grim_mem,
+    build_batch_compute_only_label_map as _build_grim_compute,
 )
 
-_GRID_SINGLE_LABELS: dict[str, str] = _build_grid_single()
-_GRID_BATCH_WITH_MEM_LABELS: dict[str, str] = _build_grid_mem()
-_GRID_BATCH_COMPUTE_ONLY_LABELS: dict[str, str] = _build_grid_compute()
+_GRIM_SINGLE_LABELS: dict[str, str] = _build_grim_single()
+_GRIM_BATCH_WITH_MEM_LABELS: dict[str, str] = _build_grim_mem()
+_GRIM_BATCH_COMPUTE_ONLY_LABELS: dict[str, str] = _build_grim_compute()
 
 # --- Bench-only mjx timing twins (B4) -------------------------------------------------
 # The PER_ALGO_SPECS "<algo>_mjx" rows hand measure_batch_pair a "<PIN_LABEL>(mjx)" label,
 # so their bars print as e.g. "IDSVA_SO_WORLD_FRAME(mjx) WITH MEMORY". Those keys are TIMING
 # variants, not codegen algorithms, so they are absent from algo_registry's label maps ->
-# patch "<PIN_LABEL>(mjx)" -> "<algo>_mjx" here so parse_grid_output attributes them.
+# patch "<PIN_LABEL>(mjx)" -> "<algo>_mjx" here so parse_grim_output attributes them.
 _MJX_TIMING_ALGOS = ("idsva_so_world_frame", "fdsva_so",
                      "inverse_dynamics_gradient", "forward_dynamics_gradient")
 def _patch_mjx_labels(label_map: dict[str, str]) -> None:
@@ -68,7 +68,7 @@ def _patch_mjx_labels(label_map: dict[str, str]) -> None:
         base = key_to_label.get(algo)
         if base is not None and base.startswith(algo):
             label_map[algo + "(mjx)" + base[len(algo):]] = f"{algo}_mjx"
-for _m in (_GRID_SINGLE_LABELS, _GRID_BATCH_WITH_MEM_LABELS, _GRID_BATCH_COMPUTE_ONLY_LABELS):
+for _m in (_GRIM_SINGLE_LABELS, _GRIM_BATCH_WITH_MEM_LABELS, _GRIM_BATCH_COMPUTE_ONLY_LABELS):
     _patch_mjx_labels(_m)
 
 # Pinocchio single-call labels
@@ -136,11 +136,11 @@ def _batch_key(n: int, kind: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# GRiD parser
+# GRiM parser
 # ---------------------------------------------------------------------------
 
-def parse_grid_output(stdout: str, *, single_statistic: str = "mean") -> dict[str, Optional[dict]]:
-    """Parse timeGRiD stdout into algo→timing dict.
+def parse_grim_output(stdout: str, *, single_statistic: str = "mean") -> dict[str, Optional[dict]]:
+    """Parse timeGRiM stdout into algo→timing dict.
 
     Returns a dict keyed by algo name (e.g. 'id', 'aba') with values:
         {
@@ -167,11 +167,11 @@ def parse_grid_output(stdout: str, *, single_statistic: str = "mean") -> dict[st
             mn  = float(m.group("min"))
             mx  = float(m.group("max"))
 
-            algo = _GRID_BATCH_WITH_MEM_LABELS.get(label)
+            algo = _GRIM_BATCH_WITH_MEM_LABELS.get(label)
             if algo is not None:
                 results.setdefault(algo, {})[_batch_key(n, "with_mem")] = _stats(avg, std, mn, mx)
                 continue
-            algo = _GRID_BATCH_COMPUTE_ONLY_LABELS.get(label)
+            algo = _GRIM_BATCH_COMPUTE_ONLY_LABELS.get(label)
             if algo is not None:
                 results.setdefault(algo, {})[_batch_key(n, "compute_only")] = _stats(avg, std, mn, mx)
             continue
@@ -181,7 +181,7 @@ def parse_grid_output(stdout: str, *, single_statistic: str = "mean") -> dict[st
         if m:
             label = m.group("name").strip().lower()
             value = float(m.group("value"))
-            algo = _GRID_SINGLE_LABELS.get(label)
+            algo = _GRIM_SINGLE_LABELS.get(label)
             if algo is not None:
                 results.setdefault(algo, {})["single_us"] = _single_stats(value, single_statistic)
 
@@ -195,7 +195,7 @@ def parse_grid_output(stdout: str, *, single_statistic: str = "mean") -> dict[st
 def parse_pinocchio_output(stdout: str) -> dict[str, Optional[dict]]:
     """Parse timePinocchio stdout into algo→timing dict.
 
-    Returns same schema as parse_grid_output but with a 'codegen' field per algo
+    Returns same schema as parse_grim_output but with a 'codegen' field per algo
     and only batch_N_with_mem_us (no compute_only for CPU).
     """
     results: dict[str, dict] = {}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the GRiD CUDA example output against the RBDReference numpy oracle.
+"""Validate the GRiM CUDA example output against the RBDReference numpy oracle.
 
 Pipes the deterministic inputs through RBDReference.inverse_dynamics (the same
 q/qd/qdd hard-coded in inverse_dynamics_kernel_example.cu) and diffs against the

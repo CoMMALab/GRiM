@@ -5,8 +5,8 @@ end_effector_pose_gradient_runtime (6 x NUM_VEL d[xyz; rpy]/dv).
 Validates against the RBDReference numpy oracle (matches pinocchio / the analytic
 geometric Jacobian to ~1e-14) at MULTIPLE arbitrary (non-leaf) targets, with a
 nonzero offset AND offset=0:
-  * grid::end_effector_pose_runtime_device          vs RBDReference.end_effector_pose
-  * grid::end_effector_pose_gradient_runtime_device vs RBDReference.end_effector_pose_gradient
+  * grim::end_effector_pose_runtime_device          vs RBDReference.end_effector_pose
+  * grim::end_effector_pose_gradient_runtime_device vs RBDReference.end_effector_pose_gradient
 
 Offset checks: offset=0 matches the frame-origin oracle; a nonzero offset shifts
 the position by exactly R_target * offset and leaves rpy unchanged.
@@ -19,7 +19,7 @@ The CUDA path is float32, so the comparison uses a float32-scale tolerance like
 the other CUDA smoke tests.
 
 Robots: iiwa14-fixed + go2-floating + fr3-fixed (mimic) + fr3-floating + h1_2-fixed
-(override with GRID_CUDA_EEPOSE_RT_ROBOTS=
+(override with GRIM_CUDA_EEPOSE_RT_ROBOTS=
 "iiwa14:fixed,go2:floating,fr3:fixed,fr3:floating,h1_2:fixed"). RBDReference is
 authoritative for the mimic robots.
 """
@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -77,7 +77,7 @@ _PITCH_GUARD = 0.15
 
 def _robot_modes():
     raw = os.environ.get(
-        "GRID_CUDA_EEPOSE_RT_ROBOTS",
+        "GRIM_CUDA_EEPOSE_RT_ROBOTS",
         "iiwa14:fixed,go2:floating,fr3:fixed,fr3:floating,h1_2:fixed")
     out = []
     for tok in raw.split(","):
@@ -97,8 +97,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(algorithm_list=_ALGO_KEYS, output_path=str(header))
     return header

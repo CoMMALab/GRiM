@@ -1,13 +1,13 @@
-# GRiD vs Pinocchio vs Frax — complete current comparison (2026-05-27, RTX 5090 / Ultra 9 285K)
+# GRiM vs Pinocchio vs Frax — complete current comparison (2026-05-27, RTX 5090 / Ultra 9 285K)
 
-Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_collection`). Pinocchio fixed = `crba_so_collection`, floating = `tier_sweep_20260523_2200`. Frax = `tier_sweep_20260523_2200`.
+Sources: GRiM glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_collection`). Pinocchio fixed = `crba_so_collection`, floating = `tier_sweep_20260523_2200`. Frax = `tier_sweep_20260523_2200`.
 
-**Metrics:** SC = single-call µs. **256/prob = N=256 batch ÷256 (µs/problem).** GRiD & Frax = compute-only (GPU-resident). Pinocchio = with-mem (CPU codegen; transfer not separable). Frax (JAX) covers id/fd/crba/minv only; pinocchio has no fdsva_so/integrator*; pre_glass is fixed-only.
+**Metrics:** SC = single-call µs. **256/prob = N=256 batch ÷256 (µs/problem).** GRiM & Frax = compute-only (GPU-resident). Pinocchio = with-mem (CPU codegen; transfer not separable). Frax (JAX) covers id/fd/crba/minv only; pinocchio has no fdsva_so/integrator*; pre_glass is fixed-only.
 
 ## 1. Per-robot competitor tables (PERF tier)
 
 ### iiwa14-fixed
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 4.54 | 0.17 | 0.045 | 0.148 | 0.231 | 3.246 |
 | minv | 6.19 | 0.30 | 0.050 | 0.101 | 0.314 | 4.259 |
@@ -25,7 +25,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | 17.06 | — | 0.189 | — | — | — |
 
 ### iiwa14-floating
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 9.89 | 0.21 | 0.100 | 0.143 | 0.257 | 8.261 |
 | minv | 28.47 | 0.71 | 0.251 | 0.166 | 0.401 | 12.023 |
@@ -43,7 +43,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | 51.44 | — | 0.473 | — | — | — |
 
 ### go2-fixed
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 6.02 | 0.22 | 0.052 | 0.250 | 0.453 | 5.432 |
 | minv | 8.05 | 0.35 | 0.092 | 0.225 | 0.928 | 6.609 |
@@ -61,7 +61,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | 18.24 | — | 0.202 | — | — | — |
 
 ### go2-floating
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | — | 0.28 | 0.122 | 0.162 | 0.401 | 8.780 |
 | minv | — | 1.28 | 0.272 | 0.243 | 0.601 | 11.892 |
@@ -79,7 +79,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | — | — | 0.537 | — | — | — |
 
 ### g1-fixed
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 22.16 | 0.65 | 0.208 | 0.497 | 0.970 | 13.863 |
 | minv | 31.59 | 2.22 | 0.301 | 0.338 | 0.983 | 14.631 |
@@ -97,7 +97,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | 79.51 | — | 0.866 | — | — | — |
 
 ### g1-floating
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 28.17 | 1.03 | 0.253 | 0.287 | 0.543 | 14.154 |
 | minv | 58.83 | 4.39 | 0.640 | 0.859 | 0.974 | 19.051 |
@@ -115,7 +115,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | 153.16 | — | 1.618 | — | — | — |
 
 ### h1_2-fixed
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 38.45 | 1.78 | 0.205 | 0.694 | 2.434 | 20.636 |
 | minv | 52.33 | 5.83 | 0.372 | 1.634 | 2.645 | 155.880 |
@@ -133,7 +133,7 @@ Sources: GRiD glass = `perf_cleanup_overnight` (crba from post-fix `crba_so_coll
 | integrator_with_gradient | 149.97 | — | 1.276 | — | — | — |
 
 ### h1_2-floating
-| algo | GRiD SC | Pin SC | GRiD 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
+| algo | GRiM SC | Pin SC | GRiM 256/prob | Pin 256/prob | Frax-GPU 256/prob | Frax-CPU 256/prob |
 |---|--:|--:|--:|--:|--:|--:|
 | id | 44.17 | 1.89 | 0.378 | 0.508 | 1.983 | 23.073 |
 | minv | 83.94 | 9.45 | 0.572 | 2.189 | 2.120 | 142.975 |
@@ -163,7 +163,7 @@ Only iiwa14/go2 id/minv/id_du valid (g1/h1_2 pre_glass = silent launch failure a
 | go2 | minv | 11.18 | 8.05 | 23.77 | 23.52 |
 | go2 | id_du | 8.06 | 8.91 | 23.43 | 24.13 |
 
-## 3.perf. GRiD glass-now absolute — N=256 compute-only (µs)
+## 3.perf. GRiM glass-now absolute — N=256 compute-only (µs)
 
 | algo | iiwa-fix | iiwa-flo | go2-fix | go2-flo | g1-fix | g1-flo | h1_2-fix | h1_2-flo |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
@@ -182,7 +182,7 @@ Only iiwa14/go2 id/minv/id_du valid (g1/h1_2 pre_glass = silent launch failure a
 | integrator_gradient | 47.9 | 115.0 | 51.0 | 119.8 | 221.3 | 411.5 | 326.7 | 845.3 |
 | integrator_with_gradient | 48.4 | 121.0 | 51.6 | 137.5 | 221.7 | 414.2 | 326.6 | 876.9 |
 
-## 3.lite. GRiD glass-now absolute — N=256 compute-only (µs)
+## 3.lite. GRiM glass-now absolute — N=256 compute-only (µs)
 
 | algo | iiwa-fix | iiwa-flo | go2-fix | go2-flo | g1-fix | g1-flo | h1_2-fix | h1_2-flo |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
@@ -201,7 +201,7 @@ Only iiwa14/go2 id/minv/id_du valid (g1/h1_2 pre_glass = silent launch failure a
 | integrator_gradient | 48.0 | 115.0 | 51.1 | 91.7 | 144.0 | 285.5 | 326.5 | 857.7 |
 | integrator_with_gradient | 48.5 | 120.9 | 51.9 | 92.1 | 145.5 | 298.1 | 326.3 | 897.0 |
 
-## 3.minimal. GRiD glass-now absolute — N=256 compute-only (µs)
+## 3.minimal. GRiM glass-now absolute — N=256 compute-only (µs)
 
 | algo | iiwa-fix | iiwa-flo | go2-fix | go2-flo | g1-fix | g1-flo | h1_2-fix | h1_2-flo |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|

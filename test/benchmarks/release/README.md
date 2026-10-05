@@ -1,4 +1,4 @@
-# GRiD release collection
+# GRiM release collection
 
 This is a new, validation-gated collector for the proposed release figures. It
 does not reuse historical timing values or the old drivers' unmatched `with_mem`
@@ -21,7 +21,7 @@ full collection still validates every cell. See the readiness notes for captures
 Run from the repository root, using the existing development environment:
 
 ```bash
-cd /home/plancher/Desktop/GRiD
+cd /home/plancher/Desktop/GRiM
 # No GPU work and no files written. Inspect the exact job matrix first.
 .venv/bin/python -m test.benchmarks.release.collect --stage core
 
@@ -62,7 +62,7 @@ performance report exporter. It does not change GPU clocks or baseline math.
 
 Run sequentially. The collector enables an owner-controlled persistent JAX
 cache in `test/benchmarks/results/release-jax-cache` for both preparation and
-later collection. GRiD's build cache, the content/toolchain-keyed Pinocchio and
+later collection. GRiM's build cache, the content/toolchain-keyed Pinocchio and
 native bridges in `release-build-cache`, and Warp's usual kernel cache are
 reused too. Do not import executable caches from untrusted sources. Keep the
 same checkout, environment, GPU, operations, and maximum batch size; changing
@@ -84,7 +84,7 @@ means. Adjust repetitions/iterations explicitly when needed.
 
 The warm-up is time-based on purpose: a handful of microsecond calls never
 leaves the idle clock on a GPU that cannot be clock-locked without root (this
-box idles far below its sustained boost; `timeGRiD_common.h` records the
+box idles far below its sustained boost; `timeGRiM_common.h` records the
 measured range), so every backend, CPU or GPU, is driven for the same wall time
 before its samples are taken. `nvidia-smi -lgc` by the operator remains the
 stronger control and is recorded in provenance when used.
@@ -124,37 +124,37 @@ directory and choose which version to retain. Do not merge duplicate repeats.
 
 ## Measurement contract and implementation choices
 
-- **Core plot configuration:** GRiD's CUDA host call (`grid_cuda`) and its JAX
+- **Core plot configuration:** GRiM's CUDA host call (`grim_cuda`) and its JAX
   resident API, Pinocchio CPU codegen AND the standard Pinocchio API
   (`pinocchio_plain`, the same fp32 algorithms without CppADCodeGen — the
   stacked figure draws it as a cap over the codegen bar, exactly like the
-  memory/wrapper caps over GRiD's kernel), MJX, and MuJoCo Warp for RNEA; omit Warp
-  for the gradient; GRiD and analytical Pinocchio for the Hessian. GRiD JAX is
+  memory/wrapper caps over GRiM's kernel), MJX, and MuJoCo Warp for RNEA; omit Warp
+  for the gradient; GRiM and analytical Pinocchio for the Hessian. GRiM JAX is
   explicitly labeled, not presented as raw native kernel latency; the CUDA host
   call IS that latency (see below). The wrapper figure includes the CUDA host
   call, the native C ABI, NumPy/pybind, JAX, and PyTorch, and the report writes
   an overhead decomposition (compute, memory traffic, C-ABI staging, Python,
   framework dispatch, framework round trip) as differences of the same cells.
   Review which bar is the headline before publishing.
-- **`grid_cuda` — GRiD's own C++ host calls.** `kernel_bridge.cu` is compiled
-  per robot/operation against the SAME `grid.cuh` the wrapper `.so` was built
+- **`grim_cuda` — GRiM's own C++ host calls.** `kernel_bridge.cu` is compiled
+  per robot/operation against the SAME `grim.cuh` the wrapper `.so` was built
   from (same nvcc flags and arch; content-keyed on the header, the bridge, the
   flags and the compiler). Its `resident` boundary is the generated
-  `<op>_compute_only` host function (inputs already in the gridData arena,
+  `<op>_compute_only` host function (inputs already in the grimData arena,
   kernel launch, device sync); its full-call boundary is the generated `<op>`
   host function (H2D copies, kernel, D2H copy). The batch is one block per
   sample at the artifact's baked per-algorithm thread count (recorded). Both
   outputs, and the two boundaries against each other, must be bitwise equal to
   the NumPy wrapper's result before any timing is kept. No Python in the loop.
   Covers every operation except the end-effector derivatives, so the table
-  figure carries a kernel-level GRiD bar next to each competitor and the
+  figure carries a kernel-level GRiM bar next to each competitor and the
   speedup heatmaps can compare kernel launch against resident library calls.
 - Full-call wall time includes host inputs, necessary H2D copies, evaluation,
   synchronization, and **all selected outputs copied to host**. Resident wall
   time includes ordinary API dispatch and synchronization. Input generation,
   oracle conversion, code generation/JIT, setup, and warmups are excluded.
 - Gray hatched caps are full-call minus resident wall time from the same job.
-  They are not separately measured PCIe or Python costs (for `grid_cuda` the
+  They are not separately measured PCIe or Python costs (for `grim_cuda` the
   cap is exactly the H2D/D2H traffic of one host call). Negative differences
   are flagged for recollection, never silently clamped. C ABI/NumPy and CPU
   baselines have full-call measurements only and are unstacked.
@@ -185,9 +185,9 @@ directory and choose which version to retain. Do not merge duplicate repeats.
   floating base). `crba` is the dense mass matrix (MJX `crb` + `full_m`,
   MuJoCo `mj_crb` + `mj_fullM`, BARD `crba`, Frax `mass_matrix`, Pinocchio
   codegen `CodeGenCRBA` / standard `crba`); Warp's dense `qM` layout is not
-  validated yet. The centroidal momentum and Coriolis matrices are GRiD vs the
+  validated yet. The centroidal momentum and Coriolis matrices are GRiM vs the
   standard Pinocchio API only (no codegen class, no simulator output).
-- Each GRiD capture records the fitted `workspace_slots`: a value below the
+- Each GRiM capture records the fitted `workspace_slots`: a value below the
   batch means the kernels grid-stride with fewer blocks in flight (still
   correct); B=1024 cells should be read with that column.
 - Default arithmetic is fp32. JAX matrix products use `highest` precision
@@ -281,12 +281,12 @@ Each capture contains `plan.json`, incremental `results.json`, job logs,
 per-job JSON, input NPZs, and a completed-capture SHA-256 `manifest.json`.
 Metadata includes commit/dirty diff/submodule state, collector source hashes,
 package versions, CPU/GPU identity, arithmetic/thread policy, robot hashes,
-and GRiD build metadata or baseline-library hashes. Raw timed samples are kept.
+and GRiM build metadata or baseline-library hashes. Raw timed samples are kept.
 The report checks recorded hashes before exporting CSV/JSON/HTML/PNG/SVG.
 No speedup claims or automatic website updates are generated.
 
 The existing `.venv` supplies the optional backends. Native compilation needs
-g++, GRiD needs its usual CUDA toolchain, and Pinocchio codegen needs the installed
+g++, GRiM needs its usual CUDA toolchain, and Pinocchio codegen needs the installed
 CppADCodeGen headers/libraries. Missing dependencies are errors, not unsupported
 capability claims. The first Pinocchio bridge compilation can take several
 minutes and approximately 10 GB of host RAM. Its content-keyed library cache is

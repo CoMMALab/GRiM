@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'GRiD'
+project = 'GRiM'
 copyright = '2026, A²R Lab'
 author = 'Kwamena Awotwi, Zachary Pestrikov, Danelle Tuchman, Abhinav Sharma, Brian Plancher'
 release = '0.5.0'
@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
-# grid_rbd (the pip package the users call) lives under bindings/; its _core
+# grim (the pip package the users call) lives under bindings/; its _core
 # pybind extension and the jax/torch frameworks are imported LAZILY, so the
 # numpy-surface autodoc works in the docs CI without a compiled extension.
 sys.path.insert(0, str(REPO_ROOT / "bindings"))
@@ -125,15 +125,15 @@ html_theme_options["secondary_sidebar_items"] = ["page-toc", "edit-this-page"]
 html_context = {
     "display_github": True,
     "github_user": "A2R-Lab",
-    "github_repo": "GRiD",
-    "github_version": os.environ.get("GRID_DOCS_REF", "main"),
+    "github_repo": "GRiM",
+    "github_version": os.environ.get("GRIM_DOCS_REF", "main"),
     "conf_py_path": "/source/",
     "doc_path": "docs/source"
 }
 
 
 def configure_page(app, pagename, templatename, context, doctree):
-    context["grid_cover_href"] = "../" * (pagename.count("/") + 1)
+    context["grim_cover_href"] = "../" * (pagename.count("/") + 1)
     if pagename == "index":
         context["theme_secondary_sidebar_items"] = []
 

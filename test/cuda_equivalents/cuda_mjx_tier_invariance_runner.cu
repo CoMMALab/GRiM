@@ -17,8 +17,8 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
-#include "grid.cuh"
-using namespace grid;
+#include "grim.cuh"
+using namespace grim;
 using T = float;
 
 #ifndef MJX_ALGO_FDSVA
@@ -28,7 +28,7 @@ using T = float;
 #define CK(x) do{cudaError_t e=(x); if(e!=cudaSuccess){printf("CUDA err %s @%d: %s\nRESULT: FAIL\n",#x,__LINE__,cudaGetErrorString(e)); return 2;}}while(0)
 
 template<int TIER>
-static void launch(gridData<T>* hd, const robotModel<T>* rm, int threads){
+static void launch(grimData<T>* hd, const robotModel<T>* rm, int threads){
 #if MJX_ALGO_FDSVA
     size_t smem = FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES<T,TIER>();
     cudaFuncSetAttribute(fdsva_so_kernel<T,TIER,true>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
@@ -43,7 +43,7 @@ static void launch(gridData<T>* hd, const robotModel<T>* rm, int threads){
 }
 
 // The comparison buffer: fdsva writes d_df2, idsva writes d_idsva_so.
-static inline T* out_ptr(gridData<T>* hd){
+static inline T* out_ptr(grimData<T>* hd){
 #if MJX_ALGO_FDSVA
     return hd->d_df2;
 #else
@@ -52,7 +52,7 @@ static inline T* out_ptr(gridData<T>* hd){
 }
 
 int main(int /*argc*/, char** /*argv*/){
-    auto* hd = init_gridData<T,1>();
+    auto* hd = init_grimData<T,1>();
     auto* rm = init_robotModel<T>();
     // deterministic input; a normalized base quaternion at q[3..6] (xyzw).
     std::vector<T> in(Q_QD_U_STRIDE);

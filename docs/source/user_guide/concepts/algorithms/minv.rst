@@ -11,7 +11,7 @@ computes :math:`M(q)^{-1}` directly without first forming :math:`M` on
 the scalar-joint non-mimic path. Mimic and spherical models instead form
 the reduced :doc:`crba` matrix and invert it densely.
 
-GRiD's standard forward-dynamics path composes ``minv`` with
+GRiM's standard forward-dynamics path composes ``minv`` with
 :doc:`inverse_dynamics`:
 
 .. math::
@@ -36,10 +36,10 @@ Implementation
 The Python reference is ``RBDReference.minv`` in
 `RBDReference/RBDReference.py
 <https://github.com/A2R-Lab/RBDReference>`__. CUDA codegen lives in
-`grid_codegen/algorithms/_minv.py
+`grim_codegen/algorithms/_minv.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__.
 
-In GRiD
+In GRiM
 -------
 ``Minv = h.minv(q)`` takes ``q`` of shape ``(B, h.nq)`` and returns
 ``(B, h.num_vel, h.num_vel)``. On the default Pinocchio-convention path the
@@ -51,7 +51,7 @@ an inverse-inertia product directly (Frax in the release benchmarks). On a
 robot with mimic or spherical joints the CUDA path falls back to a dense inverse of
 the composite-rigid-body matrix, matching Pinocchio's reduced model.
 
-The CUDA host entries are ``grid::minv`` and ``minv_compute_only``. Because
+The CUDA host entries are ``grim::minv`` and ``minv_compute_only``. Because
 ``minv`` is used in the forward-dynamics derivative composition, its rounding
 can contribute to fp32 discrepancies. The release collection retains an
 entrywise-failing fp32 forward-dynamics-family cell only if every checked

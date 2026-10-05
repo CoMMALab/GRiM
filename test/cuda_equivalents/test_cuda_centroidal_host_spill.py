@@ -7,7 +7,7 @@ carve the Jw band (6*nv*NB) out of s_temp into a SEPARATE tier-routed buffer s_J
 (smem tail at the J-in-smem tier, the L2-pinned d_workspace SO band at the
 J-spilled tier) and call centroidal_inner<T,false> — a code path NO other test
 exercises (dccrba/cmm use their own inners). This test forces the J-spilled rung
-by codegen'ing at a low GRID_CUDA_TARGET_SHARED_MEM_BYTES and drives the host
+by codegen'ing at a low GRIM_CUDA_TARGET_SHARED_MEM_BYTES and drives the host
 wrappers end-to-end through hd_data->h_* against the RBDReference oracle, so the
 <T,false> inner branch + the energy KE reach-back no-J offsets + the d_workspace
 repoint are all validated. Restricted codegen (com/ccrba/energy only) keeps the
@@ -15,7 +15,7 @@ SO kernels out of the header so the forced-low target does not trigger the
 pathological SO deep-spill compile.
 
 Robots: iiwa14-fixed (cheap) + go2-floating (fast-compiling quadruped).
-Override with GRID_CUDA_CENTROIDAL_SPILL_ROBOTS="iiwa14:fixed,g1:floating".
+Override with GRIM_CUDA_CENTROIDAL_SPILL_ROBOTS="iiwa14:fixed,g1:floating".
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -45,14 +45,14 @@ _BATCH = 2
 _ALGO_KEYS = ["com", "ccrba", "energy"]
 # Force the J-spilled rung at codegen: below any centroidal full arena, so
 # select_shared_tier_3way picks the last (Jspill) rung for every tier. Override
-# with GRID_CENTROIDAL_FORCE_TARGET (e.g. a high value to exercise the J-in-smem
+# with GRIM_CENTROIDAL_FORCE_TARGET (e.g. a high value to exercise the J-in-smem
 # tail rung that fitting robots use in production).
-_FORCE_TARGET = os.environ.get("GRID_CENTROIDAL_FORCE_TARGET", "2048")
+_FORCE_TARGET = os.environ.get("GRIM_CENTROIDAL_FORCE_TARGET", "2048")
 _FORCE_SPILL = int(_FORCE_TARGET) < 8192
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_CENTROIDAL_SPILL_ROBOTS", "iiwa14:fixed,go2:floating")
+    raw = os.environ.get("GRIM_CUDA_CENTROIDAL_SPILL_ROBOTS", "iiwa14:fixed,go2:floating")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -71,19 +71,19 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    # The target is read in GRiDCodeGenerator.__init__, so set it BEFORE construction.
-    prev = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES")
-    os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = _FORCE_TARGET
+    header = build_dir / "grim.cuh"
+    # The target is read in GRiMCodeGenerator.__init__, so set it BEFORE construction.
+    prev = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES")
+    os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = _FORCE_TARGET
     try:
-        codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+        codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
             codegen.gen_all_code(algorithm_list=_ALGO_KEYS, output_path=str(header))
     finally:
         if prev is None:
-            os.environ.pop("GRID_CUDA_TARGET_SHARED_MEM_BYTES", None)
+            os.environ.pop("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", None)
         else:
-            os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
+            os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
     return header
 
 
@@ -99,7 +99,7 @@ def _compile_runner(build_dir):
     cmd = [
         nvcc, "-std=c++17", "-O0",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
-        f"-DGRID_BATCH={_BATCH}",
+        f"-DGRIM_BATCH={_BATCH}",
         f"-I{glass_inc}", "-o", str(executable), str(runner_copy),
     ]
     result = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)

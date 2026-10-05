@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 template <typename T>
 void read_vector(T *dst, int count) {
@@ -50,15 +50,15 @@ void print_matrix_col_major(const std::string &name, const T *data, int rows, in
     std::cout << "END " << name << "\n";
 }
 
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 
 int g_num_threads = 0;
 
 // pose kernel: emit the 6-vector pose at the supplied 4x4 col-major tool transform.
 template <typename T>
 __global__ void pose_kernel(const T *g_q, const int target_jid, const T *g_Xtool,
-                            const grid::robotModel<T> *d_robotModel, T *o_pose) {
+                            const grim::robotModel<T> *d_robotModel, T *o_pose) {
     __shared__ T s_q[NQ];
     __shared__ T s_Xtool[16];
     __shared__ T s_pose[6];
@@ -67,7 +67,7 @@ __global__ void pose_kernel(const T *g_q, const int target_jid, const T *g_Xtool
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     for (int i = tid; i < 16; i += nth) s_Xtool[i] = g_Xtool[i];
     __syncthreads();
-    grid::end_effector_pose_runtime_device<T>(s_pose, target_jid, s_Xtool, s_q, d_robotModel);
+    grim::end_effector_pose_runtime_device<T>(s_pose, target_jid, s_Xtool, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6; i += nth) o_pose[i] = s_pose[i];
     __syncthreads();
@@ -76,7 +76,7 @@ __global__ void pose_kernel(const T *g_q, const int target_jid, const T *g_Xtool
 // gradient kernel: emit the 6 x NV pose gradient at the supplied 4x4 col-major tool transform.
 template <typename T>
 __global__ void grad_kernel(const T *g_q, const int target_jid, const T *g_Xtool,
-                            const grid::robotModel<T> *d_robotModel, T *o_grad) {
+                            const grim::robotModel<T> *d_robotModel, T *o_grad) {
     __shared__ T s_q[NQ];
     __shared__ T s_Xtool[16];
     __shared__ T s_grad[6 * NV];
@@ -85,7 +85,7 @@ __global__ void grad_kernel(const T *g_q, const int target_jid, const T *g_Xtool
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     for (int i = tid; i < 16; i += nth) s_Xtool[i] = g_Xtool[i];
     __syncthreads();
-    grid::end_effector_pose_gradient_runtime_device<T>(s_grad, target_jid, s_Xtool, s_q, d_robotModel);
+    grim::end_effector_pose_gradient_runtime_device<T>(s_grad, target_jid, s_Xtool, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV; i += nth) o_grad[i] = s_grad[i];
     __syncthreads();
@@ -102,9 +102,9 @@ void dcopy_out(const std::string &name, T *dptr, int rows, int cols) {
 
 template <typename T>
 void run() {
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     int target_jid;
     if (!(std::cin >> target_jid)) { std::cerr << "read fail target_jid\n"; std::exit(2); }
@@ -125,18 +125,18 @@ void run() {
     T *o_g0 = dmalloc<T>(6 * NV), *o_gN = dmalloc<T>(6 * NV);
 
     int nthreads = g_num_threads;
-    if (nthreads <= 0 || nthreads > grid::MAX_PERF_LEVEL_THREADS) {
-        nthreads = grid::MAX_PERF_LEVEL_THREADS;
+    if (nthreads <= 0 || nthreads > grim::MAX_PERF_LEVEL_THREADS) {
+        nthreads = grim::MAX_PERF_LEVEL_THREADS;
     }
 
-    size_t dyn_p = grid::END_EFFECTOR_POSE_RUNTIME_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_p = grim::END_EFFECTOR_POSE_RUNTIME_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(pose_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_p);
     pose_kernel<T><<<1, nthreads, dyn_p>>>(g_q, target_jid, g_off0, d_robotModel, o_p0);
     gpuErrchkKernel();
     pose_kernel<T><<<1, nthreads, dyn_p>>>(g_q, target_jid, g_offN, d_robotModel, o_pN);
     gpuErrchkKernel();
 
-    size_t dyn_g = grid::END_EFFECTOR_POSE_GRADIENT_RUNTIME_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_g = grim::END_EFFECTOR_POSE_GRADIENT_RUNTIME_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(grad_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_g);
     grad_kernel<T><<<1, nthreads, dyn_g>>>(g_q, target_jid, g_off0, d_robotModel, o_g0);
     gpuErrchkKernel();
@@ -150,7 +150,7 @@ void run() {
     dcopy_out("grad0", o_g0, 6, NV);
     dcopy_out("gradN", o_gN, 6, NV);
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main(int argc, char **argv) {

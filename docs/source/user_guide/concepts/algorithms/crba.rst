@@ -9,7 +9,7 @@ The Composite Rigid Body Algorithm (CRBA) computes the joint-space
 mass matrix :math:`M(q)`. It does so by recursively combining
 body inertias along the kinematic tree.
 
-CRBA is one of two GRiD paths for getting mass-matrix information:
+CRBA is one of two GRiM paths for getting mass-matrix information:
 
 * **CRBA** produces the full :math:`M`, useful when downstream
   algorithms need the dense matrix (e.g. operational-space inverse
@@ -29,10 +29,10 @@ Implementation
 The Python reference is ``RBDReference.crba`` in
 `RBDReference/RBDReference.py
 <https://github.com/A2R-Lab/RBDReference>`__. CUDA codegen lives in
-`grid_codegen/algorithms/_crba.py
+`grim_codegen/algorithms/_crba.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__.
 
-In GRiD
+In GRiM
 -------
 From the Python handles, ``M = h.crba(q)`` returns ``(B, NV, NV)``, the
 tangent-space mass matrix in the Pinocchio convention. For a fixed base
@@ -45,7 +45,7 @@ the host signature. With ``output_convention="mujoco"`` the input is
 MuJoCo-convention and the matrix comes back in the MuJoCo frame, computed in
 the kernel.
 
-The generated CUDA host entry is ``grid::crba`` (host arrays in, host arrays
+The generated CUDA host entry is ``grim::crba`` (host arrays in, host arrays
 out, copies included) with a ``crba_compute_only`` variant that runs the kernel
 alone on data already resident on the GPU; see
 :doc:`../../tutorials/codegen` for the host-call pattern. The dense matrix is

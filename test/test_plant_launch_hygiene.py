@@ -1,6 +1,6 @@
-"""Structural guard: every register-heavy grid_plant kernel launch in the bindings
-wrapper must derive its block dimension from ``grid_clamp_threads_for(...)`` (a
-``thr`` dim3), NOT a bare ``grid_rbd_launch_threads<...>()`` in the launch-config
+"""Structural guard: every register-heavy grim_plant kernel launch in the bindings
+wrapper must derive its block dimension from ``grim_clamp_threads_for(...)`` (a
+``thr`` dim3), NOT a bare ``grim_launch_threads<...>()`` in the launch-config
 slot.
 
 WHY THIS EXISTS (the silent register-OOR launch class, 2026-06-19). The plant
@@ -11,13 +11,13 @@ thread count, the launch is silently rejected with
 arena), the kernel never runs, and the device output buffer keeps its stale/zero
 contents -- so the binding returns plausible-looking garbage with no error. This
 masqueraded as a dozen mjx-vs-oracle failures (com/ee returned 0, plant_step
-returned the stale mjx buffer) until ``grid_clamp_threads_for`` + a post-launch
+returned the stale mjx buffer) until ``grim_clamp_threads_for`` + a post-launch
 ``cudaGetLastError`` were added at every site.
 
 The invariant: for every launch of a register-heavy plant kernel, the thread
-argument of the ``<<<grid_dim, THREADS, smem, stream>>>`` config is a clamped
-``thr`` (the result of ``grid_clamp_threads_for``), never a bare
-``grid_rbd_launch_threads<...>()``. Pure-Python source introspection (no codegen,
+argument of the ``<<<grim_dim, THREADS, smem, stream>>>`` config is a clamped
+``thr`` (the result of ``grim_clamp_threads_for``), never a bare
+``grim_launch_threads<...>()``. Pure-Python source introspection (no codegen,
 no nvcc, no GPU) so it runs in ordinary CI and fails the instant a new launch site
 (or a regenerated wrapper) drops the clamp.
 """
@@ -27,15 +27,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_WRAPPER = Path(__file__).resolve().parents[1] / "bindings" / "grid_rbd" / "wrapper_template.cu"
+_WRAPPER = Path(__file__).resolve().parents[1] / "bindings" / "grim" / "wrapper_template.cu"
 
 # Register-heavy plant kernels whose launches must be clamped.
 _GUARDED = ("com_cost_kernel", "ee_pos_cost_kernel", "momentum_cost_kernel",
             "plant_step_kernel", "plant_step_gradient_kernel")
 
-# A kernel launch: grid_plant::<NAME><...><<< grid_dim , <THREADS> , ...
+# A kernel launch: grim_plant::<NAME><...><<< grim_dim , <THREADS> , ...
 _LAUNCH_RE = re.compile(
-    r"grid_plant::(" + "|".join(_GUARDED) + r")\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*"
+    r"grim_plant::(" + "|".join(_GUARDED) + r")\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*"
     r"<<<\s*[^,]+,\s*(?P<threads>[^,]+),",
     re.DOTALL,
 )
@@ -47,33 +47,33 @@ def test_plant_launches_are_clamped():
     offenders = []
     for m in _LAUNCH_RE.finditer(src):
         threads = m.group("threads").strip()
-        # OK: a clamped dim3 (named `thr`, the grid_clamp_threads_for result).
-        if "grid_clamp_threads_for" in threads or re.fullmatch(r"thr\b", threads):
+        # OK: a clamped dim3 (named `thr`, the grim_clamp_threads_for result).
+        if "grim_clamp_threads_for" in threads or re.fullmatch(r"thr\b", threads):
             continue
         # NOT OK: a bare launch-thread helper in the launch-config thread slot.
-        if "grid_rbd_launch_threads" in threads:
+        if "grim_launch_threads" in threads:
             line = src.count("\n", 0, m.start()) + 1
             offenders.append((line, m.group(1), threads))
     assert not offenders, (
-        "register-heavy plant kernel launch(es) missing grid_clamp_threads_for "
+        "register-heavy plant kernel launch(es) missing grim_clamp_threads_for "
         "(silent register-OOR risk):\n"
-        + "\n".join(f"  line {ln}: grid_plant::{name} launched with `{thr}`" for ln, name, thr in offenders)
+        + "\n".join(f"  line {ln}: grim_plant::{name} launched with `{thr}`" for ln, name, thr in offenders)
     )
 
 
 # ---------------------------------------------------------------------------
-# GRID-slot hygiene (the workspace-slot aliasing class, 2026-08-09). Kernels
+# GRIM-slot hygiene (the workspace-slot aliasing class, 2026-08-09). Kernels
 # index the per-block workspace arena by blockIdx and grid-stride over
-# timesteps; init_gridData may fit FEWER slots than kMaxBatch under memory
+# timesteps; init_grimData may fit FEWER slots than kMaxBatch under memory
 # pressure. A direct launch whose grid dim is a raw batch (not clamped through
-# grid_rbd_grid_for) aliases live workspace slots across blocks -- silent
+# grim_grim_for) aliases live workspace slots across blocks -- silent
 # wrong results on exactly the big robots that shrink. And because the
 # jax/torch paths are deliberately sync-free, a rejected launch without a
 # post-launch cudaGetLastError check surfaces as stale buffer contents.
 # ---------------------------------------------------------------------------
 
 # Launchers whose kernel launches are checked at their (macro) call sites, not
-# inside their void bodies -- see the GRID_RBD_IT_DISPATCH* assertion below.
+# inside their void bodies -- see the GRIM_IT_DISPATCH* assertion below.
 _DISPATCHED_VOID_LAUNCHERS = (
     "launch_integrator_host", "launch_integrator_host_mujoco",
     "launch_integrator_grad_host", "launch_integrator_grad_host_mujoco",
@@ -89,7 +89,7 @@ _DISPATCHED_VOID_LAUNCHERS = (
 _CHECK_MARKERS = ("cudaGetLastError", "gpuErrchk",
                   # S1 (2026-09-13): the post-launch checks are now these helpers,
                   # which capture cudaGetLastError ONCE and append cudaGetErrorName.
-                  "GRID_RBD_FFI_CHECK_LAUNCH", "grid_torch_check_launch")
+                  "GRIM_FFI_CHECK_LAUNCH", "grim_torch_check_launch")
 
 
 def _void_launcher_ranges(lines):
@@ -105,21 +105,21 @@ def _void_launcher_ranges(lines):
     return ranges
 
 
-def test_every_launch_grid_is_slot_clamped():
+def test_every_launch_grim_is_slot_clamped():
     """No raw-batch grid dims: every <<<>>> grid expression must be
-    grid_rbd_grid_for(...) itself or a grid_dim built from it."""
+    grim_grim_for(...) itself or a grim_dim built from it."""
     src = _WRAPPER.read_text()
     assert "<<<dim3(" not in src, "raw dim3(...) in a launch-config grid slot"
     assert "<<<batch" not in src, "raw batch in a launch-config grid slot"
-    for m in re.finditer(r"dim3 grid_dim[^;\n]*;", src):
+    for m in re.finditer(r"dim3 grim_dim[^;\n]*;", src):
         decl = m.group(0)
-        assert "grid_rbd_grid_for" in decl, f"unclamped grid_dim decl: {decl}"
+        assert "grim_grim_for" in decl, f"unclamped grim_dim decl: {decl}"
 
 
 def test_every_launch_is_error_checked():
     """Every kernel launch statement is followed by a cudaGetLastError-class
     check within 4 lines, except launches inside the dispatched void launchers
-    (whose GRID_RBD_IT_DISPATCH* call sites carry the check instead)."""
+    (whose GRIM_IT_DISPATCH* call sites carry the check instead)."""
     lines = _WRAPPER.read_text().split("\n")
     ranges = _void_launcher_ranges(lines)
     assert len(ranges) == len(_DISPATCHED_VOID_LAUNCHERS), (
@@ -148,13 +148,13 @@ def test_every_launch_is_error_checked():
 
 
 def test_dispatch_macro_calls_are_error_checked():
-    """Every GRID_RBD_IT_DISPATCH* statement (which expands to a void launcher
+    """Every GRIM_IT_DISPATCH* statement (which expands to a void launcher
     containing an unchecked kernel launch) must be followed by a check within
     2 lines -- that check is what covers the launcher's launches."""
     lines = _WRAPPER.read_text().split("\n")
     offenders = []
     for i, l in enumerate(lines):
-        if re.match(r"\s*GRID_RBD_IT_DISPATCH\w*\(", l) and l.rstrip().endswith(";"):
+        if re.match(r"\s*GRIM_IT_DISPATCH\w*\(", l) and l.rstrip().endswith(";"):
             lookahead = "\n".join(lines[i + 1:i + 5])
             if not any(mk in lookahead for mk in _CHECK_MARKERS + ("TORCH_CHECK",)):
                 offenders.append(i + 1)

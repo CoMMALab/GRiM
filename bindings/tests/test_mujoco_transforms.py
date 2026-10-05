@@ -1,5 +1,5 @@
 """CUDA-free unit tests for the binding-side MuJoCo-convention transforms
-(``grid_rbd._mujoco``). The transforms mirror the validated oracle in
+(``grim._mujoco``). The transforms mirror the validated oracle in
 ``external/RBDReference/equivalents/mujoco_convention.py``; here we check the batched
 slice behaviour, the round-trips, and — crucially — the fixed-base no-op
 (the regression guarantee: ``output_convention="mujoco"`` never changes a
@@ -14,7 +14,7 @@ import importlib.util
 import numpy as np
 import pytest
 
-from grid_rbd import _mujoco as bm
+from grim import _mujoco as bm
 
 
 def _state(rng, nq=19, nv=18):

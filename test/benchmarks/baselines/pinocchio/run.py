@@ -216,7 +216,7 @@ def pinocchio_libs() -> list[str]:
 # Binary compilation with caching
 # ---------------------------------------------------------------------------
 TIMING_SOURCE = THIS_DIR / "timePinocchio.cpp"
-CACHE_ROOT = REPO_ROOT / ".pytest_cache" / "grid_cuda"
+CACHE_ROOT = REPO_ROOT / ".pytest_cache" / "grim_cuda"
 
 
 def _hash_bytes(data: bytes) -> str:

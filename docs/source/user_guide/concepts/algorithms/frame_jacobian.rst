@@ -68,7 +68,7 @@ The Python reference is ``RBDReference.frame_jacobian`` /
 <https://github.com/A2R-Lab/RBDReference>`__.
 
 CUDA codegen lives in
-`grid_codegen/algorithms/_frame_jacobian.py
+`grim_codegen/algorithms/_frame_jacobian.py
 <https://github.com/A2R-Lab/GRiD/tree/main/grid_codegen>`__. It is an
 **opt-in, additive** family: the surfaces are only emitted when the
 ``frame_jacobian`` key is explicitly selected (it pulls in the
@@ -88,7 +88,7 @@ routes the mimic :math:`M^{-1}` through ``crba_inner``).
 set as the other benchmarkable kinematics algorithms: a batched ``__global__``
 ``frame_jacobian_kernel`` (plus a ``_single_timing`` variant) and a 3-mode
 ``__host__`` launcher ``frame_jacobian`` / ``frame_jacobian_single_timing`` /
-``frame_jacobian_compute_only`` that reads/writes the ``gridData`` output buffer
+``frame_jacobian_compute_only`` that reads/writes the ``grimData`` output buffer
 ``hd_data->d_frame_jacobian`` (6 × NUM_VEL, copied back into
 ``h_frame_jacobian``). The host/kernel surface accepts runtime
 ``target_jid`` and ``reference_frame`` arguments, defaulting to the leaf-EE

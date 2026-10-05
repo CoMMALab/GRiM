@@ -4,15 +4,15 @@
 // covering encloses the finer one), so "broad clear => definitely free" can never miss a collision
 // the fine tier would catch. This sweeps a 3D grid of obstacles across several bent configs and
 // asserts two-tier == fine-only bit-for-bit. (T=double for a clean check; production is fp32.)
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
 using T = double;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
 constexpr int NB = gc::NUM_COLLISION_SPHERES_BROAD;  // coarse broad-phase tier
 constexpr int NF = gc::NUM_COLLISION_SPHERES;         // fine / public tier
 
@@ -20,7 +20,7 @@ constexpr int NF = gc::NUM_COLLISION_SPHERES;         // fine / public tier
 
 // One kernel: for each obstacle, run the two-tier config_free AND an independent fine-only check on
 // the fine spheres config_free already populated. Emit both verdicts for the host to compare.
-__global__ void gate_kernel(const T *q0, const grid::robotModel<T> *m,
+__global__ void gate_kernel(const T *q0, const grim::robotModel<T> *m,
                             const gc::Sphere<T> *obs, int nobs, int *two_out, int *fine_out, int *rechk_out) {
     __shared__ T s_q[NQ], s_bpos[3*NB], s_br[NB], s_fpos[3*NF], s_fr[NF];
     for (int i = threadIdx.x; i < NQ; i += blockDim.x) s_q[i] = q0[i];
@@ -31,18 +31,18 @@ __global__ void gate_kernel(const T *q0, const grid::robotModel<T> *m,
         __syncthreads();  // s_bpos/s_br/s_fpos/s_fr now hold this config's broad+fine batches
         // Independent fine-only verdict == what a single-tier config_free returns.
         bool fine = true;
-        if (gc::grid_cc_self_collision<T>(s_fpos, s_fr, gc::g_collision_self_cc_ranges, gc::NUM_COLLISION_SELF_CC_RANGES))
+        if (gc::grim_cc_self_collision<T>(s_fpos, s_fr, gc::g_collision_self_cc_ranges, gc::NUM_COLLISION_SELF_CC_RANGES))
             fine = false;
         else
             for (int i = 0; i < NF; ++i)
-                if (gc::grid_cc_sphere_in_environment<T>(env, s_fpos[3*i], s_fpos[3*i+1], s_fpos[3*i+2], s_fr[i])) { fine = false; break; }
+                if (gc::grim_cc_sphere_in_environment<T>(env, s_fpos[3*i], s_fpos[3*i+1], s_fpos[3*i+2], s_fr[i])) { fine = false; break; }
         // link_CC narrowing WITNESS (env-only): this iiwa spherization self-collides at rest (fat
         // overlapping spheres), which would flood the hit-mask on every config and hide the ENV
         // narrowing — the main perf win (the fine ENV loop is the costly one). So measure narrowing
         // on the environment path alone by re-running the driver with self ranges disabled (0), reusing
         // the positions config_free just computed. rc is a thread-LOCAL so the dbg write is race-free.
         int rc = NF;
-        gc::grid_cc_config_free<T>(env,
+        gc::grim_cc_config_free<T>(env,
             s_bpos, s_br, gc::g_collision_self_cc_ranges_broad, 0, NB, gc::g_collision_sphere_link_broad,
             s_fpos, s_fr, gc::g_collision_self_cc_ranges, 0, NF, gc::g_collision_sphere_link, &rc);
         if (threadIdx.x == 0) { two_out[o] = two ? 1 : 0; fine_out[o] = fine ? 1 : 0; rechk_out[o] = rc; }
@@ -53,9 +53,9 @@ __global__ void gate_kernel(const T *q0, const grid::robotModel<T> *m,
 int main(int argc, char **argv) {
     const bool quick = (argc > 1);   // sanitizer runs: coarse obstacle grid + 2 configs
     const double ostep = quick ? 0.4 : 0.15;
-    const grid::robotModel<T> *m = grid::init_robotModel<T>();
-    size_t sb = grid::MULTI_TARGET_POSITION_BROAD_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t sf = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *m = grim::init_robotModel<T>();
+    size_t sb = grim::MULTI_TARGET_POSITION_BROAD_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t sf = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
     size_t smem = sb > sf ? sb : sf;
     cudaFuncSetAttribute(gate_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
 

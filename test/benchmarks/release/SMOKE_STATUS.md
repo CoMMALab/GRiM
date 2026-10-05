@@ -21,11 +21,11 @@ There were no relaxed tolerances, omitted tensor blocks, or fabricated timings.
 |---|---|
 | CPU collector/reporting, timing, picker and website regressions | 49 tests plus two subtests pass |
 | Core matrix, all three robots, B=16 | 26/27 pass; Pinocchio G1 grad RNEA fails two entries |
-| GRiD RNEA / grad RNEA / Hessian RNEA | All nine robot/operation cells pass |
+| GRiM RNEA / grad RNEA / Hessian RNEA | All nine robot/operation cells pass |
 | Four wrappers × two operations × three robots, B=16 | 24/24 pass |
 | Four wrappers × two operations × five batches, iiwa14 | 40/40 pass |
 | Pinocchio core, iiwa14 B=16,32,256 | 9/9 pass, including 1/2/8-worker dispatch |
-| GRiD FK, FK gradient and FK Hessian | All nine robot/operation cells pass |
+| GRiM FK, FK gradient and FK Hessian | All nine robot/operation cells pass |
 | MuJoCo CPU RNEA, Minv, FD, FK | All 12 cells pass, explicitly fp64 |
 | MJX RNEA / grad RNEA | All six cells pass with highest-precision fp32 matrix products |
 | MuJoCo Warp RNEA / FK | All six cells pass, including corrected endpoint-output kernel |
@@ -72,9 +72,9 @@ absolute/relative tolerance, summed across returned blocks.
 
 | Backend | Robot and operation | Failing entries at B=16 |
 |---|---|---:|
-| GRiD fp32 | iiwa14 grad FD / FD Hessian | 2 / 404 |
-| GRiD fp32 | go2 FD Hessian | 1 |
-| GRiD fp32 | G1 grad FD / FD Hessian | 140 / 10,185 |
+| GRiM fp32 | iiwa14 grad FD / FD Hessian | 2 / 404 |
+| GRiM fp32 | go2 FD Hessian | 1 |
+| GRiM fp32 | G1 grad FD / FD Hessian | 140 / 10,185 |
 | Pinocchio codegen fp32 | iiwa14 Minv / FD / grad FD | 14 / 2 / 23 |
 | Pinocchio codegen fp32 | go2 grad FD | 1 |
 | Pinocchio codegen fp32 | G1 Minv / FD / grad FD | 65 / 9 / 1,189 |
@@ -93,7 +93,7 @@ Do not present failed-validation cells as a competitor coverage disadvantage.
 
 - Matched URDFs, free-base conventions, endpoint selection and gravity across
   adapters; complete selected-output D2H copies inside full-call timers.
-- Correct algorithm key for the GRiD IDSVA build; avoid naming one endpoint for
+- Correct algorithm key for the GRiM IDSVA build; avoid naming one endpoint for
   dynamics-only builds, which caused a metadata/compiled endpoint-count mismatch.
 - Correct JAX/PyTorch handle metadata and NumPy/PyTorch output normalization.
 - MuJoCo model import handles existing URDF compiler tags; dense-M API call is
@@ -116,7 +116,7 @@ All paths below are relative to the repository root and are gitignored:
 - `test/benchmarks/results/release-smoke-wrapper-batches-20260925/`
 - `test/benchmarks/results/release-smoke-wrapper-report-20260925/index.html`
 - `test/benchmarks/results/release-smoke-secondary-20260925/` retains the
-  all-robot wrapper, GRiD table, CPU, simulator, tensor and Pinocchio diagnostics.
+  all-robot wrapper, GRiM table, CPU, simulator, tensor and Pinocchio diagnostics.
 - `test/benchmarks/results/release-smoke-grid-table-report-20260925/index.html`
 - `test/benchmarks/results/release-smoke-pin-table-report-20260925/index.html`
 

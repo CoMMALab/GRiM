@@ -1160,7 +1160,7 @@ z
     </g>
    </g>
    <g id="text_50">
-    <!-- GRiD CUDA compute-only call (launch + sync) -->
+    <!-- GRiM CUDA compute-only call (launch + sync) -->
     <g transform="translate(69.944453 18.649688) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-47" d="M 3809 666 
@@ -1965,7 +1965,7 @@ z
     </g>
    </g>
    <g id="text_94">
-    <!-- GRiD CUDA compute-only call (launch + sync) -->
+    <!-- GRiM CUDA compute-only call (launch + sync) -->
     <g transform="translate(277.824453 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2433,7 +2433,7 @@ iVBORw0KGgoAAAANSUhEUgAAARIAAACaCAYAAABlo8ciAAABsklEQVR4nO3dMUpDQRhG0fdC9mBjYePO
     </g>
    </g>
    <g id="text_138">
-    <!-- GRiD CUDA compute-only call (launch + sync) -->
+    <!-- GRiM CUDA compute-only call (launch + sync) -->
     <g transform="translate(485.704453 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2869,7 +2869,7 @@ iVBORw0KGgoAAAANSUhEUgAAARIAAACaCAYAAABlo8ciAAABFUlEQVR4nO3UsQ2DQBBFQXDggP5zd+NG
     </g>
    </g>
    <g id="text_182">
-    <!-- GRiD CUDA compute-only call (launch + sync) -->
+    <!-- GRiM CUDA compute-only call (launch + sync) -->
     <g transform="translate(693.584453 18.649688) scale(0.09 -0.09)">
      <use xlink:href="#DejaVuSans-47"/>
      <use xlink:href="#DejaVuSans-52" transform="translate(77.490234 0)"/>
@@ -2958,7 +2958,7 @@ z
    </g>
   </g>
   <g id="text_183">
-   <!-- Baseline / GRiD. Blue: GRiD faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
+   <!-- Baseline / GRiM. Blue: GRiM faster; red: baseline faster; white: 1×. Colors clipped at 100×. -->
    <g transform="translate(283.847461 184.474716) scale(0.075 -0.075)">
     <defs>
      <path id="DejaVuSans-2f" d="M 1625 4666 

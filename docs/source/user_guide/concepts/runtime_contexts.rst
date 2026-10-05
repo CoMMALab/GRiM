@@ -3,7 +3,7 @@ Runtime contexts
 
 A compiled robot artifact (the per-robot ``.so`` the bindings build and cache)
 is immutable: it never owns device memory. Everything a call needs at run time
-lives in a **runtime context**: the device arena (``gridData``) and the
+lives in a **runtime context**: the device arena (``grimData``) and the
 allocator pool it was carved from, the robot tables (inertias, transforms,
 joint dynamics, attached tools), the CUDA streams, the plant staging buffers,
 the per-algorithm launch overrides and a **device profile** captured at
@@ -39,7 +39,7 @@ handle dropped without ``close()`` is finalized at garbage collection, an
 explicit ``close()`` is idempotent, and a jax/torch view references the
 handle, never the context. ``workspace_slots=N`` caps the per-block workspace
 slot count on that context (``0`` = auto-fit; the explicit cap beats the
-``GRID_WORKSPACE_TIMESTEP_SLOTS`` environment override, which beats the
+``GRIM_WORKSPACE_TIMESTEP_SLOTS`` environment override, which beats the
 auto-fit; a batch above the cap grid-strides). Contexts are the unit of
 isolation for concurrent pipelines on the single GPU; they are not a
 multi-GPU mechanism.
@@ -147,8 +147,8 @@ check are synchronisation points: do not read this page as fully asynchronous
 execution. The complete list of stated limits is on
 :doc:`../getting_started/compatibility`.
 
-Inline-CUDA consumers of ``grid.cuh`` are untouched: ``init_gridData`` /
-``init_gridData_checked`` / ``close_grid`` keep their signatures (the checked
+Inline-CUDA consumers of ``grim.cuh`` are untouched: ``init_grimData`` /
+``init_grimData_checked`` / ``close_grim`` keep their signatures (the checked
 initializer merely gained an optional trailing allocator-pool argument), and
-the pool-less ``grid_device_alloc`` / ``grid_device_free`` overloads remain the
+the pool-less ``grim_device_alloc`` / ``grim_device_free`` overloads remain the
 default-pool spellings.

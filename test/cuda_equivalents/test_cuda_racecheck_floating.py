@@ -1,7 +1,7 @@
 """compute-sanitizer racecheck gate on the FLOATING-base composition (GATO nit 3,
 2026-09-24). GATO reported tens of thousands of warp-level "Potential WAW hazard"
 warnings inside its merit kernel on go2 floating (loaders + integrator_inner).
-GRiD's own composition — forward_dynamics_device, end_effector_pose_device
+GRiM's own composition — forward_dynamics_device, end_effector_pose_device
 (XmatsHom loader) and integrator_device — runs at 0 hazards at 32/64/128/256/512
 threads (verified 2026-09-24 at tip 9d6ef86). This test keeps it that way: a
 regression here is a real intra-block race (or a loader rewrite that needs a
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from URDFParser import URDFParser
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
@@ -42,9 +42,9 @@ def test_go2_floating_composition_is_racecheck_clean(tmp_path):
     cs = _sanitizer()
     with contextlib.redirect_stdout(io.StringIO()):
         robot = URDFParser().parse(str(REPO / "config" / "robot_assets" / "go2.urdf"), floating_base=True)
-        gen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
+        gen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid")
         gen.gen_all_code(algorithm_list=["forward_dynamics", "end_effector_pose", "integrator"],
-                         output_path=str(tmp_path / "grid.cuh"), enable_mujoco_kernels=False)
+                         output_path=str(tmp_path / "grim.cuh"), enable_mujoco_kernels=False)
     runner = tmp_path / RUNNER_SOURCE.name
     shutil.copyfile(RUNNER_SOURCE, runner)
     exe = tmp_path / "runner.exe"

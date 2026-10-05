@@ -12,14 +12,14 @@ pytestmark = pytest.mark.python_wrappers
 
 @pytest.fixture(scope="module", params=["go2", "g1"])
 def handles(request):
-    import grid_rbd
+    import grim
     from config import robot_urdf
     options = dict(floating_base=True, enable_mujoco_kernels=False, max_batch_size=8,
                    algorithm_list=["idsva_so_body_frame", "integrator", "integrator_gradient"])
     name = "nv_packing_" + request.param
-    plain = grid_rbd.register_robot(name + "_numpy", str(robot_urdf(request.param)), **options)
+    plain = grim.register_robot(name + "_numpy", str(robot_urdf(request.param)), **options)
     try:
-        jax = grid_rbd.register_robot(name + "_jax", str(robot_urdf(request.param)), backend="jax", **options)
+        jax = grim.register_robot(name + "_jax", str(robot_urdf(request.param)), backend="jax", **options)
         try:
             yield plain, jax
         finally:

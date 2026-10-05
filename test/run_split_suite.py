@@ -7,14 +7,14 @@ wrappers ``exit(1)``/abort on GPU errors — one C++ death loses the names of
 every failure after it (three times in the week of 2026-08-03). This driver:
 
   Phase A (warm): compiles every cache-missing robot ``.so`` via
-      ``grid_rbd.warm_robot`` — codegen + nvcc only, NO handle, NO CUDA context,
+      ``grim.warm_robot`` — codegen + nvcc only, NO handle, NO CUDA context,
       so a compile failure is its own named row, never a mid-suite surprise.
       Warms run through a RAM-aware parallel pool (``test/compile_sched.py``;
-      ``GRID_SPLIT_COMPILE_JOBS``, default 5, 0 = legacy serial) that also
+      ``GRIM_SPLIT_COMPILE_JOBS``, default 5, 0 = legacy serial) that also
       admits the cuda flagship header/exe pre-warms and OVERLAPS Phase B —
       a shard only waits for its own compile jobs.
   Phase B (run):  runs each test module in its OWN pytest subprocess
-      (``GRID_SPLIT_SHARD_JOBS`` at a time on the GPU, default 1 = serial) with
+      (``GRIM_SPLIT_SHARD_JOBS`` at a time on the GPU, default 1 = serial) with
       ``--junitxml`` and an explicitly captured exit code. A module
       that dies (SIGABRT etc.) is a named CASUALTY row; the driver continues.
   Aggregate:      merges the per-module JUnit XMLs + rcs into one table and one
@@ -43,7 +43,7 @@ covering shards BEFORE anything else, because emitted headers never rotate for
 an oracle change; (2) per-shard HEADER-KEY REPLAY — byte-precise regeneration
 of each recorded flagship header under the current tree (records in
 test/gpu-proof-header-keys.json; every emission-shaping ctor/env input must be
-in the record — the GRID_ENABLE_MUJOCO_KERNELS and dtype lessons); (3) the
+in the record — the GRIM_ENABLE_MUJOCO_KERNELS and dtype lessons); (3) the
 codegen_neutrality covering-matrix prover for logic-level changes.
 
 Granular cuda shards (--domains ...,cuda): test/cuda_equivalents used to run as
@@ -181,9 +181,9 @@ WARM_MANIFEST: dict[str, list[dict]] = {
 
 # 08-13: wall-clock caps RETIRED (they killed a healthy cold-building module on
 # the 08-12 night pass). Phase B now uses PROGRESS-AWARE hang detection — see
-# _ShardRun.poll: kill only after GRID_SPLIT_STALL_SECS (default 900) with
+# _ShardRun.poll: kill only after GRIM_SPLIT_STALL_SECS (default 900) with
 # neither log growth nor a live compiler child; an absolute cap is opt-in via
-# GRID_SPLIT_HARD_TIMEOUT. Historical expected COLD durations, for triage only:
+# GRIM_SPLIT_HARD_TIMEOUT. Historical expected COLD durations, for triage only:
 # g1_plant_hessian / joint_dynamics / runtime_joint_dynamics ~1-2h (multi-build,
 # incl. float64); ee_named_target_floating_multileaf ~2h (5 in-module builds).
 
@@ -338,7 +338,7 @@ def _shard_fingerprint_paths(member_mods: set[str]) -> list[str]:
     if (CUDA_DIR / "cuda_harness.py").exists():
         paths.append("test/cuda_equivalents/cuda_harness.py")
     if _FLAGSHIP in member_mods:
-        for extra in ("cuda_equivalence_runner.cu", "grid_runner_select.cuh"):
+        for extra in ("cuda_equivalence_runner.cu", "grim_runner_select.cuh"):
             if (CUDA_DIR / extra).exists():
                 paths.append(f"test/cuda_equivalents/{extra}")
     return paths
@@ -462,14 +462,14 @@ def plan_refresh(old_receipt: dict, cuda_ids_now: list[str],
         # only change must stale the tests that import it). A wrapper shard
         # recorded under the old test-file-only paths is stale BY DEFINITION;
         # one re-run installs the new paths, then digest comparison resumes.
-        if _is_wrapper(s) and "bindings/grid_rbd" not in paths:
+        if _is_wrapper(s) and "bindings/grim" not in paths:
             stale.append(s)
             continue
         now = fingerprint_digest_fn(paths)
         (carried if now == fp.get("digest") else stale).append(s)
 
     # 2026-09-11 byte-neutrality gate (user decision, option 2): cuda narrow
-    # fingerprints are test-side only — the GENERATOR inputs (grid_codegen,
+    # fingerprints are test-side only — the GENERATOR inputs (grim_codegen,
     # URDF assets, URDFParser pin) are pinned at receipt level. Carrying a
     # fingerprint-clean cuda shard is therefore sound only when those inputs
     # are unchanged vs the old receipt's commit OR the change is PROVEN to
@@ -480,7 +480,7 @@ def plan_refresh(old_receipt: dict, cuda_ids_now: list[str],
         import header_key_replay  # noqa: PLC0415
         repo = old_receipt.get("repo") or {}
         old_sha = repo.get("commit_sha")
-        assume = os.environ.get("GRID_REFRESH_ASSUME_NEUTRAL") == "1"
+        assume = os.environ.get("GRIM_REFRESH_ASSUME_NEUTRAL") == "1"
         # Robot ASSET changes (either copy: config/ codegen input, or the
         # RBDReference submodule the ORACLE loads) open the soundness block
         # on their own — an oracle-side change alters test outcomes with
@@ -793,10 +793,10 @@ def aggregate_header_keys(rdir: Path, results: list[dict],
 # A module's input fingerprint covers everything that can change its outcome:
 # the module file itself (registration kwargs live in it), the shared conftest,
 # the manifest robots' URDF bytes, the codegen-source + wrapper-template hashes
-# the bindings cache key uses, the grid_rbd version, the CUDA arch, and the
+# the bindings cache key uses, the grim version, the CUDA arch, and the
 # nvcc version (the one input the bindings cache key does NOT fold). Skip
 # decisions come from THIS fingerprint (strictly stronger than the receipt's
-# narrow shard fingerprint, which only covers git-tracked test files — GRiD
+# narrow shard fingerprint, which only covers git-tracked test files — GRiM
 # pins codegen/submodules by commit SHA at the receipt level instead).
 STATE_PATH = REPO_ROOT / "test" / ".split-suite-state.json"
 
@@ -814,7 +814,7 @@ def module_fingerprint(mod: str) -> str:
     import hashlib
     sys.path.insert(0, str(REPO_ROOT))
     from config import robot_urdf  # noqa: PLC0415
-    from grid_rbd._cache import (  # noqa: PLC0415
+    from grim._cache import (  # noqa: PLC0415
         _codegen_source_hash, _wrapper_template_hash, detect_cuda_arch,
         package_version)
 
@@ -906,7 +906,7 @@ def _warm_one_entry(desc: str, entry: dict) -> tuple[str, float, str]:
     """One warm_robot call. Returns (status, secs, detail)."""
     sys.path.insert(0, str(REPO_ROOT))
     from config import robot_urdf  # noqa: PLC0415
-    import grid_rbd  # noqa: PLC0415
+    import grim  # noqa: PLC0415
 
     kw = dict(entry)
     robot = kw.pop("robot")
@@ -915,7 +915,7 @@ def _warm_one_entry(desc: str, entry: dict) -> tuple[str, float, str]:
         urdf = robot_urdf(robot)
         if not urdf.exists():
             return "SKIP", 0.0, f"no urdf: {urdf}"
-        key, _so_path, _meta = grid_rbd.warm_robot(
+        key, _so_path, _meta = grim.warm_robot(
             name=f"__split_warm_{robot}", urdf_path=str(urdf), **kw)
         dt = time.monotonic() - t0
         return ("HIT" if dt < 5.0 else "BUILT"), dt, key[:12]
@@ -936,7 +936,7 @@ def warm_one_worker(spec_path: str) -> int:
 
 
 def phase_warm(out_dir: Path) -> list[tuple[str, str, float, str]]:
-    """Serial fallback (GRID_SPLIT_COMPILE_JOBS=0). Returns
+    """Serial fallback (GRIM_SPLIT_COMPILE_JOBS=0). Returns
     (robot-desc, status, seconds, detail) rows."""
     rows = []
     for desc, entry in warm_entries():
@@ -1001,9 +1001,9 @@ class _ShardRun:
 
     Progress = the shard's log grew OR its process group has a live compiler
     child. ``poll()`` returns None while healthy, the rc once it exited,
-    "STALL" after GRID_SPLIT_STALL_SECS (default 900) with NEITHER, or
-    "TIMEOUT" past the OPT-IN GRID_SPLIT_HARD_TIMEOUT wall-clock cap (unset/0 =
-    none). Several of these are polled side by side when GRID_SPLIT_SHARD_JOBS>1.
+    "STALL" after GRIM_SPLIT_STALL_SECS (default 900) with NEITHER, or
+    "TIMEOUT" past the OPT-IN GRIM_SPLIT_HARD_TIMEOUT wall-clock cap (unset/0 =
+    none). Several of these are polled side by side when GRIM_SPLIT_SHARD_JOBS>1.
     (Tests stub ``poll`` to finish a shard synthetically.)"""
 
     def __init__(self, spec: ShardSpec, proc: subprocess.Popen, log, log_path: Path,
@@ -1011,8 +1011,8 @@ class _ShardRun:
         self.spec, self.proc, self.log = spec, proc, log
         self.log_path, self.xml_path = log_path, xml_path
         self.t0 = time.monotonic()
-        self._stall_limit = int(os.environ.get("GRID_SPLIT_STALL_SECS", "900"))
-        self._hard = int(os.environ.get("GRID_SPLIT_HARD_TIMEOUT", "0"))
+        self._stall_limit = int(os.environ.get("GRIM_SPLIT_STALL_SECS", "900"))
+        self._hard = int(os.environ.get("GRIM_SPLIT_HARD_TIMEOUT", "0"))
         self._last_progress = self.t0
         self._last_size = -1
 
@@ -1043,7 +1043,7 @@ class _ShardRun:
 
 
 def shard_jobs() -> int:
-    """GRID_SPLIT_SHARD_JOBS: GPU shards run at once (default 1 = the historical
+    """GRIM_SPLIT_SHARD_JOBS: GPU shards run at once (default 1 = the historical
     strictly-serial order). >1 became safe on 2026-10-01 when every cuda cache
     writer gained a per-key flock (cuda_harness._cache_key_lock; executable_cache
     already had one) — two shards sharing one cache dir wait for each other's
@@ -1051,11 +1051,11 @@ def shard_jobs() -> int:
     shard's INLINE nvcc builds (integrator / second-order smoke runners on the
     humanoids, 6-10 GB each) are NOT pool-admitted, so raise it only under a
     MemoryMax'd unit, and read the pilot's wall time before changing the default."""
-    raw = os.environ.get("GRID_SPLIT_SHARD_JOBS", "1")
+    raw = os.environ.get("GRIM_SPLIT_SHARD_JOBS", "1")
     try:
         return max(1, int(raw))
     except ValueError:
-        raise SystemExit(f"GRID_SPLIT_SHARD_JOBS must be an integer, got {raw!r}")
+        raise SystemExit(f"GRIM_SPLIT_SHARD_JOBS must be an integer, got {raw!r}")
 
 
 def _write_ledger(out_dir: Path, results: list[dict]) -> None:
@@ -1067,7 +1067,7 @@ def _write_ledger(out_dir: Path, results: list[dict]) -> None:
     os.replace(tmp, out_dir / "results.json")
 
 
-CUDA_CACHE_DIR_DEFAULT = str(REPO_ROOT / ".grid_build_cache" / "cuda")
+CUDA_CACHE_DIR_DEFAULT = str(REPO_ROOT / ".grim_build_cache" / "cuda")
 # Host-RAM floor once GPU shards are running (jax/torch shards need real RAM
 # on top of the compile pool's own floor).
 GPU_PHASE_FLOOR_KB = 14 * 1024 * 1024
@@ -1081,8 +1081,8 @@ def cuda_worker_env() -> dict[str, str]:
     Honor an explicitly requested MuJoCo-enabled sweep on both paths.
     """
     return {
-        "GRID_CUDA_CACHE_DIR": os.environ.get("GRID_CUDA_CACHE_DIR", CUDA_CACHE_DIR_DEFAULT),
-        "GRID_ENABLE_MUJOCO_KERNELS": os.environ.get("GRID_ENABLE_MUJOCO_KERNELS", "0"),
+        "GRIM_CUDA_CACHE_DIR": os.environ.get("GRIM_CUDA_CACHE_DIR", CUDA_CACHE_DIR_DEFAULT),
+        "GRIM_ENABLE_MUJOCO_KERNELS": os.environ.get("GRIM_ENABLE_MUJOCO_KERNELS", "0"),
     }
 
 
@@ -1128,7 +1128,7 @@ def build_compile_pool(out_dir: Path, *, warm: bool, cuda_shards: list,
             if names:
                 prereqs[mod] = sorted(set(names))
 
-    if cuda_shards and os.environ.get("GRID_SPLIT_PREWARM", "1") != "0":
+    if cuda_shards and os.environ.get("GRIM_SPLIT_PREWARM", "1") != "0":
         import prewarm_cuda_flagship as pw  # noqa: PLC0415
         flagship_ids = [t for s in cuda_shards for t in s.targets
                         if "test_cuda_executable_equivalence" in t]
@@ -1267,7 +1267,7 @@ def _launch_shard(spec: ShardSpec, out_dir: Path, receipts: bool,
         # The cuda suite's artifact-cache default is CWD-relative — pin it
         # absolute so every shard (incl. nested pytest processes) shares
         # ONE warm cache. Its writers are per-key flock'd (2026-10-01), so
-        # GRID_SPLIT_SHARD_JOBS>1 shards may share it.
+        # GRIM_SPLIT_SHARD_JOBS>1 shards may share it.
         env.update(cuda_worker_env())
         if receipts:
             # A4: per-shard header content-key sidecar (recorded by the
@@ -1275,7 +1275,7 @@ def _launch_shard(spec: ShardSpec, out_dir: Path, receipts: bool,
             # file per attempt so a re-run can't append onto stale rows.
             keys_path = out_dir / "receipts" / f"{spec.name}.header_keys.jsonl"
             keys_path.unlink(missing_ok=True)
-            env["GRID_HEADER_KEYS_OUT"] = str(keys_path)
+            env["GRIM_HEADER_KEYS_OUT"] = str(keys_path)
     log = open(log_path, "w")
     proc = subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=log,
                             stderr=subprocess.STDOUT,
@@ -1355,7 +1355,7 @@ def phase_run(shards: list[ShardSpec], out_dir: Path, receipts: bool,
     pending = list(shards)
     prereqs = prereqs or {}
     jobs = shard_jobs()
-    print(f"  shard jobs: {jobs} (GRID_SPLIT_SHARD_JOBS)", flush=True)
+    print(f"  shard jobs: {jobs} (GRIM_SPLIT_SHARD_JOBS)", flush=True)
     running: list[_ShardRun] = []
     waiting = False
     paused = False
@@ -1429,7 +1429,7 @@ def main() -> int:
                          "shards never take -k — see run_gpu_proof.sh)")
     ap.add_argument("--shard-budget-mins", type=float,
                     default=float(os.environ.get(
-                        "GRID_SPLIT_SHARD_BUDGET_MINS", "120")),
+                        "GRIM_SPLIT_SHARD_BUDGET_MINS", "120")),
                     help="target max ESTIMATED minutes per cuda shard "
                          "(default 120; a single atom over budget gets its "
                          "own shard)")
@@ -1500,8 +1500,8 @@ def main() -> int:
         args.receipts_carry_from = args.refresh_from
         run_wrappers = run_cuda = True
 
-    if run_cuda and "random" in os.environ.get("GRID_CUDA_THREAD_COUNTS", ""):
-        print("FATAL: GRID_CUDA_THREAD_COUNTS contains 'random' — node ids "
+    if run_cuda and "random" in os.environ.get("GRIM_CUDA_THREAD_COUNTS", ""):
+        print("FATAL: GRIM_CUDA_THREAD_COUNTS contains 'random' — node ids "
               "would be nondeterministic and the cuda partition unsound",
               file=sys.stderr)
         return 2
@@ -1559,8 +1559,8 @@ def main() -> int:
             if not modules and not refresh_cuda_shards:
                 print("nothing stale — the receipt already covers this tree")
                 return 0
-            if os.environ.get("GRID_SPLIT_REFRESH_DRY") == "1":
-                print("GRID_SPLIT_REFRESH_DRY=1 — plan printed, not running")
+            if os.environ.get("GRIM_SPLIT_REFRESH_DRY") == "1":
+                print("GRIM_SPLIT_REFRESH_DRY=1 — plan printed, not running")
                 return 0
             refresh_plan_path.write_text(json.dumps(
                 {"refresh_from": args.refresh_from, "wrapper_mods": modules,
@@ -1593,8 +1593,8 @@ def main() -> int:
     # RAM-aware parallel compile pool (2026-08-18): Phase A wrapper warm +
     # cuda flagship pre-warm run as admission-controlled parallel workers that
     # OVERLAP GPU shard execution — a shard waits only for its own compile
-    # jobs. GRID_SPLIT_COMPILE_JOBS=0 restores the serial inline path.
-    pool_jobs_n = int(os.environ.get("GRID_SPLIT_COMPILE_JOBS", "5") or "0")
+    # jobs. GRIM_SPLIT_COMPILE_JOBS=0 restores the serial inline path.
+    pool_jobs_n = int(os.environ.get("GRIM_SPLIT_COMPILE_JOBS", "5") or "0")
 
     specs: list[ShardSpec] = []
     if run_wrappers:
@@ -1606,13 +1606,13 @@ def main() -> int:
                 print(f"  {status:12s} {secs:7.1f}s  {desc}  {detail}")
         # Wrapper shards fingerprint the BINDINGS SOURCE alongside their test
         # module (user decision 2026-09-09): the wrapper tests import
-        # bindings/grid_rbd, so a bindings-only change must stale them — before
+        # bindings/grim, so a bindings-only change must stale them — before
         # this, an entire bindings refactor shipped under carry because only
         # test-file edits were fingerprinted. Deliberately NOT extended to the
-        # cuda domain (grid_codegen inputs there would turn every codegen edit
+        # cuda domain (grim_codegen inputs there would turn every codegen edit
         # into a multi-day full-domain refresh; that class stays covered by the
         # byte-gates + equivalence smokes + release-policy full passes).
-        _BINDINGS_FP = ["bindings/grid_rbd", "bindings/src"]
+        _BINDINGS_FP = ["bindings/grim", "bindings/src"]
         specs += [ShardSpec(name=mod, domain="wrappers",
                             targets=[f"test/python_wrappers/{mod}.py"],
                             fingerprint_paths=[f"test/python_wrappers/{mod}.py"]

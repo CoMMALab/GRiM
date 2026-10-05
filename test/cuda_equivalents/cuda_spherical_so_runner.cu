@@ -1,15 +1,15 @@
 // CUDA equivalence runner for SPHERICAL (ball) joint idsva_so (2nd-order inverse-
 // dynamics derivatives), Tier-C. Spherical fixed-base robots route to the
 // WORLD-frame inner (the body-frame inner's single-DoF contractions are wrong for
-// a 6x3 ball motion subspace); the dispatching `grid::idsva_so<T>` wrapper picks
+// a 6x3 ball motion subspace); the dispatching `grim::idsva_so<T>` wrapper picks
 // the world frame at codegen time for any robot with a spherical joint.
 //
 // nq != nv: a spherical joint carries a 4-wide unit-quaternion q-block + 3 v-slots,
-// so the per-timestep INPUT slot is NQ(=grid::NUM_POS)-wide (the canonical
+// so the per-timestep INPUT slot is NQ(=grim::NUM_POS)-wide (the canonical
 // 3*NUM_POS pack: q@0, qd@nq, qdd@2*nq). The SO output is the four nv^3 tensors
 // [d2tau_dq2 | d2tau_dqd2 | d2tau_dvdq | dM_dq] = SECOND_ORDER_TENSOR_SIZE total.
 //
-// Drives the dispatching HOST batch wrapper `idsva_so<T, GRID_DATA_ALL>` over a
+// Drives the dispatching HOST batch wrapper `idsva_so<T, GRIM_DATA_ALL>` over a
 // B-timestep trajectory of IDENTICAL inputs (the §1e per-timestep nq-stride path
 // the bindings use). It emits BOTH the first batch row ("idsva_so", the canonical
 // single result) AND every batch row ("idsva_so_batch_k"); the test asserts every
@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 int g_num_threads = 32;
 
@@ -59,12 +59,12 @@ template <typename T>
 void run() {
     const T gravity = static_cast<T>(-9.81);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
 
-    const int nq = grid::NUM_JOINTS;   // == nq for this codegen
-    const int nv = grid::NUM_VEL;
-    const int so_len = grid::SECOND_ORDER_TENSOR_SIZE;   // 4*nv^3
+    const int nq = grim::NUM_JOINTS;   // == nq for this codegen
+    const int nv = grim::NUM_VEL;
+    const int so_len = grim::SECOND_ORDER_TENSOR_SIZE;   // 4*nv^3
 
     // ----- read inputs (q is nq-wide, qd / qdd are nv-wide) -----
     std::vector<T> h_q(nq);
@@ -79,10 +79,10 @@ void run() {
 
     // ----- dispatching HOST batch wrapper over B IDENTICAL timesteps -----
     // The per-timestep slot is NQ-wide for q, qd AND qdd (the canonical 3*NUM_POS
-    // pack: q@[0,nq), qd@[nq,2nq), qdd@[2nq,3nq)). grid::idsva_so dispatches to
+    // pack: q@[0,nq), qd@[nq,2nq), qdd@[2nq,3nq)). grim::idsva_so dispatches to
     // idsva_so_world_frame for spherical (the predicate _idsva_so_use_world_frame).
     const int B = 4;
-    grid::gridData<T> *hd_data = grid::init_gridData<T, B>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, B>();
     for (int k = 0; k < B; ++k) {
         for (int i = 0; i < nq; ++i)
             hd_data->h_q_qd_u[k * 3 * nq + i] = h_q[i];                   // q @ [0, nq)
@@ -95,7 +95,7 @@ void run() {
     }
     const dim3 block_dimms(1, 1, 1);
     const dim3 thread_dimms(g_num_threads, 1, 1);
-    grid::idsva_so<T, grid::GRID_DATA_ALL>(
+    grim::idsva_so<T, grim::GRIM_DATA_ALL>(
         hd_data, d_robot_model, gravity, B, block_dimms, thread_dimms, streams);
     gpuErrchk(cudaPeekAtLastError());
 
@@ -111,7 +111,7 @@ void run() {
         print_vector("idsva_so_batch_" + std::to_string(k), row.data(), so_len);
     }
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -119,10 +119,10 @@ int main(int argc, char **argv) {
         int requested = std::atoi(argv[1]);
         g_num_threads = requested > 0 ? requested : 0;
     }
-    if (g_num_threads <= 0 || g_num_threads > grid::MAX_PERF_LEVEL_THREADS) {
-        g_num_threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (g_num_threads <= 0 || g_num_threads > grim::MAX_PERF_LEVEL_THREADS) {
+        g_num_threads = grim::MAX_PERF_LEVEL_THREADS;
     }
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

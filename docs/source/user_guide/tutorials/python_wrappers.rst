@@ -1,7 +1,7 @@
-Python Wrappers (``grid-rbd``)
+Python Wrappers (``grim``)
 ==============================
 
-The ``grid-rbd`` package wraps GRiD's per-robot CUDA codegen behind a
+The ``grim`` package wraps GRiM's per-robot CUDA codegen behind a
 two-tier Python API: a slow one-time ``register_robot()`` step that
 generates and compiles a per-robot ``.so``, and fast subsequent
 algorithm calls on the returned handle.
@@ -12,7 +12,7 @@ or ``"torch"`` (a ``TorchRobotHandle``) — and a ``urdf_string=`` argument
 to register from inline URDF text instead of a file on disk. All three
 backends share the same content-addressed ``.so`` cache.
 
-Source: ``bindings/`` in the GRiD repo.
+Source: ``bindings/`` in the GRiM repo.
 
 .. seealso::
 
@@ -20,17 +20,17 @@ Source: ``bindings/`` in the GRiD repo.
    canonical path — one-call ``load_robot``, cache anatomy, and warm-up
    recipes.
 
-Install (editable, from a GRiD checkout)
+Install (editable, from a GRiM checkout)
 ----------------------------------------
 
 .. code-block:: shell
 
-   cd path/to/GRiD
+   cd path/to/GRiM
    pip install -e .
 
-This builds a small pybind11 extension (``grid_rbd._core``) at install
+This builds a small pybind11 extension (``grim._core``) at install
 time. ``nvcc`` is **not** required for the install — only for
-:py:func:`grid_rbd.register_robot`, which compiles a per-robot
+:py:func:`grim.register_robot`, which compiles a per-robot
 ``.so`` on first call.
 
 Register-then-run UX
@@ -38,12 +38,12 @@ Register-then-run UX
 
 .. code-block:: python
 
-   import grid_rbd
+   import grim
 
-   # One-time per (robot, options, GRiD version, CUDA arch).
+   # One-time per (robot, options, GRiM version, CUDA arch).
    # cold: about ten minutes for iiwa14 on an RTX 5090 (see Fast Robot Setup); warm: seconds.
-   # Cached under ~/.cache/grid-rbd/ by content key.
-   handle = grid_rbd.register_robot(
+   # Cached under ~/.cache/grim/ by content key.
+   handle = grim.register_robot(
        name="iiwa14",
        urdf_path="path/to/iiwa.urdf",
        floating_base=False,
@@ -191,7 +191,7 @@ methods pass at float32 precision).
 Build cost on large floating-base robots
 ----------------------------------------
 
-On a floating-base, non-mimic robot GRiD emits **two** variants of each
+On a floating-base, non-mimic robot GRiM emits **two** variants of each
 kernel: the Pinocchio-convention ("pin") kernel and a MuJoCo-convention
 ("mjx") twin applying the ``G = blockdiag(R, I)`` output basis change.
 That convention change is cheap in principle but was expensive in generated
@@ -218,7 +218,7 @@ If you do not need the MuJoCo output convention, build pin-only:
 
 .. code-block:: python
 
-   handle = grid_rbd.register_robot(
+   handle = grim.register_robot(
        name="g1", urdf_path="g1.urdf", floating_base=True,
        enable_mujoco_kernels=False,
    )
@@ -232,7 +232,7 @@ exclusive with ``output_convention="mujoco"``, and participates in the
 The generator emits a warning naming this flag when it detects a large
 floating-base non-mimic robot.
 
-For test suites and codegen sessions, ``GRID_ENABLE_MUJOCO_KERNELS=0``
+For test suites and codegen sessions, ``GRIM_ENABLE_MUJOCO_KERNELS=0``
 makes pin-only the default for every ``gen_all_code`` call that does not
 pass the argument explicitly (an explicit argument always wins). It does
 **not** affect ``register_robot``/``precompile``, whose ``.so`` is cached
@@ -244,11 +244,11 @@ Cache layout
 
 .. code-block:: text
 
-   ~/.cache/grid-rbd/
+   ~/.cache/grim/
    ├── manifest.json              # name -> content key (writers take manifest.lock)
    ├── bykey/<input_key>          # stage-1 pointer -> content key
    └── store/<content_key>/
-       ├── grid.cuh
+       ├── grim.cuh
        ├── wrapper.cu
        ├── robot.so
        ├── meta.json
@@ -256,14 +256,14 @@ Cache layout
        └── robot.build.log
 
 Two keys. The **stage-1 input key** = SHA-256 of ``urdf_bytes +
-canonical_json(options) + grid_rbd_version`` **plus** the codegen-source
-hash (every ``grid_codegen/``/``URDFParser`` file) and the *build identity*:
+canonical_json(options) + grim_version`` **plus** the codegen-source
+hash (every ``grim_codegen/``/``URDFParser`` file) and the *build identity*:
 CUDA arch, ``nvcc`` path + version, host C++ compiler, the content of the
 vendored GLASS headers, ``_compile.py``, the wrapper template, the torch/jax
 ABI tags and the generation-time env knobs — the one list in
-``grid_codegen/env_knobs.py`` (``GRID_CUDA_TARGET_SHARED_MEM_BYTES``,
-``GRID_CUDA_TARGET_LITE_SHARED_MEM_BYTES``, ``GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES``,
-``GRID_NO_LICM_BARRIER``, ``GRID_FDSVA_SO_MINV_TILE``, ``GRID_GLASS_REVISION``; the
+``grim_codegen/env_knobs.py`` (``GRIM_CUDA_TARGET_SHARED_MEM_BYTES``,
+``GRIM_CUDA_TARGET_LITE_SHARED_MEM_BYTES``, ``GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES``,
+``GRIM_NO_LICM_BARRIER``, ``GRIM_FDSVA_SO_MINV_TILE``, ``GRIM_GLASS_REVISION``; the
 benchmark and equivalence header caches key the same list, and a test keeps it equal
 to the reads in the tree). The **stage-2 content key** = SHA-256 of exactly
 what ``nvcc`` compiled (generated bytes + flag drivers + toolchain); the
@@ -275,7 +275,7 @@ emitted bytes are unchanged re-runs generation only (no ``nvcc``), and
 the key mean a roaming home directory (e.g. NFS-mounted between a laptop and
 a desktop) safely keeps separate ``.so`` files per machine.
 
-Override the cache root with ``$GRID_RBD_CACHE_DIR`` or
+Override the cache root with ``$GRIM_CACHE_DIR`` or
 ``cache_dir=...`` on ``register_robot``.
 
 Dimensions, layouts and differentiability
@@ -392,13 +392,13 @@ Python; consistent kinematic updates are a separate feature (register item).
 End-effector target selection
 -----------------------------
 
-By default ``register_robot`` uses GRiD's default EE choice (all leaf
+By default ``register_robot`` uses GRiM's default EE choice (all leaf
 nodes). Pass ``ee_joint_names=["iiwa_joint_7"]`` to bake a specific
 fixed-joint target into the codegen:
 
 .. code-block:: python
 
-   handle = grid_rbd.register_robot(
+   handle = grim.register_robot(
        name="iiwa14_wrist",
        urdf_path="iiwa.urdf",
        ee_joint_names=["iiwa_joint_7"],
@@ -422,19 +422,19 @@ and composes with a subset ``algorithm_list`` — e.g.
 family (the ``bindings/examples/multi_contact_fext.py`` recipe).
 
 The baked contact set also exposes its ORIGINS to CUDA/plant consumers
-(GATO ask 2026-09-20): ``grid::contact_frame_positions_device`` (the
+(GATO ask 2026-09-20): ``grim::contact_frame_positions_device`` (the
 ``3*NUM_CONTACT_FRAMES`` world positions of the points ``f_ext_body`` takes
 the wrench about, registration order) and
-``grid::contact_frame_positions_gradient_device`` (``3 x NUM_VEL`` per
+``grim::contact_frame_positions_gradient_device`` (``3 x NUM_VEL`` per
 frame, layout ``[3*NUM_VEL*f + 3*vi + row]``, floating tangent
 ``[v_lin; omega; joints]``), with the caller-scratch wrappers
-``grid_plant::contact_frame_positions[_gradient](…, s_scratch, …)`` sized by
+``grim_plant::contact_frame_positions[_gradient](…, s_scratch, …)`` sized by
 ``CONTACT_FRAME_POSITIONS[_GRADIENT]_DYNAMIC_SHARED_MEM_COUNT``. They ride
 the multi-target emitters, so a dynamics-only ``algorithm_list`` still gets
 them. (No Python method yet — the device/plant layer is the consumer.)
 The same caller-scratch pair exists for the DEFAULT multi-target batch (the
 ``multi_target_batch`` option / collision spheres):
-``grid_plant::multi_target_position[_gradient](…, s_scratch, …)`` with
+``grim_plant::multi_target_position[_gradient](…, s_scratch, …)`` with
 ``s_scratch`` sized by the constexpr
 ``MULTI_TARGET_POSITION[_GRADIENT]_DYNAMIC_SHARED_MEM_BYTES<T>()`` — the raw
 evaluator a consumer's own FK carve would otherwise have to compose.
@@ -464,7 +464,7 @@ the extra memcpy); wrong shape/dtype/contiguity is refused with a clear error.
 
 .. code-block:: python
 
-   h = grid_rbd.get_robot("g1")
+   h = grim.get_robot("g1")
    out = h.pinned_empty((B, 4 * h.num_vel ** 3))          # once
    for q, qd, qdd in trajectory:                           # many
        d2tau_dq, d2tau_dqd, d2tau_cross, dM_dq = h.idsva_so(q, qd, qdd, out=out)
@@ -490,19 +490,19 @@ The view is column-major per item (not C-contiguous); wrap it in
 ``np.ascontiguousarray`` if a consumer needs C order. Reusing ``out`` on the
 next call overwrites the values the earlier view shows.
 
-JAX FFI (``grid_rbd[jax]``)
+JAX FFI (``grim[jax]``)
 ---------------------------
 
 Install with ``pip install -e ".[jax]"`` to get the JAX bridge.
 The same per-robot ``.so`` is shared with the plain wrapper — no
-recompile on first ``grid_rbd.jax.register_robot``:
+recompile on first ``grim.jax.register_robot``:
 
 .. code-block:: python
 
-   import grid_rbd.jax as grid_jax
+   import grim.jax as grim_jax
    import jax
 
-   handle = grid_jax.register_robot(name="iiwa14", urdf_path="iiwa.urdf")
+   handle = grim_jax.register_robot(name="iiwa14", urdf_path="iiwa.urdf")
 
    @jax.jit
    def step(q, qd, u):
@@ -514,7 +514,7 @@ running on JAX-supplied CUDA streams. Inputs may be numpy or
 handler runs, and outputs stay device-resident.
 
 **Host round trips.** Keep outputs resident when the next consumer is on the
-GPU. When you do need numpy, ``grid_rbd.jax.to_host(outputs)`` moves an array
+GPU. When you do need numpy, ``grim.jax.to_host(outputs)`` moves an array
 or any pytree of arrays through XLA's ``pinned_host`` memory kind and returns
 zero-copy numpy views: on a 702 MB ``idsva_so`` output (g1, batch 1024) it
 takes 41 ms against 141 ms for ``jax.device_get`` (measured 2026-10-01). The
@@ -545,14 +545,14 @@ algorithms (``inverse_dynamics`` / ``forward_dynamics`` / ``aba`` /
 ``end_effector_pose`` / ``integrator``) are autograd-aware — their backward
 passes are analytic, reusing the existing ``*_gradient`` kernels — while the
 remaining methods are forward-only ops. The ``.so`` is shared with the numpy/JAX surfaces; the
-torch op block is compiled in under ``-DGRID_RBD_WITH_TORCH`` when torch
+torch op block is compiled in under ``-DGRIM_WITH_TORCH`` when torch
 is present at register time.
 
 .. code-block:: python
 
-   import grid_rbd, torch
+   import grim, torch
 
-   h = grid_rbd.register_robot("iiwa14", urdf_path="iiwa.urdf", backend="torch")
+   h = grim.register_robot("iiwa14", urdf_path="iiwa.urdf", backend="torch")
 
    q  = torch.randn(64, h.num_joints, device="cuda", requires_grad=True)
    qd = torch.randn(64, h.num_joints, device="cuda", requires_grad=True)
@@ -626,9 +626,9 @@ concepts page):
 
 **Host round trips: allocate once, reuse.** ``.cpu()`` on a large device
 output goes through a pageable staged copy (~3 GB/s here). Allocate
-page-locked mirrors ONCE with ``grid_rbd.torch.pinned_host_like(out)`` (a
+page-locked mirrors ONCE with ``grim.torch.pinned_host_like(out)`` (a
 tensor or a tuple, e.g. ``g.static_out``) and fill them with
-``grid_rbd.torch.copy_to_host(host, out)`` or, for a captured graph,
+``grim.torch.copy_to_host(host, out)`` or, for a captured graph,
 ``g.replay_into(host)`` — a ``non_blocking`` copy at the PCIe rate followed
 by a stream sync. Measured 2026-10-01 on g1 ``idsva_so`` at batch 1024
 (702 MB): 39.5 ms vs 238 ms for ``.cpu()``. Inputs can take the same route:
@@ -637,7 +637,7 @@ by a stream sync. Measured 2026-10-01 on g1 ``idsva_so`` at batch 1024
 .. code-block:: python
 
    g = h.capture("idsva_so", q, qd, qdd)
-   host = grid_rbd.torch.pinned_host_like(g.static_out)   # once
+   host = grim.torch.pinned_host_like(g.static_out)   # once
    for q_new in trajectory:                                # many
        g.static_in[0].copy_(q_new)
        d2tau_dq, d2tau_dqd, d2tau_cross, dM_dq = g.replay_into(host)
@@ -648,13 +648,13 @@ by a stream sync. Measured 2026-10-01 on g1 ``idsva_so`` at batch 1024
    installed torch build must support the GPU's compute capability. On an
    RTX 5090 (sm_120) you need a torch **cu128** (or newer) build — a
    cu124 wheel (max sm_90) cannot launch on sm_120. The ``grid`` /
-   ``grid_plant`` kernels themselves are always nvcc-built for the
+   ``grim_plant`` kernels themselves are always nvcc-built for the
    detected arch and are unaffected.
 
-``grid_plant`` cost / barrier / plant-step methods
+``grim_plant`` cost / barrier / plant-step methods
 --------------------------------------------------
 
-The handle also exposes the generated ``grid_plant`` trajectory-
+The handle also exposes the generated ``grim_plant`` trajectory-
 optimization surface (validated against ``RBDReference._PlantMixin``).
 All take/return 2D arrays with axis 0 = batch; cost methods return
 ``(value, grad, hess)`` and barriers return ``(value, grad, hess_diag)``.

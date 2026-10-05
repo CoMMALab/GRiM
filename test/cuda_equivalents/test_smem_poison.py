@@ -1,6 +1,6 @@
 """Permanent smem-poison regression (the Inc2 audit, wired as a standing gate).
 
-`cuda_equivalence_runner.cu` has an opt-in `GRID_POISON_SMEM` mode that fills every
+`cuda_equivalence_runner.cu` has an opt-in `GRIM_POISON_SMEM` mode that fills every
 SM's dynamic shared memory with NaN (0xFF) BEFORE each algorithm launch. If any
 generated device fn reads a caller-carved arena slot before writing it, that NaN
 surfaces in the output and fails the golden comparison. `initcheck` is blind to
@@ -14,7 +14,7 @@ with poison ON and asserts it still passes. The value block (inverse/forward dyn
 minv, crba, aba, end_effector_pose) exercises every caller-carved-arena class while
 keeping the header small enough to compile fast — a permanent gate must be cheap. The
 FULL sweep (gradients + second-order arenas) is a manual, one-off audit:
-`GRID_POISON_SMEM=1 pytest test/cuda_equivalents/test_cuda_executable_equivalence.py`.
+`GRIM_POISON_SMEM=1 pytest test/cuda_equivalents/test_cuda_executable_equivalence.py`.
 
 We drive it as a nested pytest (rather than duplicating the fixture-heavy
 gen/compile/run/oracle plumbing) so there is exactly one source of truth for the
@@ -41,14 +41,14 @@ EQUIV_TEST = REPO_ROOT / "test/cuda_equivalents/test_cuda_executable_equivalence
 @pytest.mark.parametrize("selector", ["iiwa14 and fixed", "go2 and floating"])
 def test_equivalence_survives_smem_poison(selector, tmp_path):
     env = dict(os.environ)
-    env["GRID_POISON_SMEM"] = "1"
-    env["GRID_CUDA_CODEGEN_SUBSET"] = "value"    # value-block header -> fast compile
-    env["GRID_CUDA_SAMPLE_NAMES"] = "zero"       # one deterministic sample
-    env["GRID_CUDA_RANDOM_SAMPLES"] = "0"
-    env["GRID_CUDA_THREAD_COUNTS"] = "32"
+    env["GRIM_POISON_SMEM"] = "1"
+    env["GRIM_CUDA_CODEGEN_SUBSET"] = "value"    # value-block header -> fast compile
+    env["GRIM_CUDA_SAMPLE_NAMES"] = "zero"       # one deterministic sample
+    env["GRIM_CUDA_RANDOM_SAMPLES"] = "0"
+    env["GRIM_CUDA_THREAD_COUNTS"] = "32"
     env["PYTHONPATH"] = str(REPO_ROOT)
     # Reuse the parent's compiled-runner cache (poison is runtime-only -> same exe).
-    env.setdefault("GRID_CUDA_CACHE_DIR", str(REPO_ROOT / ".grid_build_cache/cuda"))
+    env.setdefault("GRIM_CUDA_CACHE_DIR", str(REPO_ROOT / ".grim_build_cache/cuda"))
 
     cmd = [
         sys.executable, "-m", "pytest", str(EQUIV_TEST),
@@ -67,7 +67,7 @@ def test_equivalence_survives_smem_poison(selector, tmp_path):
         pytest.skip("CUDA runtime unavailable in nested equivalence run")
 
     assert result.returncode == 0, (
-        f"CUDA equivalence FAILED under GRID_POISON_SMEM=1 for {selector!r} "
+        f"CUDA equivalence FAILED under GRIM_POISON_SMEM=1 for {selector!r} "
         f"-> a device fn reads caller-carved smem before writing it "
         f"(read-before-write / beta==0-output; see docs §1p).\n{tail}"
     )

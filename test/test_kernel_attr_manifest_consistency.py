@@ -3,7 +3,7 @@ kernel the codegen actually emits.
 
 WHY THIS EXISTS (the TRAPEZOIDAL launch-cliff, 2026-06-18). The integrator
 kernels are templated on a non-type `IntegratorType IT` param, so each IT is a
-distinct `__global__` instantiation. `init_grid` calls `cudaFuncSetAttribute(...,
+distinct `__global__` instantiation. `init_grim` calls `cudaFuncSetAttribute(...,
 cudaFuncAttributeMaxDynamicSharedMemorySize, ...)` once per manifest entry to
 raise a kernel's dynamic-shared-memory ceiling above the 48 KB device default.
 If an emitted IT is MISSING from the manifest, its attribute is never raised and
@@ -19,7 +19,7 @@ set of registered `IntegratorType::X` equals the set the codegen emits
 no nvcc, no GPU) so it runs in ordinary CI and fails the instant someone adds an
 integrator type to the codegen without registering its kernel attribute.
 
-(The mjx `mujoco_manifest` is built locally in `gen_init_gridData` with a
+(The mjx `mujoco_manifest` is built locally in `gen_init_grimData` with a
 DELIBERATELY restricted IT policy — integrator_gradient(mjx) is single-stage
 EULER/SI only — so it is intentionally NOT covered by this parity check.)
 """
@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import re
 
-from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
-from grid_codegen.algorithms._integrator import _INTEGRATOR_TYPES
+from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
+from grim_codegen.algorithms._integrator import _INTEGRATOR_TYPES
 
 # The non-mjx integrator kernel families that fan out over IntegratorType and
 # whose every emitted IT must carry a registered cudaFuncSetAttribute entry.
@@ -40,7 +40,7 @@ def _registered_integrator_types():
     """Map each integrator family (by algo_short) to the set of IntegratorType
     names registered for it in the class-level KERNEL_ATTR_MANIFEST."""
     by_family: dict[str, set[str]] = {}
-    for entry in GRiDCodeGenerator.KERNEL_ATTR_MANIFEST:
+    for entry in GRiMCodeGenerator.KERNEL_ATTR_MANIFEST:
         # entry = (algo_label, algo_short, gate_attr, bytes_macro, [(kernel_name, sig), ...])
         algo_short, kernels = entry[1], entry[4]
         if algo_short not in _INTEGRATOR_FAMILIES:

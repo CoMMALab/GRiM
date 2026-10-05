@@ -1,16 +1,16 @@
 """Batched host-wrapper CUDA equivalence test — regression guard for the floating
-nq-vs-nv matrix-buffer stride bug class (project_grid_floating_nqnv_bug_class).
+nq-vs-nv matrix-buffer stride bug class (project_grim_floating_nqnv_bug_class).
 
 Every other CUDA equivalence test drives either the `*_device` functions or the
-kernels with single-timestep (`init_gridData<T,1>`) buffers it owns itself, so none
-exercise the gridData `h_*` host-wrapper copy at NUM_TIMESTEPS>1. That blind spot is
+kernels with single-timestep (`init_grimData<T,1>`) buffers it owns itself, so none
+exercise the grimData `h_*` host-wrapper copy at NUM_TIMESTEPS>1. That blind spot is
 exactly where the matrix outputs (Minv, M, dc_du, df_du) hid a per-timestep stride
 bug: the kernels write `nv*nv` but the host malloc/copy used `nq*nq`, so for a
 FLOATING base (nq>nv) batch slot k>0 was corrupted (silent on fixed base, nq==nv,
 and on batch=1, slot 0).
 
-This test runs the BATCHED host wrappers `grid::minv` / `grid::crba` at
-NUM_TIMESTEPS=GRID_BATCH on a floating robot with DISTINCT states per slot and
+This test runs the BATCHED host wrappers `grim::minv` / `grim::crba` at
+NUM_TIMESTEPS=GRIM_BATCH on a floating robot with DISTINCT states per slot and
 checks EVERY slot against the RBDReference oracle — so a per-timestep stride
 regression fails loudly. Fixed-base is included as a control (must stay correct).
 """
@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _build_cuda_samples,
     _detect_cuda_arch,
@@ -44,7 +44,7 @@ _ALGO_KEYS = ["minv", "crba"]
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_BATCHED_HOST_ROBOTS", "iiwa14:fixed,go2:floating")
+    raw = os.environ.get("GRIM_CUDA_BATCHED_HOST_ROBOTS", "iiwa14:fixed,go2:floating")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -63,8 +63,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         codegen.gen_all_code(algorithm_list=_ALGO_KEYS, output_path=str(header))
     return header
@@ -82,7 +82,7 @@ def _compile_runner(build_dir, defines):
     cmd = [
         nvcc, "-std=c++17", "-O0",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
-        f"-DGRID_BATCH={_BATCH}",
+        f"-DGRIM_BATCH={_BATCH}",
         f"-I{glass_inc}", "-o", str(executable), str(runner_copy),
     ] + [f"-D{d}" for d in defines]
     result = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)
@@ -116,15 +116,15 @@ def test_cuda_batched_host_wrapper_matches_reference(tmp_path, robot_id, base_mo
     header = _generate_header(project_model, build_dir)
     header_txt = header.read_text()
     defines = []
-    if "GRID_HAS_CRBA" in header_txt or "crba(" in header_txt:
-        defines.append("GRID_HAS_CRBA")
+    if "GRIM_HAS_CRBA" in header_txt or "crba(" in header_txt:
+        defines.append("GRIM_HAS_CRBA")
     executable, cmd = _compile_runner(build_dir, defines)
 
     nv = project_model.nv
-    # exactly GRID_BATCH DISTINCT states so a per-slot stride bug cannot hide
+    # exactly GRIM_BATCH DISTINCT states so a per-slot stride bug cannot hide
     samples = _build_cuda_samples(project_model, random_count=_BATCH, include_corner_samples=False)
     samples = samples[:_BATCH]
-    assert len(samples) == _BATCH, "need GRID_BATCH distinct samples"
+    assert len(samples) == _BATCH, "need GRIM_BATCH distinct samples"
 
     out = _parse_runner_output(_run_runner(executable, _stdin(samples), cmd))
 

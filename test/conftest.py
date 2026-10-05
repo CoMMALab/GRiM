@@ -1,4 +1,4 @@
-"""GRiD test-suite conftest.
+"""GRiM test-suite conftest.
 
 Wires pytest-gpu-proof into the CUDA/wrapper suites without touching every test:
 any item already carrying the ``cuda_equivalence`` or ``python_wrappers`` marker
@@ -15,7 +15,7 @@ they mean that if nvcc falls off PATH or the model manifest breaks, EVERY CUDA t
 CAPABLE (nvcc on PATH AND a GPU visible), an environment-guard skip is treated as a HARD FAILURE — a
 capable box skipping for "nvcc not found" is a real breakage, not an absent environment. On a genuinely
 incapable box (no nvcc / no GPU) the guards skip freely, as before. Escape hatch for a deliberate partial
-run: `GRID_TEST_NO_FLOOR=1`.
+run: `GRIM_TEST_NO_FLOOR=1`.
 """
 
 import os
@@ -30,7 +30,7 @@ import pytest
 # allocator on top that was the "accumulation SIGABRT" abort class (~28.0 GiB
 # ceiling, re-measured 2026-09-13 under prealloc=ON: guide §7.z9). The old
 # mitigation here was PREALLOCATE=false; since the device-pool slab landed
-# (GRiD's gridData arena is carved OUT OF XLA's pool — _install_xla_device_pool,
+# (GRiM's grimData arena is carved OUT OF XLA's pool — _install_xla_device_pool,
 # 2026-09-09) the proper fix is to keep XLA's fast preallocating allocator ON
 # but BOUNDED: 35% of a 32 GiB card = 11.2 GiB, comfortably above the measured
 # jax working sets (humanoid armD peak 4.2 GiB total process) while leaving
@@ -95,7 +95,7 @@ _ENV_GUARD_SKIPS: list[str] = []
 
 def pytest_sessionfinish(session, exitstatus):
     """THE FLOOR: on a capable box, any environment-guard skip fails the session."""
-    if os.environ.get("GRID_TEST_NO_FLOOR") == "1":
+    if os.environ.get("GRIM_TEST_NO_FLOOR") == "1":
         return
     if not _ENV_GUARD_SKIPS or not _box_is_capable():
         return
@@ -110,5 +110,5 @@ def pytest_sessionfinish(session, exitstatus):
             f"{n} test(s) skipped for an ENVIRONMENT-GUARD reason on a CAPABLE box (nvcc + GPU present).\n"
             f"On a capable box these guards must not fire — they mean the toolchain, the model manifest, "
             f"or a vendored asset is broken, and a green run would be testing NOTHING. Fix the breakage "
-            f"(or set GRID_TEST_NO_FLOOR=1 for a deliberate partial run):\n  {shown}{more}"
+            f"(or set GRIM_TEST_NO_FLOOR=1 for a deliberate partial run):\n  {shown}{more}"
         )

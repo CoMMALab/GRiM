@@ -14,7 +14,7 @@ defensive net for the whole floating-root convention bug class (any algo whose f
 qdd/tau/force root 6-vector is mis-ordered shows up here as a mismatch vs RBDReference).
 
 Run (GPU box):
-  GRID_CUDA_FLOATING_VALUE_ROBOTS=go2,g1 \
+  GRIM_CUDA_FLOATING_VALUE_ROBOTS=go2,g1 \
     .venv/bin/python -m pytest test/cuda_equivalents/test_cuda_floating_values_equivalence.py \
     -m cuda_equivalence -vv
 Defaults to the non-mimic floating robots that were masked (go2, g1); override with the
@@ -51,7 +51,7 @@ def _selected_floating_value_params():
 
     Reuses ``build_floating_cuda_case_params`` so the cuda_equivalence/developer_only
     marks + manifest specs come along unchanged; just filters the robot set."""
-    want = os.environ.get("GRID_CUDA_FLOATING_VALUE_ROBOTS", "go2,g1")
+    want = os.environ.get("GRIM_CUDA_FLOATING_VALUE_ROBOTS", "go2,g1")
     want_ids = {r.strip() for r in want.split(",") if r.strip()}
     params = []
     for param in build_floating_cuda_case_params():
@@ -68,7 +68,7 @@ def test_floating_value_only_matches_python_reference(spec, base_mode, tmp_path,
     floating-root convention bug class (Bug A) without being maskable by a gradient
     build failure."""
     selection = _sample_name_selection(base_mode)
-    random_count = 0 if selection.explicit and os.environ.get("GRID_CUDA_RANDOM_SAMPLES") is None else None
+    random_count = 0 if selection.explicit and os.environ.get("GRIM_CUDA_RANDOM_SAMPLES") is None else None
     _run_cuda_equivalence_case(
         spec,
         base_mode,

@@ -38,7 +38,7 @@ import pytest
 
 from URDFParser import URDFParser
 from RBDReference import RBDReference
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -60,8 +60,8 @@ def _parse(name):
 
 
 def _generate_header(robot, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -84,8 +84,8 @@ def _compile_runner(build_dir, gridT="float"):
     exe = build_dir / "cuda_spherical_eepose_grad_hess_runner.exe"
     cmd = [
         nvcc, "-std=c++17", "-O0",
-        "-DGRID_CUDA_FLOATING_BASE=0",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        "-DGRIM_CUDA_FLOATING_BASE=0",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(exe), str(runner_copy),
@@ -104,7 +104,7 @@ def _run(exe, q, threads=32, gridT="float"):
         return " ".join(f"{x:.9g}" for x in np.asarray(v, dtype=np.float64))
     stdin = row(q) + "\n"
     env = dict(os.environ)
-    env["GRID_EQUIV_T"] = gridT
+    env["GRIM_EQUIV_T"] = gridT
     result = subprocess.run(
         [str(exe), str(threads)], input=stdin, cwd=exe.parent,
         capture_output=True, text=True, env=env,

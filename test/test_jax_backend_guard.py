@@ -7,13 +7,13 @@ jax = pytest.importorskip("jax")
 
 
 def test_cpu_only_jax_is_refused_with_a_hint(monkeypatch):
-    from grid_rbd.jax import _require_gpu_backend
+    from grim.jax import _require_gpu_backend
     monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
     with pytest.raises(RuntimeError, match=r"jax\[cuda12\]"):
         _require_gpu_backend()
 
 
 def test_gpu_jax_passes_the_guard(monkeypatch):
-    from grid_rbd.jax import _require_gpu_backend
+    from grim.jax import _require_gpu_backend
     monkeypatch.setattr(jax, "default_backend", lambda: "gpu")
     _require_gpu_backend()

@@ -1,6 +1,6 @@
 # Security Policy
 
-GRiD is a research code-generation library for GPU rigid body dynamics. It
+GRiM is a research code-generation library for GPU rigid body dynamics. It
 generates and compiles CUDA C++ from URDF inputs; it is not a network service
 and does not handle credentials or untrusted remote data.
 
@@ -19,6 +19,6 @@ will acknowledge the report and work with you on a fix and disclosure timeline.
 
 ## Supported versions
 
-GRiD is developed on the `main` line (currently versioned 0.5.0 in
+GRiM is developed on the `main` line (currently versioned 0.5.0 in
 `pyproject.toml`); only the latest release/development tip is supported —
 fixes land on the current development branch.

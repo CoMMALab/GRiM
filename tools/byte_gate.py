@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Codegen byte-gate: generate grid.cuh for 7 representative cells (iiwa14
+"""Codegen byte-gate: generate grim.cuh for 7 representative cells (iiwa14
 fixed ×4 incl. full/multi-target/collision, go2 floating ×2, fr3 mimic) into
 <outdir> and print sha256 per cell. Run BEFORE and AFTER a codegen change and
 diff the hashes — the byte-identical-codegen discipline's harness (CLAUDE.md).
@@ -16,11 +16,11 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "bindings"))
 os.chdir(REPO)
 # never let stale codegen bytecode leak between A and B
-shutil.rmtree(REPO / "grid_codegen" / "__pycache__", ignore_errors=True)
+shutil.rmtree(REPO / "grim_codegen" / "__pycache__", ignore_errors=True)
 
 from config import robot_urdf  # noqa: E402
 from URDFParser import URDFParser  # noqa: E402
-from grid_codegen import GRiDCodeGenerator  # noqa: E402
+from grim_codegen import GRiMCodeGenerator  # noqa: E402
 
 FULL_ALGOS = ["all", "frame_jacobian", "frame_jacobian_dot", "osc_inertia",
               "end_effector_pose_runtime", "end_effector_pose_gradient_runtime",
@@ -55,12 +55,12 @@ CELLS = [
 
 
 def _coll_spec(robot, urdf):
-    from grid_codegen.algorithms._collision import collision_spec_from_urdf
+    from grim_codegen.algorithms._collision import collision_spec_from_urdf
     return collision_spec_from_urdf(robot, str(urdf), resolution=0.06)
 
 
 def _contact_spec(robot):
-    from grid_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
+    from grim_codegen.algorithms._f_ext_contact import contact_frames_from_urdf
     return contact_frames_from_urdf(robot, ["iiwa_joint_ee", "tool0_joint"])
 
 
@@ -69,7 +69,7 @@ for name, urdf, floating, extra in CELLS:
     parser = URDFParser()
     robot = parser.parse(str(urdf), floating_base=floating)
     dest = outdir / f"{name}.cuh"
-    codegen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+    codegen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grim")
     kwargs = extra(robot, urdf)
     if "codegen_profile" not in kwargs:
         kwargs["include_homogenous_transforms"] = True

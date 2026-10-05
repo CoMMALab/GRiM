@@ -185,7 +185,7 @@ LITE perf matters. (Production floating path is world frame; fixed is body.)
 
 - Arena helper + the existing whole-`s_temp` routing: `gen_declare_shared_arena`
   / `tier_workspace_expr` in `helpers/_code_generation_helpers.py:543`.
-- Pick selection: `select_shared_tier_3way` in `GRiDCodeGenerator.py:~257`.
+- Pick selection: `select_shared_tier_3way` in `GRiMCodeGenerator.py:~257`.
 - Mirror kernel-body pattern: `_emit_fdsva_so_kernel_body_for_flags` /
   `gen_fdsva_so_kernel` in `algorithms/_fdsva_so.py`.
 - Introspection script used to get the numbers above: rebuildable — load robot
@@ -345,7 +345,7 @@ recursion-hot forward sweep + D-matrix build never touch it, and the
 recursion-hot buffer in smem. Block-stride writes-then-reads across p1..p6 are ordered
 by the existing `__syncthreads()` (valid for global mem too).
 
-Tier wiring (`GRiDCodeGenerator.py`, body ladder only — I-regressor owns its additive
+Tier wiring (`GRiMCodeGenerator.py`, body ladder only — I-regressor owns its additive
 rows elsewhere): new rung `output_tp` inserted between `output_bc` (rung2) and
 `output_temp` (now rung4): `("output_tp", _idsva_bf_out - _idsva_bf_TP, True, False, False, True)`
 with `_idsva_bf_TP = 36*len(jids_a)`. All body tuples gained a 4th `tp_in_global` flag;
@@ -375,7 +375,7 @@ Validation (vs pin_so_ext oracle, RTX 5090, suggested threads):
 * g1-fixed: GREEN at default PERF AND forced output_tp tier (target=60000B → picks (3,3,4)).
 * iiwa14-floating + g1-floating: GREEN (world-frame path, unchanged — confirms no
   floating regression).
-* Gate A: iiwa14-fixed + g1-fixed default `grid.cuh` byte-identical to the
+* Gate A: iiwa14-fixed + g1-fixed default `grim.cuh` byte-identical to the
   `modernizing-tests` (25c00f2) baseline (TP spill is fully opt-in/tier-gated).
 
 Scope note: h1_2 fixed body SO is mimic-refused (idsva_so_body_frame is on the G0
@@ -422,7 +422,7 @@ equalled `Xup[8] @ I[0]`, exposing the `% NUM_JOINTS` wrap.
 **Validation (RTX 5090 sm_120, vs `RBDReference.idsva_so_body_frame` =
 pin_so_ext-backed oracle, fresh-compiled clean cache):**
 * fr3-fixed idsva_so: GREEN at PERF (smem 43168 B, relmax 7.9e-7) AND a forced
-  spilled tier (`GRID_CUDA_TARGET_SHARED_MEM_BYTES=20000` → use_global_output,
+  spilled tier (`GRIM_CUDA_TARGET_SHARED_MEM_BYTES=20000` → use_global_output,
   smem 2912 B, relmax 7.9e-7), seeds 7/13/99, all 4 tensors at the fp32 noise floor.
 * fr3-fixed fdsva_so (composes the same inner): GREEN (relmax ~5e-6).
 * Gate-A: iiwa14-fixed + go2-fixed identical to the ec00b71 baseline except the

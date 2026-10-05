@@ -1,6 +1,6 @@
 """Permanent regression gate for the full-Newton EE-position cost Hessian (PR #19).
 
-The default `grid_plant::ee_pos_cost_hessian` is the TRUE analytic Hessian
+The default `grim_plant::ee_pos_cost_hessian` is the TRUE analytic Hessian
 (J_p^T W J_p + the residual-weighted EE-curvature term), with `GAUSS_NEWTON=true`
 opting into the PSD J_p^T W J_p approximation. The plant-equivalence suite already
 checks the GN path against the ratified J_p^T W J_p oracle; this cell covers the
@@ -10,7 +10,7 @@ gradient, and GN must differ from it by exactly the dropped curvature term.
 
 Fixed-base robots only (the runner FDs a q-perturbation, which needs
 NUM_POS == NUM_VEL). Correctness only — no timing. Override the robot set with
-GRID_CUDA_NEWTON_ROBOTS.
+GRIM_CUDA_NEWTON_ROBOTS.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 from RBDReference.tests.model_sources import resolve_robot_spec, iter_robot_cases
 from RBDReference.tests import MANIFEST_PATH
@@ -34,7 +34,7 @@ RUNNER_SOURCE = Path(__file__).with_name("cuda_ee_newton_hessian_runner.cu")
 
 
 def _robot_cells():
-    override = os.environ.get("GRID_CUDA_NEWTON_ROBOTS")
+    override = os.environ.get("GRIM_CUDA_NEWTON_ROBOTS")
     if override:
         return [(r.strip(), "fixed") for r in override.split(",") if r.strip()]
     # Small fixed-base robots — cheap, and enough to guard the emit. go2 is a
@@ -50,8 +50,8 @@ def _robot_spec(robot_id, base_mode):
 
 
 def _generate_header(project_model, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(project_model.robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # SPLIT codegen: full-Newton ee_pos_cost_hessian needs the analytic d2ee,
         # i.e. the "kinematics-derivatives" profile (pose + gradient + hessian).

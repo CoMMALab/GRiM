@@ -1,4 +1,4 @@
-# GRiD Multi-Version Benchmark Comparison
+# GRiM Multi-Version Benchmark Comparison
 
 **Machine**: plancher-omen-26  
 **GPU**: NVIDIA GeForce RTX 5090 (cc 12.0, CUDA 13.2)  
@@ -10,11 +10,11 @@
 All times in **µs**.
 
 Columns:
-- **pre_glass**: GRiD at the pre-GLASS reference. Fixed-base only (pre_glass harness does not support floating-base).
-- **glass**: GRiD HEAD with the pure-SIMT GLASS backend at the SHARED tier (formerly 'PERF'; max smem, lowest spill — full inner scratch in shared memory).
-- **glass_lite**: GRiD HEAD at the LITE tier — partial spill of cold/large buffers to L2-pinned d_workspace; trades some throughput for ~50% smem headroom so more blocks fit per SM. `—` if the algorithm has a single tier. Under `--autotune-threads` this is the best-thread N=256 time from the collapsed autotune sweep (a single run autotunes all tiers); `—` in the single-call / N=16 sub-tables (the sweep tunes only the N=256 path).
-- **glass_min**: GRiD HEAD at the MINIMAL tier — most aggressive spill so the kernel fits on lower-spec GPUs / leaves smem free for the caller. `—` if the algorithm has a single tier. Same autotune sourcing as glass_lite.
-- **grid_best**: the autotuned global winner over (tier × thread-count) at **batch N=256 compute-only**, formatted `µs (tier@threads)`. Populated only when the sweep ran with `--autotune-threads`; `—` otherwise and in the single-call / N=16 sub-tables (the autotune tunes the N=256 path).
+- **pre_glass**: GRiM at the pre-GLASS reference. Fixed-base only (pre_glass harness does not support floating-base).
+- **glass**: GRiM HEAD with the pure-SIMT GLASS backend at the SHARED tier (formerly 'PERF'; max smem, lowest spill — full inner scratch in shared memory).
+- **glass_lite**: GRiM HEAD at the LITE tier — partial spill of cold/large buffers to L2-pinned d_workspace; trades some throughput for ~50% smem headroom so more blocks fit per SM. `—` if the algorithm has a single tier. Under `--autotune-threads` this is the best-thread N=256 time from the collapsed autotune sweep (a single run autotunes all tiers); `—` in the single-call / N=16 sub-tables (the sweep tunes only the N=256 path).
+- **glass_min**: GRiM HEAD at the MINIMAL tier — most aggressive spill so the kernel fits on lower-spec GPUs / leaves smem free for the caller. `—` if the algorithm has a single tier. Same autotune sourcing as glass_lite.
+- **grim_best**: the autotuned global winner over (tier × thread-count) at **batch N=256 compute-only**, formatted `µs (tier@threads)`. Populated only when the sweep ran with `--autotune-threads`; `—` otherwise and in the single-call / N=16 sub-tables (the autotune tunes the N=256 path).
 - **pin**: Pinocchio CPU reference (codegen where available).
 - **mjx**: MuJoCo MJX (JAX) GPU reference. Subset of algos only (id / fd / ee_pose / id_du); others render `—`.
 - **mujoco_warp**: MuJoCo Warp (Warp-based MJX successor) GPU reference. Same MJCF + algo coverage as mjx; others render `—`.
@@ -22,9 +22,9 @@ Columns:
 - **bard_cpu / bard_gpu**: BARD (PyTorch) reference (https://github.com/YueWang996/bard-pytorch-dynamics) timed separately on torch's CPU and CUDA backends. Subset of algos only (id / fd / crba); others render `—`. BARD times the full update_kinematics + algo pipeline per state.
 - **glass/pre**: N=256 compute-only ratio. **> 1.00× = HEAD is faster**; **< 1.00× = HEAD regressed**.
 
-Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N=256**. Same backend columns + ratio in each. Values are median (or mean) µs. GRiD/MJX/Frax numbers are batch compute-only; Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).
+Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N=256**. Same backend columns + ratio in each. Values are median (or mean) µs. GRiM/MJX/Frax numbers are batch compute-only; Pinocchio is batch with-memory (its compute/transfer aren't separable on CPU).
 
-> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU — expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). The large GRiD speedup here is expected.
+> **Note (IDSVA_SO)**: Pinocchio's IDSVA_SO computes a rank-3 nv×nv×nv tensor on CPU — expect very slow CPU times especially for G1 (36 DOF: 36³ = 46,656 elements). The large GRiM speedup here is expected.
 
 > **Note (FDSVA_SO)**: Pinocchio has no direct FDSVA_SO; the baseline is synthesized in-harness via the Singh/Carpentier chain rule (RNEA SO + ABA derivatives + Minv). This is what any downstream pinocchio user would write.
 
@@ -34,7 +34,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.17 (codegen) | 388.06 | 866.41 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -49,7 +49,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 12.32 | — | — | — | 16.80 | 567.61 | 869.45 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -64,7 +64,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 12.73 | 12.11 | 11.99 | 11.99 (minimal@128) | 51.12 | 448.79 | 878.81 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -81,7 +81,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.29 (codegen) | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -96,7 +96,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 13.37 | — | — | — | 14.29 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -111,7 +111,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 14.09 | 13.19 | 13.58 | 13.19 (lite@128) | 41.32 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -128,7 +128,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.52 (codegen) | 668.11 | 1330.68 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -143,7 +143,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 17.15 | — | — | — | 17.66 | 411.25 | 1324.87 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -158,7 +158,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 27.20 | 17.11 | 18.73 | 16.95 (shared@128) | 58.05 | 382.35 | 1335.74 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -175,7 +175,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.38 (codegen) | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -190,7 +190,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 16.15 | — | — | — | 30.81 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -205,7 +205,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 17.06 | 16.22 | 16.75 | 16.22 (shared@128) | 174.93 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -222,7 +222,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.20 (codegen) | — | 102.28 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -237,7 +237,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 11.48 | — | — | — | 10.56 | — | 102.98 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -252,7 +252,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 12.18 | 11.77 | 12.63 | 11.70 (shared@96) | 24.51 | — | 103.32 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -271,7 +271,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 1.15 (codegen) | 603.69 | 41593.89 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -286,7 +286,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 23.03 | — | — | — | 51.10 | 508.59 | 675079.71 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -301,7 +301,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 32.09 | 24.79 | 25.49 | 23.21 (shared@128) | 187.69 | 594.49 | 10891827.32 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -318,7 +318,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 2.34 (codegen) | 703.84 | 61054.12 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -333,7 +333,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 33.99 | — | — | — | 62.71 | 721.60 | 991478.85 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -348,7 +348,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 53.10 | 46.62 | 36.37 | 32.67 (shared@128) | 103.44 | 615.83 | 15914608.24 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -365,7 +365,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -380,7 +380,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -395,7 +395,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -412,7 +412,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -427,7 +427,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -442,7 +442,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -459,7 +459,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -474,7 +474,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -489,7 +489,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -506,7 +506,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -521,7 +521,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -536,7 +536,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -553,7 +553,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -568,7 +568,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -583,7 +583,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -600,7 +600,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -615,7 +615,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -630,7 +630,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -649,7 +649,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -664,7 +664,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 24.91 | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -679,7 +679,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 35.21 | 24.43 | 23.90 | 23.90 (minimal@128) | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -696,7 +696,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -711,7 +711,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 34.19 | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -726,7 +726,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 53.66 | 33.08 | 33.31 | 33.08 (lite@192) | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -743,7 +743,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -758,7 +758,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 34.63 | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -773,7 +773,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 54.18 | 33.53 | 33.67 | 33.50 (shared@128) | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -790,7 +790,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -805,7 +805,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -820,7 +820,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -839,7 +839,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.31 (direct) | 379.76 | 59.62 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -854,7 +854,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 6.98 | — | — | — | 9.98 | 386.66 | 60.84 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -869,7 +869,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 7.26 | 7.24 | 7.10 | 7.07 (shared@128) | 28.59 | 508.05 | 62.10 | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -886,7 +886,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 0.34 (direct) | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -901,7 +901,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 15.77 | — | — | — | 12.20 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -916,7 +916,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 17.25 | 15.42 | 15.56 | 15.42 (lite@48) | 39.87 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -933,7 +933,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 1.42 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -948,7 +948,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 9.93 | — | — | — | 30.45 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -963,7 +963,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | 10.61 | 10.29 | 10.35 | 10.29 (lite@128) | 44.13 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -980,7 +980,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -995,7 +995,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1010,7 +1010,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1027,7 +1027,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1042,7 +1042,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1057,7 +1057,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1074,7 +1074,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1089,7 +1089,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1104,7 +1104,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1121,7 +1121,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1136,7 +1136,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1151,7 +1151,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1168,7 +1168,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1183,7 +1183,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1198,7 +1198,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1217,7 +1217,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1232,7 +1232,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1247,7 +1247,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1264,7 +1264,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 7.43 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1279,7 +1279,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 147.08 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1294,7 +1294,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 391.34 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1311,7 +1311,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1326,7 +1326,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1341,7 +1341,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1358,7 +1358,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 18.75 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1373,7 +1373,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 304.40 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1388,7 +1388,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | 770.28 | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1407,7 +1407,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1422,7 +1422,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1437,7 +1437,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1454,7 +1454,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1469,7 +1469,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1484,7 +1484,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1501,7 +1501,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1516,7 +1516,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1531,7 +1531,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1548,7 +1548,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1563,7 +1563,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1578,7 +1578,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1595,7 +1595,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1610,7 +1610,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1625,7 +1625,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1642,7 +1642,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1657,7 +1657,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1672,7 +1672,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1689,7 +1689,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1704,7 +1704,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1719,7 +1719,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1736,7 +1736,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1751,7 +1751,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1766,7 +1766,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1785,7 +1785,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **single-call**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1800,7 +1800,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=16**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -1815,7 +1815,7 @@ Each algorithm gets three sub-tables: **single-call**, **batch N=16**, **batch N
 
 **batch N=256**
 
-| Robot | Base | pre_glass | glass | glass_lite | glass_min | grid_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
+| Robot | Base | pre_glass | glass | glass_lite | glass_min | grim_best | pin | mjx | mujoco_warp | frax_cpu | frax_gpu | bard_cpu | bard_gpu | glass/pre |
 |-------|------|:---------:|:-----:|:----------:|:---------:|:--------:|:---:|:---:|:-----------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | iiwa14 | fixed | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | iiwa14 | floating | — | — | — | — | — | — | — | — | — | — | — | — | — |

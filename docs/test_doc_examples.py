@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_backend_inventory_matches_class_definitions():
     sources = (
-        ("bindings/grid_rbd/_handle.py", "RobotHandle"),
-        ("bindings/grid_rbd/jax/__init__.py", "JaxRobotHandle"),
-        ("bindings/grid_rbd/torch/__init__.py", "TorchRobotHandle"),
+        ("bindings/grim/_handle.py", "RobotHandle"),
+        ("bindings/grim/jax/__init__.py", "JaxRobotHandle"),
+        ("bindings/grim/torch/__init__.py", "TorchRobotHandle"),
     )
     methods = []
     for path, name in sources:
@@ -56,7 +56,7 @@ def test_documented_inertia_basis_matches_reference_regressor():
 
 
 def test_runtime_tool_transform_normalization_cpu_only():
-    from grid_rbd._handle import RobotHandle
+    from grim._handle import RobotHandle
 
     # Exercise the real pure-NumPy helper without constructing a GPU handle.
     context = SimpleNamespace(_dt=np.float32)

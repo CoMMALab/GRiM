@@ -1,7 +1,7 @@
-// Validation for W3 Step 3 grid_collision::config_free.
+// Validation for W3 Step 3 grim_collision::config_free.
 //
 // End-to-end wiring test: sphere WORLD positions via the W1b batched extractor
-// (grid::multi_target_position_device) -> environment SDF checks (grid_cc_sphere_in_environment)
+// (grim::multi_target_position_device) -> environment SDF checks (grim_cc_sphere_in_environment)
 // -> collision-free verdict. Self-consistent, no external oracle:
 //   * empty/far environment (+ tiny radii) => config_free == TRUE  (free)
 //   * an obstacle sphere placed exactly ON sphere 0's world position => config_free == FALSE
@@ -9,22 +9,22 @@
 // (test_cuda_collision_geometry.py); this runner certifies the extractor->config_free binding.
 //
 // fp32 (collision change-of-record). Correctness only, no timing.
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
 #include <vector>
 
 using T = float;
-namespace gc = grid_collision;
-constexpr int NQ = grid::NUM_POS;
+namespace gc = grim_collision;
+constexpr int NQ = grim::NUM_POS;
 constexpr int NS = gc::NUM_COLLISION_SPHERES;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
 
 // Run config_free against a caller-provided obstacle list; export the verdict + sphere positions.
-__global__ void cf_kernel(const T *d_q, const grid::robotModel<T> *m,
+__global__ void cf_kernel(const T *d_q, const grim::robotModel<T> *m,
                           const gc::Sphere<T> *d_obst, int n_obst, int *d_free, T *d_pos) {
     __shared__ T s_pos[3*NS];
     __shared__ T s_r[NS];
@@ -38,8 +38,8 @@ __global__ void cf_kernel(const T *d_q, const grid::robotModel<T> *m,
 }
 
 int main(int argc, char **argv){
-    const grid::robotModel<T> *d_m = grid::init_robotModel<T>();
-    size_t smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *d_m = grim::init_robotModel<T>();
+    size_t smem = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
 
     // q defaults to a deterministic bent config; an optional NQ-length argv overrides it (used by
     // the real-robot gate to evaluate at a known self-collision-free config, e.g. the home pose).

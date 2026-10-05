@@ -6,7 +6,7 @@ Bias terms, centroidal quantities and energy
 Overview
 --------
 Several quantities that controllers and identification pipelines need are
-special cases or by-products of the recursive algorithms. GRiD exposes them as
+special cases or by-products of the recursive algorithms. GRiM exposes them as
 first-class operations rather than asking users to assemble them from RNEA
 calls:
 
@@ -40,11 +40,11 @@ Signature
 
 The centroidal quantities follow the Pinocchio convention: ``[linear;
 angular]`` at the centre of mass, world aligned. The ten inertial parameters
-per body use GRiD's order
+per body use GRiM's order
 ``[m, hx, hy, hz, Ixx, Ixy, Ixz, Iyy, Iyz, Izz]``: ``h = m*c`` and the
 inertia is about the body-frame origin, not the centre of mass. This differs
 from Pinocchio's ``toDynamicParameters`` (which places ``Iyy`` before
-``Ixz``); do not multiply a GRiD regressor by an unconverted Pinocchio vector.
+``Ixz``); do not multiply a GRiM regressor by an unconverted Pinocchio vector.
 See :doc:`../../tutorials/verified_inputs` for a CPU-tested parameter-vector
 construction and regressor identity check.
 
@@ -61,9 +61,9 @@ The Python references are the ``_energy.py`` and ``_centroidal.py`` mixins of
 RBDReference (``generalized_gravity``, ``nonlinear_effects``,
 ``coriolis_matrix``, ``com``, ``ccrba``, ``dccrba``, ``cmm_time_variation``,
 the energies and regressors), each validated against Pinocchio. The CUDA
-generators are the matching modules under ``grid_codegen/algorithms/``.
+generators are the matching modules under ``grim_codegen/algorithms/``.
 
-In GRiD
+In GRiM
 -------
 The bias and gravity vectors have dedicated kernels that reuse the
 inverse-dynamics inner recursion with acceleration (and velocity for gravity)
@@ -75,19 +75,19 @@ floating-base humanoids through the sweep-pool spill path of the
 reduced coordinates on mimic robots. Spill tiers extend coverage, but
 generation and launch remain subject to the target GPU's resource limits.
 
-The CUDA host entries carry the same names (``grid::nonlinear_effects``,
-``grid::coriolis_matrix``, ``grid::ccrba`` and so on), each with a
+The CUDA host entries carry the same names (``grim::nonlinear_effects``,
+``grim::coriolis_matrix``, ``grim::ccrba`` and so on), each with a
 ``_compute_only`` variant. With ``output_convention="mujoco"`` the bias
 matches MuJoCo's ``qfrc_bias`` (the floating-root acceleration couple is
 injected and the base rows rotated in the kernel), the Coriolis matrix is the
 congruence-transformed MuJoCo-frame matrix, and the centroidal momentum is
 invariant while the matrix columns are reframed.
 
-In the release benchmarks the bias and gravity vectors are where GRiD's
+In the release benchmarks the bias and gravity vectors are where GRiM's
 advantage over Pinocchio's code-generated C++ is smallest: they are the
 cheapest operations, so the host↔device copies are a large share of the GPU
 time. The centroidal momentum matrix is one operation where Pinocchio's
-standard API beats GRiD's host call on the floating-base robots at every
+standard API beats GRiM's host call on the floating-base robots at every
 measured batch size. That timing alone does not isolate the cause to output
 size or transfer cost.
 

@@ -1,13 +1,13 @@
-# GRiD launch configs — crowdsourced per-(robot, GPU) autotuned launch parameters
+# GRiM launch configs — crowdsourced per-(robot, GPU) autotuned launch parameters
 
-GRiD kernels are single-block and **thread-count-invariant** (same result at any block size), so the optimal
+GRiM kernels are single-block and **thread-count-invariant** (same result at any block size), so the optimal
 `(resource_tier, threads_per_block)` for each algorithm is a pure *performance* choice that depends on the
-**robot** (DoF/topology) and the **GPU**. This directory holds measured-optimal launch configs so GRiD defaults
+**robot** (DoF/topology) and the **GPU**. This directory holds measured-optimal launch configs so GRiM defaults
 to fast launches out of the box — instead of the register-clamped fallback that can be 100×+ too slow.
 
-At codegen time, GRiD bakes the matching `config/launch_configs/<robot>/<gpu>.json` into the generated
-`grid_launch_config.cuh`; the host kernel launchers (and therefore the python/jax/torch bindings) default their
-launch config from it. If there's no entry for your (robot, GPU), GRiD falls back to a conservative default —
+At codegen time, GRiM bakes the matching `config/launch_configs/<robot>/<gpu>.json` into the generated
+`grim_launch_config.cuh`; the host kernel launchers (and therefore the python/jax/torch bindings) default their
+launch config from it. If there's no entry for your (robot, GPU), GRiM falls back to a conservative default —
 still correct, just not optimal.
 
 ## Layout
@@ -24,7 +24,7 @@ config/launch_configs/<robot>/<gpu>.json
   "cuda_arch": "sm_120",
   "gpu_name": "NVIDIA GeForce RTX 5090",
   "autotune_N": 256,
-  "source": "GRiD autotune sweep <date>",
+  "source": "GRiM autotune sweep <date>",
   "bases": {
     "fixed":    { "crba": { "tier": "shared", "threads": 96, "us_at_optimal": 11.68 }, "...": {} },
     "floating": { "...": {} }
@@ -56,7 +56,7 @@ Two further blocks (written by newer tools; absent on older configs):
 ```
 bash config/autotune_robot.sh <robot> [fixed floating]
 ```
-This runs the GRiD autotune sweep (single-call timing off by default; RAM-safe serial build for big robots) and
+This runs the GRiM autotune sweep (single-call timing off by default; RAM-safe serial build for big robots) and
 writes `config/launch_configs/<robot>/<your_gpu>.json`. Re-run codegen + rebuild and the host launchers pick up your
 values. (See the **"Autotune launch config for your robot / GPU"** section of
 `docs/source/user_guide/tutorials/benchmarks.rst` for the full workflow.)

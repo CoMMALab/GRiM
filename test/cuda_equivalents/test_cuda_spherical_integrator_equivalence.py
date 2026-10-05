@@ -1,6 +1,6 @@
 """CUDA equivalence test for the SPHERICAL (ball) joint time INTEGRATOR.
 
-Validates `grid::integrator<T, IT>` (value surface x_{k+1} = integrator(x_k, u, dt))
+Validates `grim::integrator<T, IT>` (value surface x_{k+1} = integrator(x_k, u, dt))
 for all six IntegratorTypes
 on the spherical fixtures, against a Python reference composed from the verified
 RBDReference primitives:
@@ -18,7 +18,7 @@ scalar-per-body ABA *minv* recursion raises on spherical, which is irrelevant he
 It exercises BOTH CUDA surfaces, fp32 + fp64, at thread counts {1, 32, 256}:
   * the device function ``integrator_device<T, IT>`` (explicit nq-wide s_q /
     nv-wide s_qd,s_u buffers); and
-  * the HOST batch wrapper ``integrator<T, IT, GRID_DATA_ALL>`` over a 4-timestep
+  * the HOST batch wrapper ``integrator<T, IT, GRIM_DATA_ALL>`` over a 4-timestep
     trajectory (the per-timestep NQ-wide input-slot path the bindings use — the
     §1e nq-stride check: every batch row must equal the single-call device row).
 
@@ -39,7 +39,7 @@ import pytest
 
 from URDFParser import URDFParser
 from RBDReference import RBDReference
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
     _parse_runner_output,
@@ -72,8 +72,8 @@ def _parse(name):
 
 
 def _generate_header(robot, build_dir):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
@@ -98,8 +98,8 @@ def _compile_runner(build_dir, equiv_t):
     exe = build_dir / f"cuda_spherical_integrator_runner_{equiv_t}.exe"
     cmd = [
         nvcc, "-std=c++17", "-O0",
-        "-DGRID_CUDA_FLOATING_BASE=0",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        "-DGRIM_CUDA_FLOATING_BASE=0",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
         "-o", str(exe), str(runner_copy),
@@ -118,7 +118,7 @@ def _run(exe, q, qd, u, threads=32, equiv_t="float"):
         return " ".join(f"{x:.12g}" for x in np.asarray(v, dtype=np.float64))
     stdin = "\n".join([row(q), row(qd), row(u)]) + "\n"
     env = dict(os.environ)
-    env["GRID_EQUIV_T"] = equiv_t
+    env["GRIM_EQUIV_T"] = equiv_t
     result = subprocess.run(
         [str(exe), str(threads)], input=stdin, cwd=exe.parent,
         capture_output=True, text=True, env=env,

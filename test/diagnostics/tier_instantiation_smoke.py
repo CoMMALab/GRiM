@@ -57,7 +57,7 @@ INTEGRATOR_ITS = ["EULER", "RK4"]
 
 def generate(robot_label: str, urdf: Path, floating: bool, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "grid.cuh"
+    out_path = out_dir / "grim.cuh"
     # Mimic robots (e.g. h1_2) codegen a restricted algorithm list here. That
     # restriction is HISTORICAL (it dates from the old G0 footgun guard that
     # refused mimic gradients; mimic gradients are fully supported now) and is
@@ -68,10 +68,10 @@ def generate(robot_label: str, urdf: Path, floating: bool, out_dir: Path) -> Pat
 import sys
 sys.path.insert(0, "{REPO_ROOT}")
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 p = URDFParser()
 r = p.parse("{urdf}", floating_base={floating})
-cg = GRiDCodeGenerator(r, 0, FILE_NAMESPACE="grid")
+cg = GRiMCodeGenerator(r, 0, FILE_NAMESPACE="grid")
 if cg.robot_has_mimic_joints():
     cg.gen_all_code(output_path="{out_path}",
                     algorithm_list=["inverse_dynamics", "minv", "forward_dynamics", "aba", "crba", "integrator"])
@@ -85,12 +85,12 @@ else:
     return out_path
 
 
-def detect_emitted(grid_cuh: Path) -> list[str]:
-    text = grid_cuh.read_text()
+def detect_emitted(grim_cuh: Path) -> list[str]:
+    text = grim_cuh.read_text()
     return [k for k in KERNELS if re.search(rf"\bvoid\s+{k}\s*\(", text)]
 
 
-def compile_all_tiers(grid_cuh: Path, emitted: list[str], build_dir: Path) -> dict:
+def compile_all_tiers(grim_cuh: Path, emitted: list[str], build_dir: Path) -> dict:
     """Force-instantiate every emitted kernel at all three tiers; compile
     with -Xptxas -v; parse per-(kernel, tier) registers + launch_bounds.
 
@@ -107,18 +107,18 @@ def compile_all_tiers(grid_cuh: Path, emitted: list[str], build_dir: Path) -> di
             # discarding the template return-type deduction (we don't actually
             # call the kernel, we just need its template body in the obj file).
             body_lines.append(
-                f"    (void) reinterpret_cast<void*>(&grid::{k}<T, grid::{tier}>);"
+                f"    (void) reinterpret_cast<void*>(&grim::{k}<T, grim::{tier}>);"
             )
     # Integrator kernels: instantiate at every (IT, tier) so the per-tier spill
     # bodies (s_D_qdd_stage in smem vs d_workspace) all compile.
-    grid_text = grid_cuh.read_text()
+    grim_text = grim_cuh.read_text()
     for k in INTEGRATOR_KERNELS:
-        if not re.search(rf"\bvoid\s+{k}\s*\(", grid_text):
+        if not re.search(rf"\bvoid\s+{k}\s*\(", grim_text):
             continue
         for it in INTEGRATOR_ITS:
             for tier in TIERS:
                 body_lines.append(
-                    f"    (void) reinterpret_cast<void*>(&grid::{k}<T, grid::IntegratorType::{it}, grid::{tier}>);"
+                    f"    (void) reinterpret_cast<void*>(&grim::{k}<T, grim::IntegratorType::{it}, grim::{tier}>);"
                 )
     # Validate the tier-aware sizing constexprs for inline-CUDA users. At
     # TIER_SHARED the SMEM_BYTES values should be non-zero (full smem
@@ -131,34 +131,34 @@ def compile_all_tiers(grid_cuh: Path, emitted: list[str], build_dir: Path) -> di
     // fdsva_so_contract: 4*nv^3 scratch
     // fdsva_so_contract scratch constants are now keyed on the placement bool
     // SCRATCH_IN_SMEM (true = s_temp/shared, false = d_workspace/global).
-    static_assert(grid::FDSVA_SO_INNER_SMEM_BYTES<T, true>() > 0,
+    static_assert(grim::FDSVA_SO_INNER_SMEM_BYTES<T, true>() > 0,
                   "FDSVA_SO_INNER_SMEM_BYTES<smem> must include scratch");
-    static_assert(grid::FDSVA_SO_INNER_SMEM_BYTES<T, false>() == 0,
+    static_assert(grim::FDSVA_SO_INNER_SMEM_BYTES<T, false>() == 0,
                   "FDSVA_SO_INNER_SMEM_BYTES<global> must drop scratch");
-    static_assert(grid::FDSVA_SO_INNER_WORKSPACE_BYTES<T, true>() == 0,
+    static_assert(grim::FDSVA_SO_INNER_WORKSPACE_BYTES<T, true>() == 0,
                   "FDSVA_SO_INNER_WORKSPACE_BYTES<smem> must be zero");
-    static_assert(grid::FDSVA_SO_INNER_WORKSPACE_BYTES<T, false>() > 0,
+    static_assert(grim::FDSVA_SO_INNER_WORKSPACE_BYTES<T, false>() > 0,
                   "FDSVA_SO_INNER_WORKSPACE_BYTES<global> must hold scratch");
 
     // fd_du_device, id_du_device, idsva_so_device: whole s_temp arena
-    static_assert(grid::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_SHARED>() >
-                  grid::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_LITE>(),
+    static_assert(grim::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_SHARED>() >
+                  grim::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_LITE>(),
                   "FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES LITE must drop below PERF");
-    static_assert(grid::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_SHARED>() == 0,
+    static_assert(grim::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_SHARED>() == 0,
                   "FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES PERF must be zero");
-    static_assert(grid::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() > 0,
+    static_assert(grim::FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_LITE>() > 0,
                   "FORWARD_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES LITE must hold scratch");
 
-    static_assert(grid::INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_SHARED>() >
-                  grid::INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_LITE>(),
+    static_assert(grim::INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_SHARED>() >
+                  grim::INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_LITE>(),
                   "INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_SMEM_BYTES LITE must drop below PERF");
-    static_assert(grid::INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() > 0,
+    static_assert(grim::INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_LITE>() > 0,
                   "INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES LITE must hold scratch");
 
-    static_assert(grid::IDSVA_SO_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_SHARED>() >
-                  grid::IDSVA_SO_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_LITE>(),
+    static_assert(grim::IDSVA_SO_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_SHARED>() >
+                  grim::IDSVA_SO_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_LITE>(),
                   "IDSVA_SO_DEVICE_INLINE_SMEM_BYTES LITE must drop below PERF");
-    static_assert(grid::IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() > 0,
+    static_assert(grim::IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_LITE>() > 0,
                   "IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES LITE must hold scratch");
 
     // d2ee: only the d2eeTemp slot moves to d_workspace; the d2ee s_temp arena
@@ -168,15 +168,15 @@ def compile_all_tiers(grid_cuh: Path, emitted: list[str], build_dir: Path) -> di
     // The SMEM invariant is therefore "LITE never EXCEEDS SHARED" (>=), not a
     // strict drop. (A strict '>' here was a latent bug — it failed on every
     // robot whose d2ee SMEM is tier-independent, i.e. all of iiwa14/go2/h2_plus.)
-    static_assert(grid::END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_SHARED>() >=
-                  grid::END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_LITE>(),
+    static_assert(grim::END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_SHARED>() >=
+                  grim::END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_LITE>(),
                   "END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_SMEM_BYTES LITE must not exceed SHARED");
-    static_assert(grid::END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_LITE>() > 0,
+    static_assert(grim::END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_LITE>() > 0,
                   "END_EFFECTOR_POSE_HESSIAN_DEVICE_INLINE_WORKSPACE_BYTES LITE must hold d2eeTemp");
 """
     src = build_dir / "force_inst.cu"
     src.write_text(
-        '#include "grid.cuh"\n'
+        '#include "grim.cuh"\n'
         'using T = float;\n'
         'void force_all_tiers() {\n'
         + '\n'.join(body_lines) + '\n'
@@ -186,7 +186,7 @@ def compile_all_tiers(grid_cuh: Path, emitted: list[str], build_dir: Path) -> di
     obj = build_dir / "force_inst.o"
     rc = subprocess.run(
         [NVCC, "-std=c++17", "-c", "-o", str(obj), str(src),
-         f"-I{grid_cuh.parent}",
+         f"-I{grim_cuh.parent}",
          f"-gencode=arch=compute_{ARCH},code=sm_{ARCH}",
          "-O3", "-Xptxas", "-v", "-Wno-deprecated-gpu-targets"],
         capture_output=True, text=True,
@@ -233,7 +233,7 @@ def _resolve_urdf_via_robot_descriptions(module_name: str) -> Path | None:
 # go2_fixed is the most divergent — full 3-way picks on fdsva_so + d2ee.
 # h2_plus_fixed is the high-DOF stress test where ID_DU/D2EE pick divergent levels
 # and several kernels overflow at runtime (bench skips those via
-# grid_kernel_fits_device). H2+ is GRiD-internal (vendored URDF, not in
+# grim_kernel_fits_device). H2+ is GRiM-internal (vendored URDF, not in
 # robot_descriptions) — the second field is a local path, not a module name.
 SCENARIOS = [
     ("iiwa14_fixed",  "robot_descriptions.iiwa14_description",  False),
@@ -252,7 +252,7 @@ def main():
     overall_ok = True
     for label, mod_name, floating in SCENARIOS:
         # The second field is either a robot_descriptions module name or, for
-        # GRiD-internal robots (e.g. h2_plus), a direct local URDF path.
+        # GRiM-internal robots (e.g. h2_plus), a direct local URDF path.
         local = Path(mod_name)
         if local.exists():
             urdf = local
@@ -266,14 +266,14 @@ def main():
         print(f"\n=== {label} ({urdf.name}) ===")
         work = Path(f"/tmp/tier_inst_smoke/{label}")
         try:
-            grid_cuh = generate(label, urdf, floating, work)
+            grim_cuh = generate(label, urdf, floating, work)
         except RuntimeError as e:
             print(f"  CODEGEN FAILED: {e}")
             overall_ok = False
             continue
-        emitted = detect_emitted(grid_cuh)
+        emitted = detect_emitted(grim_cuh)
         print(f"  Emitted kernels ({len(emitted)})")
-        result = compile_all_tiers(grid_cuh, emitted, work / "build")
+        result = compile_all_tiers(grim_cuh, emitted, work / "build")
         if not result["compile_ok"]:
             print(f"  COMPILE FAILED:\n{result['stderr']}")
             overall_ok = False

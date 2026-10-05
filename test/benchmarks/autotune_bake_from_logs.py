@@ -45,7 +45,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from test.benchmarks.autotune_ffi import (  # noqa: E402
     SURFACE_PROFILE, write_ffi_config,
 )
-from grid_codegen.GRiDCodeGenerator import LAUNCH_CONFIG_DEFAULT_GPU  # noqa: E402
+from grim_codegen.GRiMCodeGenerator import LAUNCH_CONFIG_DEFAULT_GPU  # noqa: E402
 
 SURFACES = sorted(SURFACE_PROFILE)  # jax / numpy / torch
 

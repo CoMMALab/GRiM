@@ -1,12 +1,12 @@
-"""CUDA gate for W3 `grid_collision::config_free` (the namespace emitter).
+"""CUDA gate for W3 `grim_collision::config_free` (the namespace emitter).
 
-Certifies the END-TO-END binding: the codegen emits a `grid_collision` namespace whose
-`config_free` runs the W1b batched extractor (grid::multi_target_position_device) then the
-static SDF checks (grid_collision_geometry.cuh). Self-consistent (no external oracle):
+Certifies the END-TO-END binding: the codegen emits a `grim_collision` namespace whose
+`config_free` runs the W1b batched extractor (grim::multi_target_position_device) then the
+static SDF checks (grim_collision_geometry.cuh). Self-consistent (no external oracle):
   * empty / far environment + tiny radii  => config_free == free
   * obstacle placed ON sphere 0           => config_free == in-collision
   * self-collision path (Increment 0): huge radii on a NON-ADJACENT sphere pair, empty env
-    => config_free == in-collision (via grid_cc_self_collision); an ADJACENT-only pair
+    => config_free == in-collision (via grim_cc_self_collision); an ADJACENT-only pair
     (excluded from the baked ranges) => free, proving the adjacency exclusion through config_free.
 The SDF math + baked-range self-collision are unit-tested by test_cuda_collision_geometry.py;
 this gate covers the generated data tables + the extractor->config_free wiring.
@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algorithms._collision import build_self_cc_ranges
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algorithms._collision import build_self_cc_ranges
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 from RBDReference.tests.model_sources import resolve_robot_spec, iter_robot_cases
 from RBDReference.tests import MANIFEST_PATH
@@ -32,7 +32,7 @@ from RBDReference.equivalents.reference_backend import build_project_adapter
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from config import robot_urdf
-COLLISION_INCLUDE = REPO_ROOT / "grid_codegen" / "collision"
+COLLISION_INCLUDE = REPO_ROOT / "grim_codegen" / "collision"
 RUNNER_SOURCE = Path(__file__).with_name("cuda_collision_config_free_runner.cu")
 SELFCC_RUNNER_SOURCE = Path(__file__).with_name("cuda_collision_self_collision_runner.cu")
 
@@ -78,8 +78,8 @@ def _two_sphere_spec(robot, anchor_a, anchor_b, radius):
 
 def _gen_header(robot, build_dir, spec):
     build_dir.mkdir(parents=True, exist_ok=True)
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # SPLIT codegen: collision emission is collision_spec-driven; the list only
         # needs one ee key to satisfy the include_any_kinematics gate.
@@ -130,12 +130,12 @@ def test_collision_config_free(tmp_path):
 @pytest.mark.robot_smoke
 def test_collision_config_free_real_robot(tmp_path):
     """Full AUTOMATED flow on a real, fully-covered robot: the custom spherizer converts go2's
-    URDF collision geometry -> covering spheres -> collision_spec_from_urdf -> grid_collision::
+    URDF collision geometry -> covering spheres -> collision_spec_from_urdf -> grim_collision::
     config_free that compiles and runs. go2 at its home config (q=0) is self-collision-free, so
     the config_free verdict is governed by the environment: empty/far => free, obstacle-on-sphere
     => in-collision. This is the end-to-end certification of the `--collision` pipeline."""
     from URDFParser import URDFParser
-    from grid_codegen.algorithms._collision import collision_spec_from_urdf
+    from grim_codegen.algorithms._collision import collision_spec_from_urdf
     urdf = robot_urdf("go2")
     if not urdf.exists():
         pytest.skip("go2.urdf not found")
@@ -157,7 +157,7 @@ def test_collision_config_free_real_robot(tmp_path):
 @pytest.mark.developer_only
 @pytest.mark.robot_smoke
 def test_collision_self_collision(tmp_path):
-    """Increment 0: drive grid_cc_self_collision THROUGH config_free (empty env). A non-adjacent
+    """Increment 0: drive grim_cc_self_collision THROUGH config_free (empty env). A non-adjacent
     huge-radius pair must be flagged (config_free false); an adjacent-only pair is excluded from
     the baked ranges and stays free -- the range table's adjacency exclusion, proven end-to-end."""
     robot = _robot()

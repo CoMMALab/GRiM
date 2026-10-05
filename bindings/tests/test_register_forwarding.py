@@ -1,6 +1,6 @@
 """Registration-argument forwarding (audit W08, 2026-09-19).
 
-`grid_rbd.register_robot(..., backend="jax"|"torch")` delegates to the backend
+`grim.register_robot(..., backend="jax"|"torch")` delegates to the backend
 `register_robot`, which in turn delegates to the NumPy root registration. Every
 material build option must survive BOTH hops — the 2026-09-17 `contact_frames`
 kwarg reached the NumPy path only and was silently DROPPED on the jax/torch
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-import grid_rbd
+import grim
 
 
 class _Captured(Exception):
@@ -36,10 +36,10 @@ _MATERIAL = dict(
 
 @pytest.mark.parametrize("backend", ["jax", "torch"])
 def test_root_dispatch_forwards_every_material_option(monkeypatch, backend):
-    mod = pytest.importorskip(f"grid_rbd.{backend}")
+    mod = pytest.importorskip(f"grim.{backend}")
     monkeypatch.setattr(mod, "register_robot", _stub)
     with pytest.raises(_Captured) as ei:
-        grid_rbd.register_robot("fwd_probe", "/nonexistent/robot.urdf", backend=backend, **_MATERIAL)
+        grim.register_robot("fwd_probe", "/nonexistent/robot.urdf", backend=backend, **_MATERIAL)
     got = ei.value.kwargs
     missing = {k: v for k, v in _MATERIAL.items() if got.get(k) != v}
     assert not missing, f"root->{backend} dispatch dropped/changed: {missing}"
@@ -47,13 +47,13 @@ def test_root_dispatch_forwards_every_material_option(monkeypatch, backend):
 
 @pytest.mark.parametrize("backend", ["jax", "torch"])
 def test_backend_register_forwards_to_the_numpy_root(monkeypatch, backend):
-    mod = pytest.importorskip(f"grid_rbd.{backend}")
+    mod = pytest.importorskip(f"grim.{backend}")
     if backend == "jax":
         pytest.importorskip("jax")
     else:
         pytest.importorskip("torch")
-    # The backend calls `_grid_rbd.register_robot` (the package attribute).
-    monkeypatch.setattr(grid_rbd, "register_robot", _stub)
+    # The backend calls `_grim.register_robot` (the package attribute).
+    monkeypatch.setattr(grim, "register_robot", _stub)
     with pytest.raises(_Captured) as ei:
         mod.register_robot("fwd_probe", "/nonexistent/robot.urdf", **_MATERIAL)
     got = ei.value.kwargs

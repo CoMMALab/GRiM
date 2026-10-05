@@ -7,7 +7,7 @@ For each (algorithm × robot) combination, capture three resource axes:
   2. Per-thread register count at __launch_bounds__(1024) — what TIER_MINIMAL
      looks like.
   3. Per-block dynamic shared memory bytes (queried from the constexpr
-     *_DYNAMIC_SHARED_MEM_BYTES<float>() emitted in grid.cuh; ptxas only
+     *_DYNAMIC_SHARED_MEM_BYTES<float>() emitted in grim.cuh; ptxas only
      reports static smem, not dynamic, so we have to run a tiny host
      program per robot to extract these values).
 
@@ -16,9 +16,9 @@ algorithm needs a real downgrade (not just an alias)" because nvcc
 spilling to local memory is what makes the relaxed-launch_bounds path
 slow.
 
-Reuses the bench's `timeGRiD_batch.cu` as the kernel-instantiation driver,
+Reuses the bench's `timeGRiM_batch.cu` as the kernel-instantiation driver,
 but generates floating-base headers with `enable_floating_second_order=True`
-so the SO kernels are emitted and the `#if GRID_HAS_FDSVA_SO` gates fire.
+so the SO kernels are emitted and the `#if GRIM_HAS_FDSVA_SO` gates fire.
 
 Run from the repo root:
     PYTHONPATH=. .venv/bin/python test/diagnostics/tier_baseline.py
@@ -42,7 +42,7 @@ ROBOTS = [
     ("g1_fixed",       URDF_DIR / "unitree_ros/robots/g1_description/g1_29dof.urdf", False),
     ("g1_floating",    URDF_DIR / "unitree_ros/robots/g1_description/g1_29dof.urdf", True),
     # H2+ (Unitree, nv=75 fixed / 81 floating) is the large-robot scaling target
-    # that retired the redundant h1_2. Vendored locally (GRiD-internal, not in
+    # that retired the redundant h1_2. Vendored locally (GRiM-internal, not in
     # robot_descriptions), so it loads from config/robot_assets/.
     ("h2_plus_fixed",     robot_urdf("h2_plus"), False),
     ("h2_plus_floating",  robot_urdf("h2_plus"), True),
@@ -51,17 +51,17 @@ ROBOTS = [
 WORK = Path(os.environ.get("TIER_BASELINE_WORK", "/tmp/tier_baseline_v2"))
 NVCC = "/usr/local/cuda/bin/nvcc"
 ARCH = "120"
-# The per-exe bench cutover retired the monolithic timeGRiD_batch.cu. Any TU that #includes grid.cuh and
+# The per-exe bench cutover retired the monolithic timeGRiM_batch.cu. Any TU that #includes grim.cuh and
 # instantiates every kernel is an equivalent ptxas -v driver; a per_algo_bench solo TU does exactly that
-# (its run_all_tests -> init_grid_kernel_attrs references every kernel). Materialize one into WORK.
-BENCH_GRID_DIR = REPO_ROOT / "test/benchmarks/baselines/grid"
+# (its run_all_tests -> init_grim_kernel_attrs references every kernel). Materialize one into WORK.
+BENCH_GRIM_DIR = REPO_ROOT / "test/benchmarks/baselines/grid"
 sys.path.insert(0, str(REPO_ROOT / "test/benchmarks"))
 from per_algo_bench import _solo_batch_tu_source  # noqa: E402
 WORK.mkdir(parents=True, exist_ok=True)
 BATCH_CU = WORK / "instantiate_all_kernels.cu"
 BATCH_CU.write_text(_solo_batch_tu_source("inverse_dynamics"))
 
-# Friendly label per kernel name. Names match emitted symbols in grid.cuh.
+# Friendly label per kernel name. Names match emitted symbols in grim.cuh.
 KERNEL_LABELS = {
     "inverse_dynamics_kernel":                  "ID",
     "minv_kernel":                       "Minv",
@@ -96,20 +96,20 @@ SMEM_MACROS = {
 }
 
 
-def gen_grid_cuh(robot_label: str, urdf: Path, floating: bool, out_dir: Path) -> Path:
-    """Regenerate grid.cuh for one robot config. Forces full SO emission on
+def gen_grim_cuh(robot_label: str, urdf: Path, floating: bool, out_dir: Path) -> Path:
+    """Regenerate grim.cuh for one robot config. Forces full SO emission on
     floating-base robots so the diagnostic can characterize those kernels."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "grid.cuh"
+    out_path = out_dir / "grim.cuh"
     code = f"""
 import sys
 sys.path.insert(0, "{REPO_ROOT}")
 sys.path.insert(0, "{REPO_ROOT}/external")
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 p = URDFParser()
 r = p.parse("{urdf}", floating_base={floating})
-cg = GRiDCodeGenerator(r, 0, FILE_NAMESPACE="grid")
+cg = GRiMCodeGenerator(r, 0, FILE_NAMESPACE="grid")
 cg.gen_all_code(output_path="{out_path}", enable_floating_second_order=True,
                 enable_idsva_so_world_frame=True)
 """
@@ -122,10 +122,10 @@ cg.gen_all_code(output_path="{out_path}", enable_floating_second_order=True,
     return out_path
 
 
-def detect_emitted_kernels(grid_cuh: Path) -> set[str]:
+def detect_emitted_kernels(grim_cuh: Path) -> set[str]:
     """Return the set of friendly kernel labels actually defined in this
-    grid.cuh."""
-    text = grid_cuh.read_text()
+    grim.cuh."""
+    text = grim_cuh.read_text()
     found = set()
     for kname, label in KERNEL_LABELS.items():
         if re.search(rf"\bvoid\s+{kname}\s*\(", text):
@@ -133,16 +133,16 @@ def detect_emitted_kernels(grid_cuh: Path) -> set[str]:
     return found
 
 
-def compile_with_bounds(grid_cuh: Path, label: str, launch_bounds_override: int | None,
+def compile_with_bounds(grim_cuh: Path, label: str, launch_bounds_override: int | None,
                          build_dir: Path) -> tuple[str, bool]:
-    """Compile timeGRiD_batch.cu with -Xptxas -v. Optionally patches
-    grid.cuh's __launch_bounds__(MAX_PERF_LEVEL_THREADS) → __launch_bounds__(N).
+    """Compile timeGRiM_batch.cu with -Xptxas -v. Optionally patches
+    grim.cuh's __launch_bounds__(MAX_PERF_LEVEL_THREADS) → __launch_bounds__(N).
     Returns (nvcc stderr, success)."""
     build_dir.mkdir(parents=True, exist_ok=True)
 
     if launch_bounds_override is not None:
-        patched = build_dir / "grid.cuh"
-        text = grid_cuh.read_text()
+        patched = build_dir / "grim.cuh"
+        text = grim_cuh.read_text()
         text = re.sub(
             r"__launch_bounds__\(MAX_PERF_LEVEL_THREADS\)",
             f"__launch_bounds__({launch_bounds_override})",
@@ -151,20 +151,20 @@ def compile_with_bounds(grid_cuh: Path, label: str, launch_bounds_override: int 
         patched.write_text(text)
         active_cuh = patched
     else:
-        active_cuh = grid_cuh
+        active_cuh = grim_cuh
 
     obj = build_dir / f"batch_{label}.o"
     cmd = [
         NVCC, "-std=c++17", "-c", "-o", str(obj), str(BATCH_CU),
-        f"-DGRID_HEADER_FILE=\"{active_cuh}\"",
+        f"-DGRIM_HEADER_FILE=\"{active_cuh}\"",
         f"-gencode=arch=compute_{ARCH},code=sm_{ARCH}",
         "-O3", "-ftz=true", "-prec-div=false", "-prec-sqrt=false",
         f"-I{BATCH_CU.parent}",
-        f"-I{BENCH_GRID_DIR}",   # timeGRiD_common.h (the solo TU #includes it)
+        f"-I{BENCH_GRIM_DIR}",   # timeGRiM_common.h (the solo TU #includes it)
         f"-I{active_cuh.parent}",
         f"-I{REPO_ROOT / 'external' / 'GLASS'}",
         f"-I{REPO_ROOT / 'external' / 'GLASS/src'}",
-        "-DGRID_TIMING_TEST_ITERS=1",
+        "-DGRIM_TIMING_TEST_ITERS=1",
         "-Xptxas", "-v",
         "-Wno-deprecated-gpu-targets",
     ]
@@ -210,19 +210,19 @@ def parse_ptxas(stderr: str) -> dict:
 
 
 SMEM_DUMP_TEMPLATE = r"""
-#include "grid.cuh"
+#include "grim.cuh"
 #include <cstdio>
 
 int main() {
     using T = float;
-    std::printf("MAX_PERF_LEVEL_THREADS %d\n", (int)grid::MAX_PERF_LEVEL_THREADS);
+    std::printf("MAX_PERF_LEVEL_THREADS %d\n", (int)grim::MAX_PERF_LEVEL_THREADS);
 %MACRO_CALLS%
     return 0;
 }
 """
 
 
-def dump_smem_bytes(grid_cuh: Path, emitted_labels: set[str], build_dir: Path) -> tuple[dict[str, int], int]:
+def dump_smem_bytes(grim_cuh: Path, emitted_labels: set[str], build_dir: Path) -> tuple[dict[str, int], int]:
     """Compile + run a tiny .cu that prints constexpr smem-bytes for every
     kernel actually emitted. Returns ({label: bytes}, max_perf_level_threads)."""
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -230,14 +230,14 @@ def dump_smem_bytes(grid_cuh: Path, emitted_labels: set[str], build_dir: Path) -
     for label, macro in SMEM_MACROS.items():
         if label not in emitted_labels:
             continue
-        calls.append(f'    std::printf("{label} %zu\\n", grid::{macro}<T>());')
+        calls.append(f'    std::printf("{label} %zu\\n", grim::{macro}<T>());')
     source = SMEM_DUMP_TEMPLATE.replace("%MACRO_CALLS%", "\n".join(calls))
     src = build_dir / "smem_dump.cu"
     src.write_text(source)
 
     binary = build_dir / "smem_dump"
     cmd = [NVCC, "-std=c++17", "-o", str(binary), str(src),
-           f"-I{grid_cuh.parent}",
+           f"-I{grim_cuh.parent}",
            f"-gencode=arch=compute_{ARCH},code=sm_{ARCH}",
            "-O0", "-Wno-deprecated-gpu-targets"]
     rc = subprocess.run(cmd, capture_output=True, text=True)
@@ -298,26 +298,26 @@ def main():
         print(f"\n=== {robot_label} ===")
         robot_dir = WORK / robot_label
         try:
-            grid_cuh = gen_grid_cuh(robot_label, urdf, floating, robot_dir)
+            grim_cuh = gen_grim_cuh(robot_label, urdf, floating, robot_dir)
         except Exception as e:
             print(f"  [codegen] FAILED: {e}")
             continue
 
-        emitted = detect_emitted_kernels(grid_cuh)
-        print(f"  grid.cuh ({grid_cuh.stat().st_size} bytes) — kernels emitted: {sorted(emitted)}")
+        emitted = detect_emitted_kernels(grim_cuh)
+        print(f"  grim.cuh ({grim_cuh.stat().st_size} bytes) — kernels emitted: {sorted(emitted)}")
 
-        smem, suggested = dump_smem_bytes(grid_cuh, emitted, robot_dir / "smem")
+        smem, suggested = dump_smem_bytes(grim_cuh, emitted, robot_dir / "smem")
         sug[robot_label] = suggested
         print(f"  smem dump: {len(smem)} entries, MAX_PERF_LEVEL_THREADS={suggested}")
 
         # Perf-tier compile (default __launch_bounds__(MAX_PERF_LEVEL_THREADS))
-        stderr, ok = compile_with_bounds(grid_cuh, "perf", None, robot_dir / "build_perf")
+        stderr, ok = compile_with_bounds(grim_cuh, "perf", None, robot_dir / "build_perf")
         if not ok:
             print(f"  [perf-compile] FAILED — see {robot_dir}/build_perf/stderr_perf.log")
         perf = parse_ptxas(stderr)
 
         # Relaxed-tier compile (launch_bounds=1024)
-        stderr, ok = compile_with_bounds(grid_cuh, "relax", 1024, robot_dir / "build_relax")
+        stderr, ok = compile_with_bounds(grim_cuh, "relax", 1024, robot_dir / "build_relax")
         if not ok:
             print(f"  [relax-compile] FAILED — see {robot_dir}/build_relax/stderr_relax.log")
         relax = parse_ptxas(stderr)
@@ -335,7 +335,7 @@ def main():
         "**sp** = local-memory spill stores (bytes), **smem** = per-block",
         "dynamic shared memory bytes (computed at codegen via the",
         "`*_DYNAMIC_SHARED_MEM_BYTES<float>()` constexpr; ptxas's static-smem",
-        "report is unhelpful here because GRiD uses `extern __shared__`).",
+        "report is unhelpful here because GRiM uses `extern __shared__`).",
         "",
         "**perf** = `__launch_bounds__(MAX_PERF_LEVEL_THREADS)` (the default);",
         "**relax** = `__launch_bounds__(1024)` (what TIER_MINIMAL looks like).",

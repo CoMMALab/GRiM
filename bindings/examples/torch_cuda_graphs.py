@@ -1,8 +1,8 @@
-"""grid-rbd × PyTorch: CUDA-resident tensors, autograd, and CUDA-Graphs replay.
+"""grim × PyTorch: CUDA-resident tensors, autograd, and CUDA-Graphs replay.
 
 THE POINT: the `.torch` handle returns CUDA ``torch.Tensor`` from every method and the
-forwards are autograd-aware (backward contracts the cotangent with GRiD's ANALYTIC
-Jacobian). Inputs and outputs stay on the GPU, so GRiD drops straight into a torch training
+forwards are autograd-aware (backward contracts the cotangent with GRiM's ANALYTIC
+Jacobian). Inputs and outputs stay on the GPU, so GRiM drops straight into a torch training
 or MPC loop. For fixed-batch hot loops, ``handle.capture(method, *example_inputs)`` records a
 CUDA Graph: subsequent calls are a memcpy-in + graph replay + memcpy-out — the per-launch CPU
 overhead of dozens of kernels collapses to a single replay.
@@ -44,17 +44,17 @@ def main() -> None:
         sys.exit(f"URDF not found: {urdf} (pass --urdf)")
 
     import torch
-    import grid_rbd
-    import grid_rbd.torch as grid_torch
+    import grim
+    import grim.torch as grim_torch
 
     if not torch.cuda.is_available():
         sys.exit("CUDA not available to torch — this demo is about GPU residency.")
     dev = torch.device("cuda")
-    print(f"grid_rbd v{grid_rbd.__version__} · torch {torch.__version__} · {torch.cuda.get_device_name()}")
+    print(f"grim v{grim.__version__} · torch {torch.__version__} · {torch.cuda.get_device_name()}")
 
-    grid_rbd.precompile("iiwa14_torch", str(urdf),
+    grim.precompile("iiwa14_torch", str(urdf),
                         max_batch_size=max(args.batch, 256), backends=("torch",))
-    h = grid_torch.get_robot("iiwa14_torch")
+    h = grim_torch.get_robot("iiwa14_torch")
     nq, nv, B = h.num_joints, h.num_vel, args.batch
     print(f"  iiwa14: nq={nq} nv={nv}  batch B={B}")
 
@@ -73,7 +73,7 @@ def main() -> None:
     ug = u.clone().requires_grad_(True)
     loss = h.forward_dynamics(qg, qd, ug).pow(2).mean() + 1e-3 * ug.pow(2).mean()
     loss.backward()
-    print(f"[2] loss={float(loss.detach()):.4f}  →  grads via GRiD analytic Jacobian: "
+    print(f"[2] loss={float(loss.detach()):.4f}  →  grads via GRiM analytic Jacobian: "
           f"|∂/∂q|={qg.grad.norm():.4f}  |∂/∂u|={ug.grad.norm():.4f}")
 
     # ── 3. CUDA-Graphs capture + replay vs eager ─────────────────────────────
@@ -136,7 +136,7 @@ def main() -> None:
     except Exception as e:
         print(f"[4] dlpack handoff skipped ({type(e).__name__}: {e})")
 
-    print("\nTakeaway: keep tensors on CUDA, let autograd use GRiD's analytic Jacobians, and "
+    print("\nTakeaway: keep tensors on CUDA, let autograd use GRiM's analytic Jacobians, and "
           "capture() the hot loop to collapse CPU launch overhead in MPC / RL (write into "
           "graph.static_in in place and replay()).")
 

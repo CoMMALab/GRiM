@@ -4,7 +4,7 @@ The binding can produce mjx-convention outputs two ways:
   1. host post-process: run the pin kernel, then rotate on the host (`_mujoco.py`).
   2. NATIVE kernel: a `MUJOCO_OUTPUT=true` template instantiation of the kernel that
      bakes the convention transform in (raw mjx inputs in, mjx outputs out) — the
-     `grid_rbd_*_mujoco` C-ABI entries, dispatched by `handle.mujoco.<method>`.
+     `grim_*_mujoco` C-ABI entries, dispatched by `handle.mujoco.<method>`.
 
 Path (1) is validated against real MuJoCo in `test_mujoco_transforms.py`. This test
 guards path (2) — the inverse_dynamics REFERENCE for the codegen-fusion sweep — by
@@ -41,7 +41,7 @@ def _has_cuda() -> bool:
 def go2_floating():
     """Register go2-floating ONCE (force_rebuild to exercise freshly-generated
     codegen, not a stale cache) and share it across the mjx-kernel checks."""
-    from grid_rbd import register_robot
+    from grim import register_robot
     return register_robot("go2_mjx_kernel_test", str(_GO2),
                           floating_base=True, force_rebuild=True)
 
@@ -49,12 +49,12 @@ def go2_floating():
 @pytest.mark.skipif(not _has_cuda(), reason="needs nvcc + CUDA GPU")
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_inverse_dynamics_matches_host_oracle(go2_floating):
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h.floating_base
     # The native mjx ID symbol must be present in a floating-base .so.
     assert h._runner.has_inverse_dynamics_mujoco, \
-        "floating-base .so is missing grid_rbd_inverse_dynamics_mujoco"
+        "floating-base .so is missing grim_inverse_dynamics_mujoco"
 
     nq, nv = h.num_joints, h.num_vel
     rng = np.random.default_rng(0)
@@ -83,10 +83,10 @@ def test_native_mjx_inverse_dynamics_matches_host_oracle(go2_floating):
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_crba_matches_host_oracle(go2_floating):
     """CONGRUENCE-class reference: M_mjx = G M_pin G^T baked into the kernel."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_crba_mujoco, \
-        "floating-base .so is missing grid_rbd_crba_mujoco"
+        "floating-base .so is missing grim_crba_mujoco"
 
     nq, nv = h.num_joints, h.num_vel
     rng = np.random.default_rng(1)
@@ -122,7 +122,7 @@ def _rand_state(h, rng, B, with_qd=True, with_u=False):
 @pytest.mark.parametrize("method", ["forward_dynamics", "aba"])
 def test_native_mjx_accel_out_matches_host_oracle(go2_floating, method):
     """accel_out class: qdd_mjx[0:3] = R(qdd_pin + omega x v)."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert getattr(h._runner, f"has_{method}_mujoco")
     rng = np.random.default_rng(2)
@@ -142,7 +142,7 @@ def test_native_mjx_accel_out_matches_host_oracle(go2_floating, method):
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_coriolis_matches_host_oracle(go2_floating):
     """congruence class with qd input: C_mjx = G C_pin G^T."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_coriolis_matrix_mujoco
     rng = np.random.default_rng(3)
@@ -162,7 +162,7 @@ def test_native_mjx_coriolis_matches_host_oracle(go2_floating):
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_frame_jacobian_matches_host_oracle(go2_floating):
     """column-reframe class: J_mjx = J_pin G^{-1} (base-linear cols)."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_frame_jacobian_mujoco and h._runner.has_frame_jacobian_dot_mujoco
     rng = np.random.default_rng(4)
@@ -211,10 +211,10 @@ def test_native_mjx_osc_inertia_invariant_but_quat_reordered(go2_floating):
 def test_native_mjx_minv_matches_host_oracle(go2_floating):
     """CONGRUENCE-class: Minv_mjx = G Minv_pin G^T baked into the kernel (the native
     kernel returns a FULL DENSE SYMMETRIC mjx Minv — no host symmetrize/post-process)."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_minv_mujoco, \
-        "floating-base .so is missing grid_rbd_minv_mujoco"
+        "floating-base .so is missing grim_minv_mujoco"
     rng = np.random.default_rng(6)
     for B in (1, 4):
         qpos, _, _ = _rand_state(h, rng, B, with_qd=False)
@@ -238,7 +238,7 @@ def test_native_mjx_energy_invariant_but_inputs_converted(go2_floating):
     pin(q_pin), and feeding the raw mjx q/qd to the pin kernel differs."""
     h = go2_floating
     assert h._runner.has_energy_mujoco, \
-        "floating-base .so is missing grid_rbd_energy_mujoco"
+        "floating-base .so is missing grim_energy_mujoco"
     rng = np.random.default_rng(7)
     for B in (1, 4):
         qpos, qvel, _ = _rand_state(h, rng, B, with_qd=True)
@@ -256,10 +256,10 @@ def test_native_mjx_energy_invariant_but_inputs_converted(go2_floating):
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_com_matches_host_oracle(go2_floating):
     """com: p_com is frame-INVARIANT; J_com is column-REFRAMED (J_mjx = J_pin G^{-1})."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_com_mujoco, \
-        "floating-base .so is missing grid_rbd_com_mujoco"
+        "floating-base .so is missing grim_com_mujoco"
     rng = np.random.default_rng(8)
     for B in (1, 4):
         qpos, _, _ = _rand_state(h, rng, B, with_qd=False)
@@ -282,10 +282,10 @@ def test_native_mjx_com_matches_host_oracle(go2_floating):
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_ccrba_matches_host_oracle(go2_floating):
     """ccrba: A is column-REFRAMED (A_mjx = A_pin G^{-1}); h = A·qd is frame-INVARIANT."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_ccrba_mujoco, \
-        "floating-base .so is missing grid_rbd_ccrba_mujoco"
+        "floating-base .so is missing grim_ccrba_mujoco"
     rng = np.random.default_rng(9)
     for B in (1, 4):
         qpos, qvel, _ = _rand_state(h, rng, B, with_qd=True)
@@ -312,7 +312,7 @@ def test_native_mjx_energy_regressor_invariant_but_inputs_converted(go2_floating
     (quat reorder + qd reframe). native(mjx) == pin(pin); raw-mjx-into-pin differs."""
     h = go2_floating
     assert getattr(h._runner, f"has_{method}_mujoco"), \
-        f"floating-base .so is missing grid_rbd_{method}_mujoco"
+        f"floating-base .so is missing grim_{method}_mujoco"
     rng = np.random.default_rng(10)
     with_qd = method == "kinetic_energy_regressor"
     for B in (1, 4):
@@ -336,10 +336,10 @@ def test_native_mjx_energy_regressor_invariant_but_inputs_converted(go2_floating
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_cmm_time_variation_matches_host_oracle(go2_floating):
     """column-reframe class with qd input: Adot_mjx = Adot_pin G^{-1} (base cols)."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_cmm_time_variation_mujoco, \
-        "floating-base .so is missing grid_rbd_cmm_time_variation_mujoco"
+        "floating-base .so is missing grim_cmm_time_variation_mujoco"
     rng = np.random.default_rng(11)
     for B in (1, 4):
         qpos, qvel, _ = _rand_state(h, rng, B, with_qd=True)
@@ -363,7 +363,7 @@ def test_native_mjx_end_effector_pose_invariant_but_quat_reordered(go2_floating)
     to the pin kernel."""
     h = go2_floating
     assert h._runner.has_end_effector_pose_mujoco, \
-        "floating-base .so is missing grid_rbd_end_effector_pose_mujoco"
+        "floating-base .so is missing grim_end_effector_pose_mujoco"
     rng = np.random.default_rng(12)
     for B in (1, 4):
         qpos, _, _ = _rand_state(h, rng, B, with_qd=False)
@@ -382,10 +382,10 @@ def test_native_mjx_end_effector_pose_invariant_but_quat_reordered(go2_floating)
 @pytest.mark.skipif(not _GO2.exists(), reason="go2.urdf asset missing")
 def test_native_mjx_end_effector_pose_gradient_matches_host_oracle(go2_floating):
     """column-reframe class: J_pose_mjx = J_pose_pin G^{-1} (base-linear cols)."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_end_effector_pose_gradient_mujoco, \
-        "floating-base .so is missing grid_rbd_end_effector_pose_gradient_mujoco"
+        "floating-base .so is missing grim_end_effector_pose_gradient_mujoco"
     rng = np.random.default_rng(13)
     for B in (1, 4):
         qpos, _, _ = _rand_state(h, rng, B, with_qd=False)
@@ -409,7 +409,7 @@ def test_native_mjx_end_effector_pose_hessian_matches_oracle(go2_floating):
         ee_pose_hessian_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
     assert h._runner.has_end_effector_pose_hessian_mujoco, \
-        "floating-base .so is missing grid_rbd_end_effector_pose_hessian_mujoco"
+        "floating-base .so is missing grim_end_effector_pose_hessian_mujoco"
     layout = FloatingRootLayout()
     rng = np.random.default_rng(23)
     for B in (1, 4):
@@ -439,7 +439,7 @@ def test_native_mjx_dccrba_matches_oracle(go2_floating):
         dccrba_dA_dq_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
     assert h._runner.has_dccrba_mujoco, \
-        "floating-base .so is missing grid_rbd_dccrba_mujoco"
+        "floating-base .so is missing grim_dccrba_mujoco"
     layout = FloatingRootLayout()
     rng = np.random.default_rng(29)
     for B in (1, 4):
@@ -468,7 +468,7 @@ def test_native_mjx_position_cost_matches_oracle(go2_floating, which):
         quadratic_tracking_cost_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
     fn = h.ee_pos_cost if which == "ee_pos" else h.com_cost
-    assert getattr(h._runner, f"has_{which}_cost_mujoco"), f"so missing grid_rbd_{which}_cost_mujoco"
+    assert getattr(h._runner, f"has_{which}_cost_mujoco"), f"so missing grim_{which}_cost_mujoco"
     nv = h.num_vel
     layout = FloatingRootLayout()
     rng = np.random.default_rng(31 if which == "ee_pos" else 32)
@@ -616,7 +616,7 @@ def test_native_mjx_idsva_so_matches_oracle(go2_floating):
     from RBDReference.equivalents.mujoco_convention import (
         second_order_id_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
-    assert h._runner.has_idsva_so_mujoco, "floating-base .so is missing grid_rbd_idsva_so_mujoco"
+    assert h._runner.has_idsva_so_mujoco, "floating-base .so is missing grim_idsva_so_mujoco"
     nq, nv = h.num_joints, h.num_vel
     layout = FloatingRootLayout()
     rng = np.random.default_rng(41)
@@ -652,7 +652,7 @@ def test_native_mjx_fdsva_so_matches_oracle(go2_floating):
     from RBDReference.equivalents.mujoco_convention import (
         second_order_fd_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
-    assert h._runner.has_fdsva_so_mujoco, "floating-base .so is missing grid_rbd_fdsva_so_mujoco"
+    assert h._runner.has_fdsva_so_mujoco, "floating-base .so is missing grim_fdsva_so_mujoco"
     nq, nv = h.num_joints, h.num_vel
     layout = FloatingRootLayout()
     rng = np.random.default_rng(43)
@@ -687,7 +687,7 @@ def test_native_mjx_integrator_gradient_matches_oracle(go2_floating, it_name, it
     from RBDReference.equivalents.mujoco_convention import (
         integrator_gradient_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
-    assert h._runner.has_integrator_gradient_mujoco, "so missing grid_rbd_integrator_gradient_mujoco"
+    assert h._runner.has_integrator_gradient_mujoco, "so missing grim_integrator_gradient_mujoco"
     nv = h.num_vel
     layout = FloatingRootLayout()
     dt = 0.1
@@ -778,7 +778,7 @@ def test_native_mjx_plant_step_hessian_matches_oracle(go2_floating, it_name):
     from RBDReference.equivalents.mujoco_convention import (
         integrator_hessian_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
-    assert h._runner.has_plant_step_hessian_mujoco, "so missing grid_plant_step_hessian_mujoco"
+    assert h._runner.has_plant_step_hessian_mujoco, "so missing grim_plant_step_hessian_mujoco"
     nq, nv = h.num_joints, h.num_vel
     layout = FloatingRootLayout()
     dt = 0.1
@@ -841,7 +841,7 @@ def test_native_mjx_generalized_gravity_matches_oracle(go2_floating):
     """g(q) transforms like a generalized force (tau): the base rows are rotated
     into the mjx frame; output shape is invariant (B, NV). Validated vs the
     RBDReference id-force oracle."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_generalized_gravity_mujoco
     rng = np.random.default_rng(13)
@@ -903,7 +903,7 @@ def test_native_mjx_end_effector_pose_runtime_matches_oracle(go2_floating):
     mjx-converted q."""
     h = go2_floating
     assert h._runner.has_end_effector_pose_runtime_mujoco, \
-        "floating-base .so is missing grid_rbd_end_effector_pose_runtime_mujoco"
+        "floating-base .so is missing grim_end_effector_pose_runtime_mujoco"
     rng = np.random.default_rng(41)
     for B in (1, 4):
         qpos, _, _ = _rand_state(h, rng, B, with_qd=False)
@@ -919,10 +919,10 @@ def test_native_mjx_end_effector_pose_runtime_matches_oracle(go2_floating):
 def test_native_mjx_end_effector_pose_gradient_runtime_matches_oracle(go2_floating):
     """COLUMN-reframe class: J_pose_mjx = J_pose_pin G^{-1} (base-linear cols). The
     runtime-target gradient reframes exactly like the codegen-target one."""
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_end_effector_pose_gradient_runtime_mujoco, \
-        "floating-base .so is missing grid_rbd_end_effector_pose_gradient_runtime_mujoco"
+        "floating-base .so is missing grim_end_effector_pose_gradient_runtime_mujoco"
     rng = np.random.default_rng(43)
     for B in (1, 4):
         qpos, _, _ = _rand_state(h, rng, B, with_qd=False)
@@ -954,7 +954,7 @@ def test_native_mjx_quadratic_state_cost_matches_oracle(go2_floating):
         quadratic_state_cost_pin_to_mjx, FloatingRootLayout)
     h = go2_floating
     assert h._runner.has_quadratic_state_cost_mujoco, \
-        "floating-base .so is missing grid_rbd_quadratic_state_cost_mujoco"
+        "floating-base .so is missing grim_quadratic_state_cost_mujoco"
     nq, nv = h.num_joints, h.num_vel
     nx = nq + nv
     layout = FloatingRootLayout()
@@ -998,10 +998,10 @@ def test_native_mjx_inverse_dynamics_regressor_matches_oracle(go2_floating):
     RBDReference oracle; also checks the identity G·(Y@pi) == (G·Y)@pi via tau."""
     from RBDReference.equivalents.mujoco_convention import (
         base_rotate_pin_to_mjx, FloatingRootLayout)
-    from grid_rbd import _mujoco as bm
+    from grim import _mujoco as bm
     h = go2_floating
     assert h._runner.has_inverse_dynamics_regressor_mujoco, \
-        "floating-base .so is missing grid_rbd_inverse_dynamics_regressor_mujoco"
+        "floating-base .so is missing grim_inverse_dynamics_regressor_mujoco"
     nq, nv = h.num_joints, h.num_vel
     ncol = 10 * h.num_bodies
     layout = FloatingRootLayout()

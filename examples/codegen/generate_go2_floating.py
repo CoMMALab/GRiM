@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Quickstart: generate GRiD CUDA code for the Unitree Go2 quadruped (floating base).
+"""Quickstart: generate GRiM CUDA code for the Unitree Go2 quadruped (floating base).
 
 Requires: pip install robot_descriptions  (included in dev dependencies)
 
 Run:
-    python examples/codegen/generate_go2_floating.py --output /tmp/grid_go2.cuh
+    python examples/codegen/generate_go2_floating.py --output /tmp/grim_go2.cuh
 
 Generates a floating-base dynamics header by default.
 """
@@ -16,14 +16,14 @@ from pathlib import Path
 from robot_descriptions import go2_description
 
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 
 URDF_PATH = go2_description.URDF_PATH
 
 
 def main():
-    parser_args = argparse.ArgumentParser(description="Generate floating-base Go2 GRiD CUDA code.")
-    parser_args.add_argument("--output", default="grid.cuh", help="Path for the generated CUDA header.")
+    parser_args = argparse.ArgumentParser(description="Generate floating-base Go2 GRiM CUDA code.")
+    parser_args.add_argument("--output", default="grim.cuh", help="Path for the generated CUDA header.")
     parser_args.add_argument(
         "--profile",
         default="dynamics",
@@ -46,9 +46,9 @@ def main():
     robot = parser.parse(URDF_PATH, floating_base=True)
 
     print(f"Robot: {robot.name}  |  DOF: {robot.get_num_joints()} + floating root")
-    print(f"Generating floating-base GRiD CUDA code with profile '{args.profile}'...")
+    print(f"Generating floating-base GRiM CUDA code with profile '{args.profile}'...")
 
-    codegen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+    codegen = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
     codegen.gen_all_code(
         include_homogenous_transforms=args.profile in {"kinematics", "kinematics-derivatives", "all"},
         output_path=str(output_path),

@@ -1,6 +1,6 @@
 """V6 — kinematics thread-count-invariance matrix (single-thread + warp + sweep × batch).
 
-GRiD runs every function as ONE CUDA block per robot, with all parallelism IN the
+GRiM runs every function as ONE CUDA block per robot, with all parallelism IN the
 block (block-stride loops across threads, grid-stride across the batch). A correct
 single-block kernel is therefore **thread-count-invariant**: launching it with 1
 thread, a single warp (32), or hundreds of threads must produce the SAME result for
@@ -9,8 +9,8 @@ parallel-loop-stride bug (e.g. a reduction that assumes blockDim >= N, or a miss
 sync between a write phase and a read/accumulate phase that happens to be correct
 only within one warp).
 
-This test exercises the KINEMATICS surfaces through the `grid_rbd` binding (which
-exposes `set_threads_per_block(n)` — the C ABI `grid_rbd_set_threads_per_block`) and
+This test exercises the KINEMATICS surfaces through the `grim` binding (which
+exposes `set_threads_per_block(n)` — the C ABI `grim_set_threads_per_block`) and
 batched inputs (leading batch dim, grid-stride across timesteps), sweeping a MATRIX of:
 
   * surfaces:     end_effector_pose (FK), end_effector_pose_gradient (ee_pose_gradient)
@@ -23,24 +23,24 @@ thread count's output must match the warp (32-thread) baseline to (near) float
 identity. We additionally check correctness vs the RBDReference numpy/pinocchio oracle.
 
 frame_jacobian is intentionally NOT covered here: it is DEVICE-ONLY (no host/kernel
-or grid_rbd wrapper yet — backlog S1). Adding a wrapper is out of scope; it is
+or grim wrapper yet — backlog S1). Adding a wrapper is out of scope; it is
 reported as blocked, not built.
 
 Editable-install / clone note: mirrors test_fk_batched.py. To exercise THIS clone,
 build _core in-place and run with PYTHONPATH=<clone>/bindings prepended so this clone's
-grid_rbd (and its GRiDCodeGenerator + wrapper_template.cu) win import resolution.
+grim (and its GRiMCodeGenerator + wrapper_template.cu) win import resolution.
 
 Run with:
     PYTHONPATH=$PWD/bindings pytest test/python_wrappers/test_kinematics_thread_batch_matrix.py -v
 
-B5 (RESOLVED): grid_rbd FLOATING-base end_effector_pose_gradient now returns the
+B5 (RESOLVED): grim FLOATING-base end_effector_pose_gradient now returns the
 d/dv TANGENT Jacobian (NV columns; pinocchio convention) through a correctly-sized,
 finite device buffer, matching fixed-base. The historical end-to-end break (public
 reshape ValueError on NUM_POS!=NV + garbage/uninitialized raw output ~1e31..1e35)
-was a STALE precompiled grid_rbd._core: the d/dv-convention ripple (codegen kernel +
+was a STALE precompiled grim._core: the d/dv-convention ripple (codegen kernel +
 wrapper_template.cu + _core.cpp + _handle.py, all now sized 6*NUM_EES*NUM_VEL) had
 landed in source, but the in-tree _core.so predated it and still used the old
-NUM_POS-column ABI. Rebuilding _core (src/_core.cpp → grid_rbd/_core*.so) fixed both
+NUM_POS-column ABI. Rebuilding _core (src/_core.cpp → grim/_core*.so) fixed both
 the floating reshape crash and the garbage values; the floating cells below are now
 un-skipped and assert thread-invariance + oracle correctness directly through the
 binding.
@@ -56,7 +56,7 @@ import pytest
 
 
 # Repo root is parent of test/. Insert FIRST so this clone's submodules
-# (URDFParser / RBDReference / GRiDCodeGenerator) and bindings/ package win.
+# (URDFParser / RBDReference / GRiMCodeGenerator) and bindings/ package win.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_REPO_ROOT / "bindings"), str(_REPO_ROOT)):
     if _p not in sys.path:
@@ -64,16 +64,16 @@ for _p in (str(_REPO_ROOT / "bindings"), str(_REPO_ROOT)):
 from config import ROBOT_ASSETS_DIR
 
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (build bindings/ _core)")
+_grim = pytest.importorskip("grim", reason="grim not installed (build bindings/ _core)")
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
-# Guard: resolved THIS clone's grid_rbd, not the MAIN-repo editable shadow.
-_GRID_RBD_DIR = Path(_grid_rbd.__file__).resolve().parent
-if _REPO_ROOT not in _GRID_RBD_DIR.parents:
+# Guard: resolved THIS clone's grim, not the MAIN-repo editable shadow.
+_GRIM_DIR = Path(_grim.__file__).resolve().parent
+if _REPO_ROOT not in _GRIM_DIR.parents:
     pytest.skip(
-        f"grid_rbd resolved to {_GRID_RBD_DIR} (not this clone under {_REPO_ROOT}); "
+        f"grim resolved to {_GRIM_DIR} (not this clone under {_REPO_ROOT}); "
         "set PYTHONPATH=<clone>/bindings and build _core in-place",
         allow_module_level=True,
     )
@@ -86,7 +86,7 @@ pytestmark = pytest.mark.python_wrappers
 # ─── matrix axes ─────────────────────────────────────────────────────────────
 
 # Single-thread (1) and warp (32) are the headline cells; the rest probe partial
-# warps, multi-warp, and the cross-over points. The grid_rbd wrapper accepts any
+# warps, multi-warp, and the cross-over points. The grim wrapper accepts any
 # n >= 1 (codegen carries no launch_bounds floor since v2.0), so 1 is a LEGAL
 # launch — a crash/wrong result at 1 is a thread-count-invariance FINDING.
 _THREAD_COUNTS = (1, 2, 16, 32, 64, 128, 256)
@@ -116,7 +116,7 @@ _GRAD_NORM_RTOL = 5e-3    # ee_pose_gradient vs oracle, full-matrix norm-relativ
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 def _rpy_to_R(rpy):
-    """roll-pitch-yaw → R = Rz(yaw) Ry(pitch) Rx(roll), the RBDReference/GRiD
+    """roll-pitch-yaw → R = Rz(yaw) Ry(pitch) Rx(roll), the RBDReference/GRiM
     arctan2 extraction convention. Used so rpy branch ambiguity (a 2π wrap or a
     gimbal-lock roll/yaw split) doesn't masquerade as a pose error."""
     r, p, y = rpy
@@ -133,7 +133,7 @@ def _register(name, urdf, floating):
     urdf_path = _ASSETS / urdf
     if not urdf_path.exists():
         pytest.skip(f"{urdf} fixture not present at {urdf_path}")
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name=f"v6_kin_{name}_{'fb' if floating else 'fx'}",
         urdf_path=str(urdf_path),
         floating_base=floating,
@@ -153,7 +153,7 @@ def _random_q(handle, B, floating, seed):
     """A (B, NUM_POS) float32 config. Floating-base lays out [xyz, quat(xyzw),
     joints]; we normalize the quaternion per sample so the FK is well posed."""
     rng = np.random.default_rng(seed)
-    # grid_rbd's `num_joints` IS the q (NUM_POS) width for both fixed and
+    # grim's `num_joints` IS the q (NUM_POS) width for both fixed and
     # floating: iiwa14 -> 7, go2-floating -> 19 (= 7 base [xyz, quat] + 12 leg
     # joints). The floating base occupies the first 7 entries [xyz, quat(xyzw)].
     NQ = handle.num_joints
@@ -169,7 +169,7 @@ def _random_q(handle, B, floating, seed):
 
 
 def _ee_targets(ref_robot):
-    """EE target joint names in get_leaf_nodes() order (the order grid_rbd emits
+    """EE target joint names in get_leaf_nodes() order (the order grim emits
     its per-EE output blocks in)."""
     return [ref_robot.get_joint_by_id(jid).get_name()
             for jid in ref_robot.get_leaf_nodes()]

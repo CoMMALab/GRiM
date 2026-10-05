@@ -1,4 +1,4 @@
-# pytest-gpu-proof verification policy for GRiD.
+# pytest-gpu-proof verification policy for GRiM.
 #
 # A clean recording/verification tree ensures the receipt describes committed
 # inputs. The global fingerprint includes generator, bindings, peer gitlinks,

@@ -1,6 +1,6 @@
-"""grid-rbd derivatives: analytic first- + second-order, and the autodiff idioms.
+"""grim derivatives: analytic first- + second-order, and the autodiff idioms.
 
-GRiD emits ANALYTIC derivatives (not finite-difference, not an autodiff tape). There are
+GRiM emits ANALYTIC derivatives (not finite-difference, not an autodiff tape). There are
 two ways to reach them and this file shows both:
 
   A. CALL the derivative methods DIRECTLY — you want the full Jacobian / Hessian tensor
@@ -44,10 +44,10 @@ def main() -> None:
     if not urdf.exists():
         sys.exit(f"URDF not found: {urdf} (pass --urdf)")
 
-    import grid_rbd
+    import grim
 
     # ── numpy surface: the FULL derivative tensors, batched ──────────────────
-    h = grid_rbd.register_robot("iiwa14_deriv", str(urdf),
+    h = grim.register_robot("iiwa14_deriv", str(urdf),
                                 max_batch_size=max(args.batch, 64))
     nq, nv, B = h.num_joints, h.num_vel, args.batch
     print(f"iiwa14: nq={nq} nv={nv}  batch B={B}  num_ees={h.num_ees}")
@@ -91,14 +91,14 @@ def main() -> None:
     try:
         import jax
         import jax.numpy as jnp
-        import grid_rbd.jax as grid_jax
+        import grim.jax as grim_jax
     except Exception as e:
         print(f"\n[C] JAX surface skipped ({type(e).__name__}: {e}). pip install -e .[jax]")
         return
 
-    grid_rbd.precompile("iiwa14_deriv_jax", str(urdf),
+    grim.precompile("iiwa14_deriv_jax", str(urdf),
                         max_batch_size=max(B, 64), backends=("jax",))
-    hj = grid_jax.get_robot("iiwa14_deriv_jax")
+    hj = grim_jax.get_robot("iiwa14_deriv_jax")
     qj  = jax.device_put(jnp.asarray(q))
     qdj = jax.device_put(jnp.asarray(qd))
     uj  = jax.device_put(jnp.asarray(u))

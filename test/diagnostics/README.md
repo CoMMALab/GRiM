@@ -1,4 +1,4 @@
-# GRiD diagnostics
+# GRiM diagnostics
 
 Empirical resource-and-perf characterization scripts. Not pytest tests —
 these are *diagnostics* that drive codegen-time decisions and validate
@@ -33,13 +33,13 @@ PYTHONPATH=. .venv/bin/python test/diagnostics/tier_baseline.py
 Wall time: ~10-30 min depending on which robots are cached.
 
 ### `archive/glass_vs_pre_glass_ptxas.py` — archival
-Compares GRiD HEAD (GLASS-vendored SIMT linalg) against the pre-GLASS
+Compares GRiM HEAD (GLASS-vendored SIMT linalg) against the pre-GLASS
 reference at commit `d2c0d18`. Used during the 2026-05 GLASS rollout to
 isolate per-kernel register/spill regressions. Kept as a template for
 future "compare HEAD vs <some-baseline>" investigations.
 
-Requires a sibling worktree at `$GRID_PRE_GLASS_REPO` (defaults to a
-sibling directory `../GRiD-A2R-pre-glass/`). See
+Requires a sibling worktree at `$GRIM_PRE_GLASS_REPO` (defaults to a
+sibling directory `../GRiM-A2R-pre-glass/`). See
 `test/benchmarks/run_multi_version.py --columns pre_glass` for how to
 set up the worktree.
 
@@ -74,7 +74,7 @@ codegen variants. Conventions:
   validation lives here, not in diagnostics.
 - `test/cuda_equivalents/` — correctness tests against `RBDReference`.
   Strict numerical equivalence.
-- `test/python_wrappers/` — pytest suites for `grid_rbd` Python +
+- `test/python_wrappers/` — pytest suites for `grim` Python +
   JAX APIs.
 - `RBDReference/tests/` — correctness tests against Pinocchio.
 

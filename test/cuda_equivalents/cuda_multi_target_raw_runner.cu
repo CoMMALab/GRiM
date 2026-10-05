@@ -1,62 +1,62 @@
-// GATO nit 2 (2026-09-24): grid_plant::multi_target_position[_gradient] raw evaluators must equal the
+// GATO nit 2 (2026-09-24): grim_plant::multi_target_position[_gradient] raw evaluators must equal the
 // generated multi_target_position[_gradient]_device fns (same checks as the contact-frame runner:
 // PLANTDIFF / THREADINV / SPILLDIFF). Derived from cuda_contact_frame_positions_runner.cu by renaming.
 // Validation for the multi-target position family (GATO ask 2026-09-20):
-//   grid::multi_target_position_device            -> 3*NUM_MULTI_TARGETS world positions of the
+//   grim::multi_target_position_device            -> 3*NUM_MULTI_TARGETS world positions of the
 //                                                     baked contact ORIGINS (the f_ext_body wrench points)
-//   grid::multi_target_position_gradient_device   -> 3*NUM_VEL per frame tangent Jacobian
+//   grim::multi_target_position_gradient_device   -> 3*NUM_VEL per frame tangent Jacobian
 //                                                     [3*NUM_VEL*f + 3*vi + row], tangent [v_lin; omega; joints]
-//   grid_plant::multi_target_position[_gradient]  -> the caller-scratch wrappers (must equal the device fns)
+//   grim_plant::multi_target_position[_gradient]  -> the caller-scratch wrappers (must equal the device fns)
 // Reads q (NUM_POS doubles, one per line) from ./q.txt so the Python test controls the pose
 // (a floating base needs a UNIT quaternion). Prints P/J rows, plus THREADINV / SPILLDIFF /
 // PLANTDIFF self-checks. Correctness only, no timing.
-#define GRID_HEADER
-#include "grid.cuh"
+#define GRIM_HEADER
+#include "grim.cuh"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <algorithm>
 
 using T = double;
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
-constexpr int NF = grid::NUM_MULTI_TARGETS;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
+constexpr int NF = grim::NUM_MULTI_TARGETS;
 
 #define CK(x) do{ cudaError_t e=(x); if(e){ printf("CUDA ERR %s @ %d: %s\n",#x,__LINE__,cudaGetErrorString(e)); return 2; } }while(0)
 
-__global__ void pos_kernel(T *d_pos, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void pos_kernel(T *d_pos, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_pos[3*NF];
-    grid::multi_target_position_device<T>(s_pos, d_q, m);
+    grim::multi_target_position_device<T>(s_pos, d_q, m);
     __syncthreads();
     if (threadIdx.x == 0) for (int i = 0; i < 3*NF; ++i) d_pos[i] = s_pos[i];
 }
-__global__ void pos_kernel_spill(T *d_pos, const T *d_q, const grid::robotModel<T> *m, T *d_ws) {
+__global__ void pos_kernel_spill(T *d_pos, const T *d_q, const grim::robotModel<T> *m, T *d_ws) {
     __shared__ T s_pos[3*NF];
-    grid::multi_target_position_device<T, grid::TIER_MINIMAL>(s_pos, d_q, m, d_ws);
+    grim::multi_target_position_device<T, grim::TIER_MINIMAL>(s_pos, d_q, m, d_ws);
     __syncthreads();
     if (threadIdx.x == 0) for (int i = 0; i < 3*NF; ++i) d_pos[i] = s_pos[i];
 }
-__global__ void grad_kernel(T *d_grad, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void grad_kernel(T *d_grad, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_grad[3*NV*NF];
-    grid::multi_target_position_gradient_device<T>(s_grad, d_q, m);
+    grim::multi_target_position_gradient_device<T>(s_grad, d_q, m);
     __syncthreads();
     if (threadIdx.x == 0) for (int i = 0; i < 3*NV*NF; ++i) d_grad[i] = s_grad[i];
 }
-__global__ void plant_kernel(T *d_pos, T *d_grad, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void plant_kernel(T *d_pos, T *d_grad, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_pos[3*NF];
     __shared__ T s_grad[3*NV*NF];
-    __shared__ __align__(16) T s_scratch[(grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() / sizeof(T))];
-    grid_plant::multi_target_position_gradient<T>(s_pos, s_grad, d_q, s_scratch, m);
+    __shared__ __align__(16) T s_scratch[(grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>() / sizeof(T))];
+    grim_plant::multi_target_position_gradient<T>(s_pos, s_grad, d_q, s_scratch, m);
     __syncthreads();
     if (threadIdx.x == 0) {
         for (int i = 0; i < 3*NF; ++i) d_pos[i] = s_pos[i];
         for (int i = 0; i < 3*NV*NF; ++i) d_grad[i] = s_grad[i];
     }
 }
-__global__ void plant_pos_kernel(T *d_pos, const T *d_q, const grid::robotModel<T> *m) {
+__global__ void plant_pos_kernel(T *d_pos, const T *d_q, const grim::robotModel<T> *m) {
     __shared__ T s_pos[3*NF];
-    __shared__ __align__(16) T s_scratch[(grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>() / sizeof(T))];
-    grid_plant::multi_target_position<T>(s_pos, d_q, s_scratch, m);
+    __shared__ __align__(16) T s_scratch[(grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>() / sizeof(T))];
+    grim_plant::multi_target_position<T>(s_pos, d_q, s_scratch, m);
     __syncthreads();
     if (threadIdx.x == 0) for (int i = 0; i < 3*NF; ++i) d_pos[i] = s_pos[i];
 }
@@ -66,9 +66,9 @@ int main(){
     { FILE *f = fopen("q.txt", "r"); if (!f) { printf("no q.txt\n"); return 3; }
       for (int i = 0; i < NQ; ++i) if (fscanf(f, "%lf", &hq[i]) != 1) { printf("short q.txt\n"); return 3; }
       fclose(f); }
-    const grid::robotModel<T> *d_m = grid::init_robotModel<T>();
-    size_t smem_p = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
-    size_t smem_g = grid::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
+    const grim::robotModel<T> *d_m = grim::init_robotModel<T>();
+    size_t smem_p = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t smem_g = grim::MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>();
     T *d_q,*d_pos,*d_grad,*d_pos2,*d_grad2;
     CK(cudaMalloc(&d_q,NQ*sizeof(T))); CK(cudaMalloc(&d_pos,3*NF*sizeof(T))); CK(cudaMalloc(&d_pos2,3*NF*sizeof(T)));
     CK(cudaMalloc(&d_grad,3*NV*NF*sizeof(T))); CK(cudaMalloc(&d_grad2,3*NV*NF*sizeof(T)));
@@ -91,8 +91,8 @@ int main(){
     printf("THREADINV maxdiff=%.3e\n", tinv);
 
     // forced spill (TIER_MINIMAL scratch -> d_workspace) must be bit-identical
-    size_t smem_spill = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T, grid::TIER_MINIMAL>();
-    size_t ws_bytes   = grid::MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES<T, grid::TIER_MINIMAL>();
+    size_t smem_spill = grim::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<T, grim::TIER_MINIMAL>();
+    size_t ws_bytes   = grim::MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES<T, grim::TIER_MINIMAL>();
     T *d_ws=nullptr; if (ws_bytes) CK(cudaMalloc(&d_ws, ws_bytes));
     cudaFuncSetAttribute(pos_kernel_spill, cudaFuncAttributeMaxDynamicSharedMemorySize,(int)smem_spill);
     std::vector<T> rs(3*NF);
@@ -101,7 +101,7 @@ int main(){
     double sd=0; for(int i=0;i<3*NF;++i) sd=std::max(sd,fabs(rs[i]-rp[2][i]));
     printf("SPILLDIFF maxdiff=%.3e (ws %zu B)\n", sd, ws_bytes);
 
-    // grid_plant caller-scratch wrappers must equal the device fns
+    // grim_plant caller-scratch wrappers must equal the device fns
     std::vector<T> pp(3*NF), pg(3*NV*NF), pp2(3*NF);
     plant_kernel<<<1,256>>>(d_pos2,d_grad2,d_q,d_m); CK(cudaDeviceSynchronize());
     CK(cudaMemcpy(pp.data(),d_pos2,3*NF*sizeof(T),cudaMemcpyDeviceToHost));

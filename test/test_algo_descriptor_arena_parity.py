@@ -1,7 +1,7 @@
 """Parity + invariant net for the per-algo DESCRIPTOR arena composer (item M, Step 3).
 
 Descriptor-table Step 3 folded the ~272 hand-written `*_t_count` arena expressions in
-`GRiDCodeGenerator.gen_add_constants_helpers` into the table: every
+`GRiMCodeGenerator.gen_add_constants_helpers` into the table: every
 `select_shared_tier_3way` site is now DRIVEN from `compose_arena_rungs` /
 `compose_arena_full` in `algo_registry.py` (docs/open-tasks/design_descriptor_table_spec.md
 §3-4). Step 3.6 deleted the inline `assert composed == legacy` shims + the `_*_legacy`
@@ -11,7 +11,7 @@ imperative duplicates — the composer is now the single source of arena logic.
 
 It asserted `compose_arena_full(k, ctx) == gen._arena_full_t_counts[k]`. But after the Step-3 fold, 22
 of the 34 entries in that snapshot are THEMSELVES assigned from the composer — e.g.
-`GRiDCodeGenerator.py` has `"fdsva_so": _fdsva_so_arenas[0]` where
+`GRiMCodeGenerator.py` has `"fdsva_so": _fdsva_so_arenas[0]` where
 `_fdsva_so_arenas = compose_arena_rungs("fdsva_so", self._arena_ctx)`. So for those keys the test
 asserted `compose_arena_full(k) == compose_arena_full(k)`. **It could not fail.**
 
@@ -54,8 +54,8 @@ from pathlib import Path
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.algo_registry import (
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.algo_registry import (
     ARENA_COMPOSED_KEYS,
     ARENA_RUNG_KEYS,
     arena_ctx_from_codegen,
@@ -109,10 +109,10 @@ def _codegen_for(robot_id, base_mode, runtime_transform, tmp_path):
     except Exception as exc:  # missing robot_descriptions asset, etc.
         pytest.skip(f"cannot resolve {robot_id}-{base_mode}: {exc}")
     project_model = build_project_adapter(spec, resolved, base_mode=base_mode)
-    codegen = GRiDCodeGenerator(
+    codegen = GRiMCodeGenerator(
         project_model.robot, DEBUG_MODE=False, NEED_PRINT_MAT=False, FILE_NAMESPACE="grid"
     )
-    header = tmp_path / "grid.cuh"
+    header = tmp_path / "grim.cuh"
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         # "dynamics-core" is the leanest valid profile; gen_add_constants_helpers computes
         # ALL arena locals + the descriptor dicts unconditionally regardless of profile, so
@@ -130,7 +130,7 @@ def _codegen_for(robot_id, base_mode, runtime_transform, tmp_path):
 def test_no_circular_composer_vs_generator_check_is_reintroduced():
     """REGRESSION GUARD for the removed tautology (see the module docstring).
 
-    `GRiDCodeGenerator._arena_full_t_counts` is now POPULATED BY THE COMPOSER — e.g.
+    `GRiMCodeGenerator._arena_full_t_counts` is now POPULATED BY THE COMPOSER — e.g.
     `"fdsva_so": _fdsva_so_arenas[0]` where `_fdsva_so_arenas = compose_arena_rungs("fdsva_so", ctx)`.
     Comparing `compose_arena_full(k)` against that snapshot therefore compares the composer to itself.
     The old `test_arena_full_composer_matches_generator` did exactly that and stayed GREEN through the

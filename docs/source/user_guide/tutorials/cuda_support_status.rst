@@ -2,7 +2,7 @@ CUDA Support Status
 ===================
 
 This page summarizes the generated CUDA paths that are currently exercised by
-the GRiD developer test suite. For the commands that run these checks, see
+the GRiM developer test suite. For the commands that run these checks, see
 :doc:`cuda_validation`.
 
 Development testing currently targets **sm_120 (RTX 5090)** for correctness
@@ -43,9 +43,9 @@ Fixed-base CUDA coverage includes the core dynamics and kinematics paths:
 * Optional per-body external forces (``d_f_ext``) on RNEA, forward
   dynamics, ABA, and the inverse-/forward-dynamics gradients (opt-in;
   ``nullptr`` reproduces the no-force path).
-* The ``grid_plant`` layer (``plant_step``, quadratic state/input costs,
+* The ``grim_plant`` layer (``plant_step``, quadratic state/input costs,
   end-effector position cost, and joint position/velocity/torque
-  log-barriers), emitted as a sibling ``grid_plant`` namespace.
+  log-barriers), emitted as a sibling ``grim_plant`` namespace.
 * The centroidal family and its derivatives: ``com``, ``ccrba``, ``energy``,
   ``dccrba`` (∂A/∂q tensor), and ``cmm_time_variation`` (Ȧ).
 * The ``coriolis_matrix`` ``C(q,q̇)`` and the kinetic / potential
@@ -89,7 +89,7 @@ needed:
 * Tier 2 spills both d2XHom and ``d2eeTemp`` to ``d_workspace``.
 
 Tier selection is generated from robot dimensions, base mode, topology-derived
-transform counts, and ``GRID_CUDA_TARGET_SHARED_MEM_BYTES``. It is not keyed on
+transform counts, and ``GRIM_CUDA_TARGET_SHARED_MEM_BYTES``. It is not keyed on
 robot fixture names.
 
 Shared-Memory Fallbacks
@@ -100,7 +100,7 @@ memory budget. The default target is 96 KiB:
 
 .. code-block:: bash
 
-   GRID_CUDA_TARGET_SHARED_MEM_BYTES=98304
+   GRIM_CUDA_TARGET_SHARED_MEM_BYTES=98304
 
 Set a lower target to test fallback paths, or a higher target only when the
 deployment GPU supports the requested dynamic shared memory. Runtime checks
@@ -156,13 +156,13 @@ Algorithm catalog
 - Analytical Gradients of Inverse Dynamics from `Carpentier <https://hal.archives-ouvertes.fr/hal-01790971>`__
 - Analytical Gradient of Forward Dynamics from `Carpentier <https://hal.archives-ouvertes.fr/hal-01790971>`__
 - End-effector pose, pose gradient (Jacobian), and pose Hessian
-- General-frame geometric Jacobian for an arbitrary target frame in any of the three Pinocchio reference frames (``LOCAL``, ``WORLD``, ``LOCAL_WORLD_ALIGNED``). The numpy reference additionally provides the Jacobian time-variation J̇ and the operational-space (OSC) inertia Λ = (J·M⁻¹·Jᵀ)⁻¹ — all validated against Pinocchio's ``getFrameJacobian``/``getJointJacobian``, ``computeJointJacobiansTimeVariation``, and ``(J·M⁻¹·Jᵀ)⁻¹``. CUDA codegen emits all three as opt-in keys — J (``frame_jacobian``), J̇ (``frame_jacobian_dot``), and Λ (``osc_inertia``) — each validated on-device against the numpy reference across the three frames (Λ is self-contained: it composes M⁻¹ on-device). All three additionally have the full launchable surface (batched ``*_kernel`` + 3-mode host writing the ``gridData`` ``d_frame_jacobian`` / ``d_frame_jacobian_dot`` / ``d_osc_inertia`` buffers), so they are benchmarkable + bindable; the launchable surface bakes the leaf-EE target + ``LOCAL_WORLD_ALIGNED`` frame, while the ``*_device`` functions stay the arbitrary-target/-frame entry points
+- General-frame geometric Jacobian for an arbitrary target frame in any of the three Pinocchio reference frames (``LOCAL``, ``WORLD``, ``LOCAL_WORLD_ALIGNED``). The numpy reference additionally provides the Jacobian time-variation J̇ and the operational-space (OSC) inertia Λ = (J·M⁻¹·Jᵀ)⁻¹ — all validated against Pinocchio's ``getFrameJacobian``/``getJointJacobian``, ``computeJointJacobiansTimeVariation``, and ``(J·M⁻¹·Jᵀ)⁻¹``. CUDA codegen emits all three as opt-in keys — J (``frame_jacobian``), J̇ (``frame_jacobian_dot``), and Λ (``osc_inertia``) — each validated on-device against the numpy reference across the three frames (Λ is self-contained: it composes M⁻¹ on-device). All three additionally have the full launchable surface (batched ``*_kernel`` + 3-mode host writing the ``grimData`` ``d_frame_jacobian`` / ``d_frame_jacobian_dot`` / ``d_osc_inertia`` buffers), so they are benchmarkable + bindable; the launchable surface bakes the leaf-EE target + ``LOCAL_WORLD_ALIGNED`` frame, while the ``*_device`` functions stay the arbitrary-target/-frame entry points
 - Second-Order Inverse Dynamics (IDSVA-SO) from `Singh, Russell, & Wensing <https://arxiv.org/abs/2302.06001>`__ — the dispatcher selects body-frame for fixed-base and world-frame for floating-base models. See :doc:`../../release_measurements` for measured performance.
 - Second-Order Forward Dynamics (FDSVA-SO) from `Singh, Russell, & Wensing <https://arxiv.org/abs/2302.06001>`__ on both fixed and floating bases
 - A **time-integrator** family: the discrete step ``x_{k+1}`` plus its gradient ``∂x_{k+1}/∂(x,u)`` and a fused value-and-gradient variant
 - Optional per-body **external forces** (``f_ext``), threaded through RNEA, forward dynamics, ABA, and the inverse-/forward-dynamics gradients. Opt-in (a ``nullptr``/empty default reproduces the no-force path exactly), supplied in the body-local frame (``6*NUM_BODIES``, body-major) and subtracted from the per-body force.
 - **External-force gradients**: ``∂tau/∂f_ext = -Jᵀ`` and ``∂q̈/∂f_ext = M⁻¹Jᵀ``, plus the fixed-base ``∂(inverse_dynamics_gradient)/∂f_ext = -∂Jᵀ/∂q``
-- A trajectory-optimization-oriented **``grid_plant`` layer** (emitted as a sibling ``grid_plant`` namespace): a ``plant_step`` integrator wrapper, quadratic state/input costs, an end-effector position cost (with Gauss-Newton Hessian), and joint position/velocity/torque log-barriers.
+- A trajectory-optimization-oriented **``grim_plant`` layer** (emitted as a sibling ``grim_plant`` namespace): a ``plant_step`` integrator wrapper, quadratic state/input costs, an end-effector position cost (with Gauss-Newton Hessian), and joint position/velocity/torque log-barriers.
 - The **Coriolis matrix** ``C(q,q̇)`` (with ``C·q̇ + g(q) = nonlinear_effects``)
 - **Inertial-parameter energy regressors**: kinetic ``y_KE`` and potential ``y_PE`` (each length ``10·NB``, with ``KE = y_KE·π`` and ``PE = y_PE·π``)
 - The **centroidal derivatives**: ``dccrba`` (the ∂A/∂q tensor, 6×NV×NV) and ``cmm_time_variation`` (the centroidal-momentum-matrix time variation Ȧ)

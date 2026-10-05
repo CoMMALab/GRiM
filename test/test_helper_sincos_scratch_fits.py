@@ -25,7 +25,7 @@ HELPER_RE = re.compile(r"load_update_(?:XmatsHom|XImats)_helpers<T>\(")
 
 def _generate(robot_id, floating, target, out):
     from URDFParser import URDFParser
-    from grid_codegen import GRiDCodeGenerator
+    from grim_codegen import GRiMCodeGenerator
     urdf = robot_urdf(robot_id)
     if not urdf.exists():
         pytest.skip(f"{robot_id}.urdf not found")
@@ -33,7 +33,7 @@ def _generate(robot_id, floating, target, out):
         robot = URDFParser().parse(str(urdf), floating_base=floating)
         if robot is None:
             pytest.skip(f"{robot_id} URDF parse failed")
-        gen = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+        gen = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
         gen.gen_all_code(codegen_profile="all", output_path=str(out), algorithm_list=["end_effector_pose"],
                          fixed_target_name=target, enable_mujoco_kernels=False)
     return gen, out.read_text()
@@ -77,12 +77,12 @@ def test_one_target_end_effector_pose_carve_holds_the_helper_sincos_table(robot_
 
 def test_floor_matches_helper_documented_size():
     """The floor is the base of the helper's own documented scratch size."""
-    from grid_codegen.helpers._topology_helpers import _helpers_sincos_temp_floor
+    from grim_codegen.helpers._topology_helpers import _helpers_sincos_temp_floor
     from URDFParser import URDFParser
-    from grid_codegen import GRiDCodeGenerator
+    from grim_codegen import GRiMCodeGenerator
     urdf = robot_urdf("go2")
     if not urdf.exists():
         pytest.skip("go2.urdf not found")
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-        gen = GRiDCodeGenerator(URDFParser().parse(str(urdf), floating_base=True), FILE_NAMESPACE="grid")
+        gen = GRiMCodeGenerator(URDFParser().parse(str(urdf), floating_base=True), FILE_NAMESPACE="grid")
     assert _helpers_sincos_temp_floor(gen) == 2 * gen.robot.get_num_pos() == gen.gen_load_update_XImats_helpers_temp_mem_size()

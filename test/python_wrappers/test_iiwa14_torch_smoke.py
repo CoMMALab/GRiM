@@ -1,4 +1,4 @@
-"""PyTorch-backend smoke tests for the `grid-rbd` package (D.3).
+"""PyTorch-backend smoke tests for the `grim` package (D.3).
 
 Registers iiwa14 (fixed-base) with the torch backend, exercises every method,
 and asserts:
@@ -26,7 +26,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 torch = pytest.importorskip("torch", reason="torch not installed")
 if not torch.cuda.is_available():
     pytest.skip("CUDA not available", allow_module_level=True)
@@ -46,7 +46,7 @@ _GTOL = 2e-2  # loose float32 finite-difference VJP tolerance
 
 @pytest.fixture(scope="module")
 def th():
-    import grid_rbd.torch as gt
+    import grim.torch as gt
     return gt.register_robot(
         name="iiwa14_torch_smoke", urdf_path=str(_URDF),
         floating_base=False, max_batch_size=64)
@@ -55,7 +55,7 @@ def th():
 @pytest.fixture(scope="module")
 def nh():
     # numpy handle on the same robot (same .so/cache) for parity reference.
-    return _grid_rbd.get_robot("iiwa14_torch_smoke")
+    return _grim.get_robot("iiwa14_torch_smoke")
 
 
 @pytest.fixture(scope="module")
@@ -133,7 +133,7 @@ def test_inverse_dynamics_honors_qdd(th, nh, samples):
 @pytest.fixture(scope="module")
 def jh():
     jax = pytest.importorskip("jax", reason="jax not installed")
-    import grid_rbd.jax as gj
+    import grim.jax as gj
     return gj.get_robot("iiwa14_torch_smoke")
 
 

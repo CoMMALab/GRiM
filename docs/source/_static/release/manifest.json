@@ -16,7 +16,7 @@
     "test/benchmarks/results/release-final-core-20260927-nevcJ2"
   ],
   "accepted_source_drift": [
-    "test/benchmarks/release/grid_adapter.py",
+    "test/benchmarks/release/grim_adapter.py",
     "test/benchmarks/release/pin_adapter.py",
     "test/benchmarks/release/protocol.py"
   ],
@@ -32,8 +32,8 @@
     "audit.json": "68fac25ccd59fa772eea2207fde16c30a4e88a67399b99ed132e59d3e324abd6",
     "comparisons.json": "75c1e9f4d83db426e7e4dfab59bb912edc53f17f54948abf602a599186569157",
     "decomposition.csv": "b3e0b138920ffa4172a8a8545032ac05191a09c3949481a6db644fb92d9f90e9",
-    "grid_composition.png": "820aa0934971355e51787071f6fb17e10bde49bd5d64e7135a08dffcef0e8b82",
-    "grid_composition.svg": "19ab23352a5a1a61ff734b3081fc1996c5bb5851491e158cafcc8f6b6591a332",
+    "grim_composition.png": "820aa0934971355e51787071f6fb17e10bde49bd5d64e7135a08dffcef0e8b82",
+    "grim_composition.svg": "19ab23352a5a1a61ff734b3081fc1996c5bb5851491e158cafcc8f6b6591a332",
     "secondary_provenance.json": "685ba52dd034715a50587d138c7b49bad0022decbb28fbef2455cd2ccd794845",
     "secondary_table.csv": "606faf82acc886b8b5de9650d475058856d0848d5337daee9190ab70f991c49a",
     "speedup_core.png": "1b31a96ba07e4665deba8baea59cceb8928796799bf629c9f8e08e2d65d6d048",

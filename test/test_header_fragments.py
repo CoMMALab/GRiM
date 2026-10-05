@@ -1,10 +1,10 @@
-"""M3 F0/F1 referees — per-algorithm header fragments of grid.cuh.
+"""M3 F0/F1 referees — per-algorithm header fragments of grim.cuh.
 
 F0 (slicing): gen_all_code drops sentinel comment lines at top-level fragment
-boundaries and strips them after the post-passes, so the WRITTEN grid.cuh is
+boundaries and strips them after the post-passes, so the WRITTEN grim.cuh is
 byte-identical to the pre-F0 emission (proven ×7 cells by tools/byte_gate.py
 at landing; kept honest here on the iiwa14 cell). self.header_fragments holds
-the ordered (name, text) slices; fragments_dir= writes grid_frag_<name>.cuh.
+the ordered (name, text) slices; fragments_dir= writes grim_frag_<name>.cuh.
 
 F1 (closure): ALGO_TO_FRAGMENT maps algorithm_list keys to the fragment that
 carries them, and the def-before-use referee proves every *_inner/*_device
@@ -17,8 +17,8 @@ import re
 
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.helpers._code_generation_helpers import (
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.helpers._code_generation_helpers import (
     ALGO_TO_FRAGMENT,
     FRAGMENT_SENTINEL,
     split_fragment_sentinels,
@@ -34,7 +34,7 @@ EXPECTED_ORDER = [
     "forward_dynamics_gradient", "f_ext_gradient",
     "aba", "crba", "integrator", "second_order", "centroidal",
     "frame_jacobian_family", "ee_runtime", "combinations", "init_close",
-    "grid_plant", "collision",
+    "grim_plant", "collision",
 ]
 
 
@@ -45,9 +45,9 @@ def iiwa14_gen(request, tmp_path_factory):
     name = request.param
     parser = URDFParser()
     robot = parser.parse(str(robot_urdf(name)), floating_base=(name == "go2"))
-    gen = GRiDCodeGenerator(robot)
+    gen = GRiMCodeGenerator(robot)
     out_dir = tmp_path_factory.mktemp("frag_" + name)
-    out = out_dir / "grid.cuh"
+    out = out_dir / "grim.cuh"
     gen.gen_all_code(output_path=str(out), fragments_dir=str(out_dir / "fragments"))
     return gen, out, out_dir / "fragments"
 
@@ -72,7 +72,7 @@ def test_fragment_names_and_order(iiwa14_gen):
     for name in ("core", "ee_kinematics", "inverse_dynamics", "minv",
                  "forward_dynamics", "inverse_dynamics_gradient",
                  "forward_dynamics_gradient", "aba", "crba", "integrator",
-                 "second_order", "init_close", "grid_plant"):
+                 "second_order", "init_close", "grim_plant"):
         assert by_name[name].strip(), f"fragment {name} unexpectedly empty"
     assert not by_name["collision"].strip(), "collision fragment should be empty without collision_spec"
 
@@ -80,7 +80,7 @@ def test_fragment_names_and_order(iiwa14_gen):
 def test_fragment_files_written(iiwa14_gen):
     gen, _, frag_dir = iiwa14_gen
     files = {p.name for p in frag_dir.iterdir()}
-    assert files == {f"grid_frag_{n}.cuh" for n, _ in gen.header_fragments}
+    assert files == {f"grim_frag_{n}.cuh" for n, _ in gen.header_fragments}
 
 
 def test_algo_to_fragment_map_is_honest(iiwa14_gen):

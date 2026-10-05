@@ -30,7 +30,7 @@ def model_inputs(name, batch=2):
 
 
 def inertial_parameters(robot):
-    """Stack GRiD parameters from parsed, fixed-joint-merged body inertias."""
+    """Stack GRiM parameters from parsed, fixed-joint-merged body inertias."""
     params = []
     for body in range(robot.get_num_bodies()):
         I = np.asarray(robot.get_Imat_by_id(body), dtype=np.float64)

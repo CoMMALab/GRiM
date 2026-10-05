@@ -11,11 +11,11 @@ osc_inertia is INHERENTLY non-deterministic (the block-cooperative 6x6 GLASS inv
 ~1e-7 epsilon to ~1e-5 run-to-run). So this validates the spill-F rung against the
 pinocchio/RBDReference ORACLE (deterministic) at the same float32 tolerance the standard
 osc_inertia test uses (5e-3) -- NOT bit-identity vs the full rung. The host wrapper path is
-used (it allocates + L2-pins d_workspace through gridData and threads it kernel->device); a
-forced-low GRID_CUDA_TARGET_SHARED_MEM_BYTES + an osc-only codegen subset selects the spill-F
+used (it allocates + L2-pins d_workspace through grimData and threads it kernel->device); a
+forced-low GRIM_CUDA_TARGET_SHARED_MEM_BYTES + an osc-only codegen subset selects the spill-F
 rung without pulling the SO kernels into the header.
 
-Override robots with GRID_CUDA_OSC_SPILL_ROBOTS="g1:floating,iiwa14:fixed".
+Override robots with GRIM_CUDA_OSC_SPILL_ROBOTS="g1:floating,iiwa14:fixed".
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 from RBDReference.tests import MANIFEST_PATH
 from RBDReference.tests.model_sources import iter_robot_cases, resolve_robot_spec
 from RBDReference.equivalents.reference_backend import build_project_adapter
@@ -41,7 +41,7 @@ _REF_FRAME = "LOCAL_WORLD_ALIGNED"  # the osc_inertia kernel bakes leaf[0] + LWA
 
 
 def _robot_modes():
-    raw = os.environ.get("GRID_CUDA_OSC_SPILL_ROBOTS", "g1:floating,iiwa14:fixed")
+    raw = os.environ.get("GRIM_CUDA_OSC_SPILL_ROBOTS", "g1:floating,iiwa14:fixed")
     out = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -67,17 +67,17 @@ def _py_arena_bytes(t, topo, tbytes=4):
 
 
 def _gen(robot, build_dir, target):
-    prev = os.environ.get("GRID_CUDA_TARGET_SHARED_MEM_BYTES")
-    os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
+    prev = os.environ.get("GRIM_CUDA_TARGET_SHARED_MEM_BYTES")
+    os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = str(target)
     try:
-        cg = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
+        cg = GRiMCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid")
         with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-            cg.gen_all_code(algorithm_list=["osc_inertia"], output_path=str(build_dir / "grid.cuh"))
+            cg.gen_all_code(algorithm_list=["osc_inertia"], output_path=str(build_dir / "grim.cuh"))
     finally:
         if prev is None:
-            os.environ.pop("GRID_CUDA_TARGET_SHARED_MEM_BYTES", None)
+            os.environ.pop("GRIM_CUDA_TARGET_SHARED_MEM_BYTES", None)
         else:
-            os.environ["GRID_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
+            os.environ["GRIM_CUDA_TARGET_SHARED_MEM_BYTES"] = prev
     return cg.osc_inertia_spill_tier_3way[0], cg
 
 
@@ -134,10 +134,10 @@ def test_cuda_osc_inertia_spill_matches_reference(tmp_path, robot_id, base_mode)
     spill_dir.mkdir()
     spill_pick, _ = _gen(robot, spill_dir, _py_arena_bytes(full_t, topo) - 1)
     assert spill_pick == 1, f"forced target did not land the osc_inertia spill-F rung (got {spill_pick})"
-    htxt = (spill_dir / "grid.cuh").read_text()
-    assert "GRID_MINV_F_WORKSPACE_OFFSET_BYTES<T>()" in htxt and "!OSC_F_SMEM" in htxt, \
+    htxt = (spill_dir / "grim.cuh").read_text()
+    assert "GRIM_MINV_F_WORKSPACE_OFFSET_BYTES<T>()" in htxt and "!OSC_F_SMEM" in htxt, \
         "spill-F repoint not emitted in the forced header"
-    assert "GRID_OSC_INERTIA_USES_WORKSPACE = 1" in htxt, "kinematics workspace gate not set at the spill tier"
+    assert "GRIM_OSC_INERTIA_USES_WORKSPACE = 1" in htxt, "kinematics workspace gate not set at the spill tier"
     spill_exe = _compile(spill_dir, arch)
 
     samples = _build_cuda_samples(pm, random_count=4, include_corner_samples=False)

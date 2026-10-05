@@ -10,7 +10,7 @@ single launch. Targets are given as a list of {"anchor_jid": int, "offset": (x,y
 Requires: pip install robot_descriptions  (dev dependency)
 
 Run:
-    python examples/codegen/generate_multi_target.py --output /tmp/grid_iiwa14_mt.cuh
+    python examples/codegen/generate_multi_target.py --output /tmp/grim_iiwa14_mt.cuh
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from pathlib import Path
 from robot_descriptions import iiwa14_description
 
 from URDFParser import URDFParser
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 
 URDF_PATH = iiwa14_description.URDF_PATH
 
@@ -35,8 +35,8 @@ def build_batch(robot):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Generate iiwa14 GRiD code with a multi-target batch.")
-    ap.add_argument("--output", default="grid.cuh", help="Path for the generated CUDA header.")
+    ap = argparse.ArgumentParser(description="Generate iiwa14 GRiM code with a multi-target batch.")
+    ap.add_argument("--output", default="grim.cuh", help="Path for the generated CUDA header.")
     args = ap.parse_args()
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,8 +48,8 @@ def main():
     targets = build_batch(robot)
     print(f"Multi-target batch: {len(targets)} targets across {len(robot.get_leaf_nodes())} leaf frame(s).")
 
-    print("Generating GRiD CUDA code with multi_target_position{,_gradient} kernels...")
-    codegen = GRiDCodeGenerator(robot, FILE_NAMESPACE="grid")
+    print("Generating GRiM CUDA code with multi_target_position{,_gradient} kernels...")
+    codegen = GRiMCodeGenerator(robot, FILE_NAMESPACE="grid")
     codegen.gen_all_code(output_path=str(output_path), multi_target_batch=targets)
 
     print(f"Done: {output_path} written (NUM_MULTI_TARGETS = {len(targets)}).")

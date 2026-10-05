@@ -1,9 +1,9 @@
-# Integrating GRiD via `grid_rbd` — a guide for agents & users
+# Integrating GRiM via `grim` — a guide for agents & users
 
 *Last verified against repo state `f0db1a1` (2026-09-18). If the code and this guide disagree, trust the code and fix the guide.*
 
-How to call GRiD's GPU rigid-body dynamics from Python **as effectively as possible**. The
-golden rule: **place your data on the GPU once and keep it there.** GRiD is a GPU library;
+How to call GRiM's GPU rigid-body dynamics from Python **as effectively as possible**. The
+golden rule: **place your data on the GPU once and keep it there.** GRiM is a GPU library;
 its speed comes from staying resident across an entire control / learning pipeline, not from
 one-shot calls that round-trip to the host.
 
@@ -11,12 +11,12 @@ one-shot calls that round-trip to the host.
 
 | Handle | Get it with | In / out | Use when |
 |--------|-------------|----------|----------|
-| **numpy** (base) | `grid_rbd.get_robot(name)` / `register_robot(...)` | host `np.ndarray` | scripting, tests, "just give me the answer". Convenience, **not** the speed path — every call is H2D + D2H. |
-| **jax** | `grid_rbd.jax.get_robot(name)` | device `jax.Array` | JAX pipelines: `jit` / `vmap` / `grad` / `lax.scan`. **The fast path.** |
-| **torch** | `grid_rbd.torch.get_robot(name)` | CUDA `torch.Tensor` | PyTorch training / MPC; autograd-aware; `capture()` for CUDA-Graphs replay. **The fast path.** |
+| **numpy** (base) | `grim.get_robot(name)` / `register_robot(...)` | host `np.ndarray` | scripting, tests, "just give me the answer". Convenience, **not** the speed path — every call is H2D + D2H. |
+| **jax** | `grim.jax.get_robot(name)` | device `jax.Array` | JAX pipelines: `jit` / `vmap` / `grad` / `lax.scan`. **The fast path.** |
+| **torch** | `grim.torch.get_robot(name)` | CUDA `torch.Tensor` | PyTorch training / MPC; autograd-aware; `capture()` for CUDA-Graphs replay. **The fast path.** |
 
 All three share **one cache** (the same compiled `.so`, keyed by URDF bytes + codegen options +
-GRiD version + CUDA arch + wrapper/codegen source hashes — editing grid_codegen or the
+GRiM version + CUDA arch + wrapper/codegen source hashes — editing grim_codegen or the
 wrapper rotates every key; rebuilds are automatic, no force_rebuild needed). Build once, use from any surface. Install is opt-in per backend:
 `pip install -e ".[jax]"` / `[torch]` / `[all]` (base is numpy-only). `nvcc` must be on
 `PATH` at build time (not at `pip install` time); the per-robot `.so` is built on first use.
@@ -56,8 +56,8 @@ Four entry points over the same cache:
 | `get_robot(name)` | look up an already-registered robot by name | fast start once the cache is warm; raises `RobotNotRegisteredError` if absent, `StaleRobotError` if the cached build is from another wrapper/ABI/arch (rebuild) |
 
 ```python
-import grid_rbd
-grid_rbd.precompile("iiwa14", "/path/to/iiwa14.urdf",
+import grim
+grim.precompile("iiwa14", "/path/to/iiwa14.urdf",
                     floating_base=False,            # True for free-base humanoids/quadrupeds
                     ee_joint_names=["iiwa_joint_ee"],  # default: all leaf links
                     max_batch_size=1024,            # cap the batch you'll run; bake it in
@@ -67,11 +67,11 @@ grid_rbd.precompile("iiwa14", "/path/to/iiwa14.urdf",
 
 `precompile` is idempotent: a cached tier is an instant no-op (no `nvcc`). The `numpy` backend is
 warmed without a handle or a CUDA context (a GPU-less build box works with `cuda_arch=`);
-`grid_rbd.build_plan(name, urdf, cuda_arch=...)` shows what a build would key on and whether the
+`grim.build_plan(name, urdf, cuda_arch=...)` shows what a build would key on and whether the
 cache already holds it, without building. First build of a
 small arm is ~30–60 s; large humanoids with second-order kernels take minutes (and lots of RAM).
-Ship the cache dir (`grid_rbd.default_cache_dir()`, default `~/.cache/grid-rbd/` or
-`$GRID_RBD_CACHE_DIR`) and every later run starts in well under a second.
+Ship the cache dir (`grim.default_cache_dir()`, default `~/.cache/grim/` or
+`$GRIM_CACHE_DIR`) and every later run starts in well under a second.
 
 - `max_batch_size` is a **compile-time** cap. Calls with `batch ≤ max_batch` run in one launch;
   larger batches must be chunked by the caller. Bake in the largest batch you'll run.
@@ -96,27 +96,27 @@ it (column-major per item, so not C-contiguous) — no per-call allocation, no h
 ## The fast path (JAX): stay resident, compose, differentiate
 
 ```python
-import jax, jax.numpy as jnp, grid_rbd.jax as gj
+import jax, jax.numpy as jnp, grim.jax as gj
 h = gj.get_robot("iiwa14")                     # JaxRobotHandle; methods return jax.Array
 q  = jax.device_put(jnp.asarray(q_np))         # H2D ONCE
 qd = jax.device_put(jnp.asarray(qd_np))
 u  = jax.device_put(jnp.asarray(u_np))
 
-@jax.jit                                        # fuse GRiD calls + your math into one GPU program
+@jax.jit                                        # fuse GRiM calls + your math into one GPU program
 def step(q, qd, u):
     qdd = h.forward_dynamics(q, qd, u)          # FFI call — output never leaves the GPU
     return jnp.mean(qdd**2) + 1e-3*jnp.mean(u**2)
 
 c      = step(q, qd, u)                          # device-resident scalar
-g_u    = jax.grad(step, argnums=2)(q, qd, u)     # ANALYTIC gradient via GRiD's custom_vjp
+g_u    = jax.grad(step, argnums=2)(q, qd, u)     # ANALYTIC gradient via GRiM's custom_vjp
 batched = jax.vmap(step)(qb, qdb, ub)            # batch with no Python loop
 ```
 
 - Every method is a `jax.custom_vjp` over `jax.ffi.ffi_call`: it **composes** under
-  `jit`/`vmap`/`grad` and **chains** into the next GRiD call with no host hop.
-- Gradients are GRiD's **analytic** Jacobians (a matvec FFI call), not autodiff or
+  `jit`/`vmap`/`grad` and **chains** into the next GRiM call with no host hop.
+- Gradients are GRiM's **analytic** Jacobians (a matvec FFI call), not autodiff or
   finite-difference — correct and fast.
-- **Resident rollout:** put a GRiD call inside `jax.lax.scan` so a whole K-step MPC/rollout
+- **Resident rollout:** put a GRiM call inside `jax.lax.scan` so a whole K-step MPC/rollout
   horizon is one GPU program and the state is carried device-to-device. See
   [`jax_gpu_resident.py`](jax_gpu_resident.py) for a timed comparison vs the host-roundtrip
   anti-pattern (often 10×+).
@@ -128,7 +128,7 @@ batched = jax.vmap(step)(qb, qdb, ub)            # batch with no Python loop
 ## The fast path (PyTorch): autograd + CUDA-Graphs
 
 ```python
-import torch, grid_rbd.torch as gt
+import torch, grim.torch as gt
 h = gt.get_robot("iiwa14")                      # TorchRobotHandle; methods return CUDA tensors
 qdd = h.forward_dynamics(q, qd, u)              # q,qd,u are cuda tensors → qdd is a cuda tensor
 loss = qdd.pow(2).mean(); loss.backward()        # analytic grads flow to q/qd/u
@@ -169,7 +169,7 @@ qdd-aware) · `forward_dynamics_gradient(q,qd,u)`→`(B,NV,2·NV)` · second-ord
 `idsva_so(q,qd,qdd)` / `fdsva_so(q,qd,u)` → a `SecondOrderID`/`SecondOrderFD` NamedTuple of
 4 × `(B,NV,NV,NV)` tensors (named fields, unpack positionally).
 
-**Trajectory-opt (`grid_plant`)** — `integrator(q,qd,u,dt)`/`_gradient` and
+**Trajectory-opt (`grim_plant`)** — `integrator(q,qd,u,dt)`/`_gradient` and
 `plant_step(x,u,dt)`→`(B,NX)` / `_gradient`→`(B,2·NV,3·NV)` `[A|B]`, where state `x=[q;qd]`
 (`NX=2·NV`). `integrator_type=` is `euler` (default) / `semi_implicit_euler` / `midpoint` /
 `rk3` / `rk4`. Cost terms return `(value, grad, hess)`: `quadratic_state_cost(x,x_des,Q)`,
@@ -203,8 +203,8 @@ tangent width / body count).
 
 ## Gradients are analytic
 
-`jax.grad` / `loss.backward()` do **not** autodiff or finite-difference through GRiD — each
-differentiable method carries GRiD's own **analytic** Jacobian (a matvec FFI call). On JAX:
+`jax.grad` / `loss.backward()` do **not** autodiff or finite-difference through GRiM — each
+differentiable method carries GRiM's own **analytic** Jacobian (a matvec FFI call). On JAX:
 `inverse_dynamics`/`forward_dynamics`/`aba`/`end_effector_pose`/`integrator` + the π-regressor VJP
 + `f_ext` parity. On torch: `inverse_dynamics`/`forward_dynamics`/`aba`/`end_effector_pose`/
 `integrator` (the rest are forward-only). The `inverse_dynamics` gradient is qdd-aware (includes
@@ -237,7 +237,7 @@ system-identification, payload changes, domain randomization, and kinematic cali
 [`runtime_params.py`](runtime_params.py).
 
 ```python
-h = grid_rbd.register_robot("arm", urdf, runtime_inertia=True)
+h = grim.register_robot("arm", urdf, runtime_inertia=True)
 I = h.inertia_params.copy()           # (num_bodies, 10)
 I[-1, 0] += 0.5; I[-1, 1:4] *= ...    # +0.5 kg payload on the last link (scale h=m*c)
 h.set_inertia_params(I)               # every later forward_dynamics uses it — no rebuild
@@ -273,7 +273,7 @@ mujoco mode — the mjx kernel twins serve them natively (floating, non-mimic ro
 
 ## Performance: the block size is tuned for *your* launch path + use case
 
-GRiD picks a per-algorithm CUDA block size (threads-per-block) by autotuning. The key thing to
+GRiM picks a per-algorithm CUDA block size (threads-per-block) by autotuning. The key thing to
 understand: **the optimal block size is not a property of the kernel alone — it depends on the
 launch path AND how you use it.** The C++/host autotune optimizes *pipelined throughput*; the
 python bindings launch the same kernel through the jax/torch **FFI** path, and for the
@@ -305,11 +305,11 @@ apply per-algo small-batch thread overrides from the config's `ffi_bases_by_n` b
 ## Do / Don't
 
 - **Do** `device_put` inputs once and keep outputs as device arrays/tensors across calls.
-- **Do** wrap multi-call logic in `@jax.jit` (or `capture()` for torch) so GRiD calls fuse /
+- **Do** wrap multi-call logic in `@jax.jit` (or `capture()` for torch) so GRiM calls fuse /
   replay instead of dispatching one at a time.
 - **Do** set `max_batch_size` to the largest batch you'll run, at build time.
 - **Do** match input dtype to the surface: fp32 for jax/torch (an fp64 array forces a copy).
-- **Don't** convert to `np.asarray` / `.cpu()` between GRiD calls in a hot loop — that's a
+- **Don't** convert to `np.asarray` / `.cpu()` between GRiM calls in a hot loop — that's a
   D2H+H2D round-trip per step and erases the GPU advantage (see the timed anti-pattern in
   `jax_gpu_resident.py`).
 - **Don't** rebuild per run — `precompile` once and reuse the cache.
@@ -325,14 +325,14 @@ apply per-algo small-batch thread overrides from the config's `ffi_bases_by_n` b
 
 - **`RobotNotRegisteredError`** from `get_robot` → the cache isn't warm; run `register_robot` /
   `precompile` first (or ship the cache dir).
-- **`StaleRobotError`** from `get_robot` → the manifest names a build this `grid_rbd` cannot load
+- **`StaleRobotError`** from `get_robot` → the manifest names a build this `grim` cannot load
   (older wrapper / torch-jax ABI / GPU arch, or a pre-2026-09-22 entry with no build record); re-run
   `register_robot` / `precompile` — byte-identical sources re-hit the store without `nvcc`.
 - **"symbol missing" / "not built into this `.so`"** → you used `algorithm_list=` and called a
   method outside the subset; add it and rebuild. Same on all three surfaces.
 - **torch "no kernel image available for sm_120"** → the backward VJP runs torch's own CUDA
   kernels, so the installed torch wheel must support the GPU arch (e.g. RTX 5090 / sm_120 needs a
-  **cu128+** build; cu124 maxes at sm_90). The GRiD kernels themselves are always nvcc-built for
+  **cu128+** build; cu124 maxes at sm_90). The GRiM kernels themselves are always nvcc-built for
   the detected arch and are fine.
 - **torch `capture()` during stream capture** → `capture()` runs a mandatory off-graph warmup for
   one-time device setup (the >48 KB dynamic-smem opt-in) before recording; don't call methods
@@ -345,7 +345,7 @@ apply per-algo small-batch thread overrides from the config's `ffi_bases_by_n` b
 - [`jax_gpu_resident.py`](jax_gpu_resident.py) — residency, jit/vmap/grad, `lax.scan` rollout,
   donate, dlpack. The reference for the JAX fast path.
 - [`jax_gpu_resident_go2.py`](jax_gpu_resident_go2.py) — the floating-base twin (go2, nq=19/nv=18):
-  same demos plus GRiD's own `integrator` kernel inside the scan for the on-manifold base retract.
+  same demos plus GRiM's own `integrator` kernel inside the scan for the on-manifold base retract.
 - [`torch_cuda_graphs.py`](torch_cuda_graphs.py) — CUDA tensors, autograd, CUDA-Graphs replay
   (the graph win is CPU-submit cost, ~13 us eager vs ~2 us replay; wall time is ~break-even).
 - [`torch_cuda_graphs_go2.py`](torch_cuda_graphs_go2.py) — the floating-base twin.
@@ -374,7 +374,7 @@ Register with `enable_tool=True` (turns on the runtime inertia table + runtime c
 runtime EE surfaces are already in the default build), then:
 
 ```python
-h = grid_rbd.register_robot("arm", urdf_path=..., enable_tool=True)
+h = grim.register_robot("arm", urdf_path=..., enable_tool=True)
 # a rigid tool = payload inertia on a link + an SE(3) tip frame off that joint:
 h.attach_tool("iiwa_joint_7", mass=2.0, com=[0,0,0.08],
               inertia=np.diag([0.02,0.02,0.008]),   # about the payload CoM (optional)
@@ -393,7 +393,7 @@ h.detach_tool()                    # restore the baked robot
 - **Tip forces** (grinding, pushing, a second gripper finger) — `h.tool_fext(q, wrench)` maps a
   world-aligned tool-tip wrench `(B, 6)` = `[n_w; f_w]` → a joint-local `f_ext` `(B, 6*num_bodies)`
   you pass straight to `inverse_dynamics(f_ext=...)` / `aba(f_ext=...)`. The `∂/∂f_c` and `∂/∂q`
-  derivatives are validated at the device level (`grid::f_ext_body_jacobian_d{fc,q}_runtime_device`)
+  derivatives are validated at the device level (`grim::f_ext_body_jacobian_d{fc,q}_runtime_device`)
   for solvers that need the chain-rule term.
 - **Two-finger closed-loop grasp** — a tool bridging two fingertips is a closed kinematic loop (not
   representable in a tree). Attach to ONE fingertip + model the other finger's grip as a `tool_fext`

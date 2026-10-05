@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print CPU reference values for all RBD algorithms for a given URDF.
 
-Useful for debugging and validating GRiD CUDA output against ground truth.
+Useful for debugging and validating GRiM CUDA output against ground truth.
 
 Usage:
     python examples/codegen/print_reference_values.py PATH_TO_URDF [-t FIXED_TARGET_NAMES] [-n NAMESPACE] [-d] [-f]
@@ -15,8 +15,8 @@ import numpy as np
 
 from URDFParser import URDFParser
 from RBDReference import RBDReference
-from grid_codegen import GRiDCodeGenerator
-from grid_codegen.cli import parseInputs, validateRobot
+from grim_codegen import GRiMCodeGenerator
+from grim_codegen.cli import parseInputs, validateRobot
 
 # The repo's test/ package must shadow the stdlib `test` package regardless of
 # how this script is invoked (test/helpers.py is not part of the installed dist).
@@ -107,7 +107,7 @@ def main():
         print("-------------------")
         print("printing intermediate outputs from refactorings")
         print("-------------------")
-        codegen = GRiDCodeGenerator(robot, args.debug, FILE_NAMESPACE=args.namespace)
+        codegen = GRiMCodeGenerator(robot, args.debug, FILE_NAMESPACE=args.namespace)
         (c, v, a, f) = codegen.test_rnea(q, qd)
         print("v\n", v)
         print("a\n", a)

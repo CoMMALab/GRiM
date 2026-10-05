@@ -1,7 +1,7 @@
 """CUDA equivalence gate for the W3 Component E static geometry header
-`collision/grid_collision_geometry.cuh` (grid_collision:: SDF primitives).
+`collision/grim_collision_geometry.cuh` (grim_collision:: SDF primitives).
 
-Pure geometry — NO grid.cuh, no robot model, no codegen. The runner bakes self-describing
+Pure geometry — NO grim.cuh, no robot model, no codegen. The runner bakes self-describing
 collision configs (covering collision / free / edge cases: capsule t-clamps, cuboid
 face/edge/corner/inside, rotated OBB), evaluates each SDF on device, and prints the full
 geometry + GPU squared-gap. This gate:
@@ -28,7 +28,7 @@ import pytest
 from test.cuda_equivalents.cuda_harness import _detect_cuda_arch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-COLLISION_INCLUDE = REPO_ROOT / "grid_codegen" / "collision"
+COLLISION_INCLUDE = REPO_ROOT / "grim_codegen" / "collision"
 RUNNER_SOURCE = Path(__file__).with_name("cuda_collision_geometry_runner.cu")
 
 

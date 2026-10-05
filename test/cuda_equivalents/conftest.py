@@ -1,6 +1,6 @@
 """CUDA-equivalence suite conftest: generate PIN-ONLY headers by default.
 
-WHY (2026-07-24). Every test in this directory generates a `grid.cuh` and compiles it
+WHY (2026-07-24). Every test in this directory generates a `grim.cuh` and compiles it
 with nvcc. On a floating-base, non-mimic robot the generator also instantiates the mjx
 (`MUJOCO_OUTPUT=true`) twin of each kernel -- and those twins are enormous next to their
 pin counterparts. Measured on g1-floating:
@@ -36,9 +36,9 @@ import pytest
 
 @pytest.fixture(scope="session", autouse=True)
 def _record_header_content_keys():
-    """A4 (2026-09-11): record every generated grid.cuh's CONTENT hash.
+    """A4 (2026-09-11): record every generated grim.cuh's CONTENT hash.
 
-    When ``GRID_HEADER_KEYS_OUT`` names a file (run_split_suite sets it per
+    When ``GRIM_HEADER_KEYS_OUT`` names a file (run_split_suite sets it per
     cuda shard under --receipts), append one JSON line per header this shard
     generates or reuses, so the shard's receipt gains a per-cell header
     content-key sidecar. Wave A' consumes these at refresh time: regenerate a
@@ -49,16 +49,16 @@ def _record_header_content_keys():
     Two capture layers, both patched from HERE (deliberately not from
     cuda_harness.py — that file is in every cuda shard's fingerprint, so an
     edit there would itself stale the whole domain; this conftest is not):
-      - GRiDCodeGenerator.gen_all_code — every DIRECT per-test codegen call
+      - GRiMCodeGenerator.gen_all_code — every DIRECT per-test codegen call
         (the ~26 non-flagship modules), with the bound call kwargs as the
         best-effort recipe evidence;
-      - cuda_harness._generate_grid_header — the flagship header path, which
+      - cuda_harness._generate_grim_header — the flagship header path, which
         on a warm cache COPIES the header without calling gen_all_code (the
         layer above would miss cache hits).
     Recording is best-effort by design: a missing record makes Wave A'
     conservatively stale that cell, never silently carry it.
     """
-    out = os.environ.get("GRID_HEADER_KEYS_OUT")
+    out = os.environ.get("GRIM_HEADER_KEYS_OUT")
     if not out:
         yield
         return
@@ -67,7 +67,7 @@ def _record_header_content_keys():
     import json
     from pathlib import Path
 
-    from grid_codegen.GRiDCodeGenerator import GRiDCodeGenerator
+    from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
 
     def emit(record: dict) -> None:
         try:
@@ -82,15 +82,15 @@ def _record_header_content_keys():
         except OSError:
             return None
 
-    orig_gen = GRiDCodeGenerator.gen_all_code
+    orig_gen = GRiMCodeGenerator.gen_all_code
     sig = inspect.signature(orig_gen)
 
     # Env knobs that steer codegen output — snapshotted into every record so
     # the A' replayer regenerates under the SAME environment (spill tests
     # monkeypatch the smem knobs mid-session; the suite pins mjx kernels off).
-    replay_env = ("GRID_ENABLE_MUJOCO_KERNELS", "GRID_CODEGEN_PROFILE",
-                  "GRID_CUDA_TARGET_SHARED_MEM_BYTES",
-                  "GRID_CUDA_SHARED_MEM_TYPE_SIZE_BYTES")
+    replay_env = ("GRIM_ENABLE_MUJOCO_KERNELS", "GRIM_CODEGEN_PROFILE",
+                  "GRIM_CUDA_TARGET_SHARED_MEM_BYTES",
+                  "GRIM_CUDA_SHARED_MEM_TYPE_SIZE_BYTES")
 
     def _env_snapshot() -> dict:
         return {k: os.environ.get(k) for k in replay_env}
@@ -107,7 +107,7 @@ def _record_header_content_keys():
         try:
             bound = sig.bind(self, *args, **kwargs)
             call = {k: v for k, v in bound.arguments.items() if k != "self"}
-            out_path = call.pop("output_path", None) or "grid.cuh"
+            out_path = call.pop("output_path", None) or "grim.cuh"
             # JSON-representable kwargs stay STRUCTURED (the A' replayer can
             # feed them straight back to gen_all_code); everything else goes
             # to `opaque` as an address-stripped repr — evidence only, replay
@@ -143,7 +143,7 @@ def _record_header_content_keys():
                       # fp64 (audit 2026-09-18): the ctor's dtype="double" folds into
                       # cuda_shared_mem_type_size_bytes (8 vs 4) and reshapes every
                       # arena/spill decision — the same emission-shaping class as
-                      # GRID_ENABLE_MUJOCO_KERNELS (7.z14). Record the RESOLVED byte
+                      # GRIM_ENABLE_MUJOCO_KERNELS (7.z14). Record the RESOLVED byte
                       # size (covers ctor dtype AND the env override in one value);
                       # replay reconstructs dtype from it.
                       "t_bytes": int(getattr(self, "cuda_shared_mem_type_size_bytes", 4)),
@@ -159,7 +159,7 @@ def _record_header_content_keys():
         from test.cuda_equivalents import cuda_harness
     except ImportError:
         cuda_harness = None
-    orig_flagship = getattr(cuda_harness, "_generate_grid_header", None)
+    orig_flagship = getattr(cuda_harness, "_generate_grim_header", None)
 
     def flagship_wrapper(project_model, resolved_model, build_dir, config,
                          codegen_algorithm_list=None):
@@ -179,25 +179,25 @@ def _record_header_content_keys():
             pass
         return header_path, header_key
 
-    GRiDCodeGenerator.gen_all_code = gen_wrapper
+    GRiMCodeGenerator.gen_all_code = gen_wrapper
     if orig_flagship is not None:
-        cuda_harness._generate_grid_header = flagship_wrapper
+        cuda_harness._generate_grim_header = flagship_wrapper
     try:
         yield
     finally:
-        GRiDCodeGenerator.gen_all_code = orig_gen
+        GRiMCodeGenerator.gen_all_code = orig_gen
         if orig_flagship is not None:
-            cuda_harness._generate_grid_header = orig_flagship
+            cuda_harness._generate_grim_header = orig_flagship
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _pin_only_headers():
     """Default `gen_all_code` to `enable_mujoco_kernels=False` for this directory.
 
-    Honors a caller-set `GRID_ENABLE_MUJOCO_KERNELS` (e.g. a deliberate
-    `GRID_ENABLE_MUJOCO_KERNELS=1` sweep) rather than overriding it.
+    Honors a caller-set `GRIM_ENABLE_MUJOCO_KERNELS` (e.g. a deliberate
+    `GRIM_ENABLE_MUJOCO_KERNELS=1` sweep) rather than overriding it.
     """
-    key = "GRID_ENABLE_MUJOCO_KERNELS"
+    key = "GRIM_ENABLE_MUJOCO_KERNELS"
     preset = os.environ.get(key)
     if preset is None:
         os.environ[key] = "0"

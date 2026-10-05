@@ -10,11 +10,11 @@ SWAPS its measurement layer + batch sweep for ours:
   * cuRobo's benchmark uses torch.profiler and reads `self_cuda_time_total` /
     `self_device_time_total` per "rnea_forward" / "rnea_backward" kernel,
     batches [1, 64, 256, 1024], and prints a tabulate grid.
-  * WE need µs/iter in the timeGRiD/timeMJX label format (parse_grid_output)
+  * WE need µs/iter in the timeGRiM/timeMJX label format (parse_grim_output)
     across OUR batch sweep 16/32/64/128/256 plus a single-call (batch=1).
 So this script wall-clocks each launch with torch.cuda.synchronize() bracketing
 (the same device-completion discipline as timeMJX's _sync()), which is the
-robust apples-to-apples measure against GRiD/MJX/MuJoCo-Warp (all of which we
+robust apples-to-apples measure against GRiM/MJX/MuJoCo-Warp (all of which we
 time the same way). The torch.profiler self_cuda_time path can be added later if
 we want pure-kernel (launch-overhead-excluded) numbers; for parity with the
 other GPU baselines we use synchronized wall-clock here.
@@ -64,7 +64,7 @@ N_WARMUP_PASSES = 5   # matches cuRobo benchmark default warmup_iters
 
 
 # ---------------------------------------------------------------------------
-# Output helpers (same format as timeGRiD / timeMJX / timeMujocoWarp)
+# Output helpers (same format as timeGRiM / timeMJX / timeMujocoWarp)
 # ---------------------------------------------------------------------------
 def _print_stats(label: str, n: int, times: np.ndarray) -> None:
     print(
@@ -82,7 +82,7 @@ def _print_stats(label: str, n: int, times: np.ndarray) -> None:
 #   COMPUTE ONLY: inputs already resident on device; just relaunch the kernel.
 #   WITH MEMORY:  regenerate host numpy state per-iter and copy it into the
 #                 device tensors inside the timed region (host->device transfer
-#                 included, mirroring GRiD's "with mem" timing).
+#                 included, mirroring GRiM's "with mem" timing).
 # ---------------------------------------------------------------------------
 def _sync(device) -> None:
     import torch

@@ -1,4 +1,4 @@
-"""Central config / asset path helpers for GRiD.
+"""Central config / asset path helpers for GRiM.
 
 All robot URDFs live in ``config/robot_assets/`` and all baked launch-config
 overrides in ``config/launch_configs/``. Import these helpers instead of
@@ -14,7 +14,7 @@ The paths are self-locating (relative to THIS file), so callers do not need to
 compute their own ``parents[N]`` repo-root depth to reach the assets — they
 only need the repo root on ``sys.path`` to ``import config``.
 
-Note: ``GRiDCodeGenerator`` deliberately does NOT import this module for its own
+Note: ``GRiMCodeGenerator`` deliberately does NOT import this module for its own
 launch-config lookup (``_launch_configs_dir``) — it resolves the directory
 structurally to avoid a codegen-package -> top-level-package import edge. This
 module is for the test / tooling / example readers.

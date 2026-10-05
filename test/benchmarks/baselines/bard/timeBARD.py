@@ -4,8 +4,8 @@
 BARD = "Batched Articulated Robot Dynamics" — a batched PyTorch rigid-body
 dynamics library (https://github.com/YueWang996/bard-pytorch-dynamics).
 
-Prints results in the same format as timeGRiD / timeFrax so
-timing_parser.parse_grid_output can reuse it. Available algorithms:
+Prints results in the same format as timeGRiM / timeFrax so
+timing_parser.parse_grim_output can reuse it. Available algorithms:
   - rnea  -> inverse_dynamics
   - aba   -> forward_dynamics
   - crba  -> crba
@@ -14,8 +14,8 @@ ee_pose algorithms, so those map to null (rendered `—` by the report).
 
 Conventions (the release collector validates and converts shared inputs):
   * URDF loading via bard.build_model_from_urdf; joint order == URDF order
-    (same order Pinocchio + GRiD use).
-  * Gravity passed explicitly as the 3-vector [0, 0, -9.81] (matches GRiD).
+    (same order Pinocchio + GRiM use).
+  * Gravity passed explicitly as the 3-vector [0, 0, -9.81] (matches GRiM).
   * Fixed base: nq == nv. Floating base: nq == nv + 1 (quaternion free-flyer,
     with quaternion wxyz, unlike Pinocchio's xyzw) so q has shape (B, nq) while
     qd/qdd/tau have shape (B, nv).
@@ -55,7 +55,7 @@ _TORCH_DEVICE = "cuda" if _BARD_DEVICE in ("gpu", "cuda") else "cpu"
 
 
 # ---------------------------------------------------------------------------
-# Output helpers (same format as timeGRiD / timeFrax)
+# Output helpers (same format as timeGRiM / timeFrax)
 # ---------------------------------------------------------------------------
 
 def _print_stats(label: str, n: int, times: np.ndarray) -> None:
@@ -88,7 +88,7 @@ def main() -> None:
         sys.exit(1)
 
     device = torch.device(_TORCH_DEVICE)
-    dtype  = torch.float32  # match the GRiD/Frax/MJX GPU comparison (fp32)
+    dtype  = torch.float32  # match the GRiM/Frax/MJX GPU comparison (fp32)
 
     def _sync():
         if _TORCH_DEVICE == "cuda":
@@ -141,7 +141,7 @@ def main() -> None:
 
     # Each algorithm needs update_kinematics(q, qd) first, then the algo call.
     # Time the full (update_kinematics + algo) pipeline, which is what a caller
-    # actually pays per state — mirrors GRiD/Frax timing the whole computation.
+    # actually pays per state — mirrors GRiM/Frax timing the whole computation.
     def _run_id(data, q, qd, qdd):
         bard.update_kinematics(model, data, q, qd)
         return bard.rnea(model, data, qdd, gravity=gravity)

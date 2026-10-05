@@ -5,62 +5,62 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 
 // Mimic robots (fr3, h1_2) do NOT emit gradient algorithms (the G0 footgun guard
 // refuses mimic-gradient codegen — deferred to T3-finisher). The test passes
-// -DGRID_RUNNER_SKIP_GRADIENTS=1 for those robots so this runner compiles against
+// -DGRIM_RUNNER_SKIP_GRADIENTS=1 for those robots so this runner compiles against
 // their gradient-free header. Default 0 for non-mimic robots (full surface).
-#ifndef GRID_RUNNER_SKIP_GRADIENTS
-#define GRID_RUNNER_SKIP_GRADIENTS 0
+#ifndef GRIM_RUNNER_SKIP_GRADIENTS
+#define GRIM_RUNNER_SKIP_GRADIENTS 0
 #endif
 
 // Finer-grained: ee_pose gradient/hessian (kinematic 1st/2nd order) land in a
 // LATER mimic phase (P4) than the dynamics gradients id_du/fd_du (P3). Fixed-base
-// mimic emits id_du/fd_du (so GRID_RUNNER_SKIP_GRADIENTS=0) but NOT the ee_pose
-// gradients yet, so the test sets -DGRID_RUNNER_SKIP_EEPOSE_GRADIENTS=1 for mimic
-// robots to skip only those. Defaults to GRID_RUNNER_SKIP_GRADIENTS so non-mimic
+// mimic emits id_du/fd_du (so GRIM_RUNNER_SKIP_GRADIENTS=0) but NOT the ee_pose
+// gradients yet, so the test sets -DGRIM_RUNNER_SKIP_EEPOSE_GRADIENTS=1 for mimic
+// robots to skip only those. Defaults to GRIM_RUNNER_SKIP_GRADIENTS so non-mimic
 // robots and the floating-skip path behave exactly as before.
-#ifndef GRID_RUNNER_SKIP_EEPOSE_GRADIENTS
-#define GRID_RUNNER_SKIP_EEPOSE_GRADIENTS GRID_RUNNER_SKIP_GRADIENTS
+#ifndef GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS
+#define GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS GRIM_RUNNER_SKIP_GRADIENTS
 #endif
 
-// Per-algorithm COMPILE selection (split). With -DGRID_RUN_SPLIT the harness
+// Per-algorithm COMPILE selection (split). With -DGRIM_RUN_SPLIT the harness
 // compiles ONE algo per TU (passes -DRUN_<ALGO>=1 for the selected algo); every
 // other RUN_<ALGO> defaults to 0 so only that algo's kernels/blocks compile and a
-// build break in one algo can't void the others. Without -DGRID_RUN_SPLIT every
-// RUN_<ALGO> defaults to 1 (back-compat all-in-one build). See grid_runner_select.cuh.
-#include "grid_runner_select.cuh"
+// build break in one algo can't void the others. Without -DGRIM_RUN_SPLIT every
+// RUN_<ALGO> defaults to 1 (back-compat all-in-one build). See grim_runner_select.cuh.
+#include "grim_runner_select.cuh"
 #ifndef RUN_INVERSE_DYNAMICS
-#  define RUN_INVERSE_DYNAMICS GRID_RUN_DEFAULT
+#  define RUN_INVERSE_DYNAMICS GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_MINV
-#  define RUN_MINV GRID_RUN_DEFAULT
+#  define RUN_MINV GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_FORWARD_DYNAMICS
-#  define RUN_FORWARD_DYNAMICS GRID_RUN_DEFAULT
+#  define RUN_FORWARD_DYNAMICS GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_ABA
-#  define RUN_ABA GRID_RUN_DEFAULT
+#  define RUN_ABA GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_CRBA
-#  define RUN_CRBA GRID_RUN_DEFAULT
+#  define RUN_CRBA GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_END_EFFECTOR_POSE
-#  define RUN_END_EFFECTOR_POSE GRID_RUN_DEFAULT
+#  define RUN_END_EFFECTOR_POSE GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_END_EFFECTOR_POSE_GRADIENT
-#  define RUN_END_EFFECTOR_POSE_GRADIENT GRID_RUN_DEFAULT
+#  define RUN_END_EFFECTOR_POSE_GRADIENT GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_END_EFFECTOR_POSE_HESSIAN
-#  define RUN_END_EFFECTOR_POSE_HESSIAN GRID_RUN_DEFAULT
+#  define RUN_END_EFFECTOR_POSE_HESSIAN GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_INVERSE_DYNAMICS_GRADIENT
-#  define RUN_INVERSE_DYNAMICS_GRADIENT GRID_RUN_DEFAULT
+#  define RUN_INVERSE_DYNAMICS_GRADIENT GRIM_RUN_DEFAULT
 #endif
 #ifndef RUN_FORWARD_DYNAMICS_GRADIENT
-#  define RUN_FORWARD_DYNAMICS_GRADIENT GRID_RUN_DEFAULT
+#  define RUN_FORWARD_DYNAMICS_GRADIENT GRIM_RUN_DEFAULT
 #endif
 
 
@@ -71,12 +71,12 @@ int g_num_threads = 32;
 
 template <typename T>
 __global__ void runtime_probe_kernel(T *dst) {
-    for (int ind = threadIdx.x; ind < grid::NUM_VEL; ind += blockDim.x) {
+    for (int ind = threadIdx.x; ind < grim::NUM_VEL; ind += blockDim.x) {
         dst[ind] = static_cast<T>(10 + ind);
     }
 }
 
-// ── smem-poison audit mode (opt-in via GRID_POISON_SMEM=1) ───────────────────
+// ── smem-poison audit mode (opt-in via GRIM_POISON_SMEM=1) ───────────────────
 // Fills every SM's dynamic shared memory with NaN (0xFF bytes = NaN for float AND
 // double) BEFORE each algorithm launch, so any device fn that reads a caller-carved
 // arena slot before writing it surfaces as a NaN in its output — which then fails
@@ -100,15 +100,15 @@ static inline void maybe_poison_smem() {
     gpuErrchk(cudaDeviceSynchronize());
 }
 
-#if GRID_CUDA_FLOATING_BASE
+#if GRIM_CUDA_FLOATING_BASE
 template <typename T>
 __device__ void load_floating_inputs(
     T *s_q, T *s_qd, T *s_u, const T *d_q, const T *d_qd, const T *d_u
 ) {
-    for (int ind = threadIdx.x; ind < grid::NUM_JOINTS; ind += blockDim.x) {
+    for (int ind = threadIdx.x; ind < grim::NUM_JOINTS; ind += blockDim.x) {
         s_q[ind] = d_q[ind];
     }
-    for (int ind = threadIdx.x; ind < grid::NUM_VEL; ind += blockDim.x) {
+    for (int ind = threadIdx.x; ind < grim::NUM_VEL; ind += blockDim.x) {
         s_qd[ind] = d_qd[ind];
         s_u[ind] = d_u[ind];
     }
@@ -119,16 +119,16 @@ __device__ void load_floating_inputs(
 template <typename T>
 __global__ void floating_inverse_dynamics_runner(
     T *d_out, const T *d_q, const T *d_qd, const T *d_u,
-    const grid::robotModel<T> *d_robot_model, const T gravity, T *d_f_ext = nullptr
+    const grim::robotModel<T> *d_robot_model, const T gravity, T *d_f_ext = nullptr
 ) {
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_qd[grid::NUM_VEL];
-    __shared__ T s_u[grid::NUM_VEL];
-    __shared__ T s_out[grid::NUM_VEL];
+    __shared__ T s_q[grim::NUM_JOINTS];
+    __shared__ T s_qd[grim::NUM_VEL];
+    __shared__ T s_u[grim::NUM_VEL];
+    __shared__ T s_out[grim::NUM_VEL];
     load_floating_inputs(s_q, s_qd, s_u, d_q, d_qd, d_u);
-    grid::inverse_dynamics_device<T>(s_out, s_q, s_qd, s_u, d_robot_model, d_f_ext, gravity);
+    grim::inverse_dynamics_device<T>(s_out, s_q, s_qd, s_u, d_robot_model, d_f_ext, gravity);
     __syncthreads();
-    for (int ind = threadIdx.x; ind < grid::NUM_VEL; ind += blockDim.x) {
+    for (int ind = threadIdx.x; ind < grim::NUM_VEL; ind += blockDim.x) {
         d_out[ind] = s_out[ind];
     }
 }
@@ -137,17 +137,17 @@ __global__ void floating_inverse_dynamics_runner(
 #if RUN_MINV
 template <typename T>
 __global__ void floating_minv_runner(
-    T *d_out, const T *d_q, const grid::robotModel<T> *d_robot_model
+    T *d_out, const T *d_q, const grim::robotModel<T> *d_robot_model
 ) {
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_out[grid::NUM_VEL * grid::NUM_VEL];
-    for (int ind = threadIdx.x; ind < grid::NUM_JOINTS; ind += blockDim.x) {
+    __shared__ T s_q[grim::NUM_JOINTS];
+    __shared__ T s_out[grim::NUM_VEL * grim::NUM_VEL];
+    for (int ind = threadIdx.x; ind < grim::NUM_JOINTS; ind += blockDim.x) {
         s_q[ind] = d_q[ind];
     }
     __syncthreads();
-    grid::minv_device<T>(s_out, s_q, d_robot_model);
+    grim::minv_device<T>(s_out, s_q, d_robot_model);
     __syncthreads();
-    for (int ind = threadIdx.x; ind < grid::NUM_VEL * grid::NUM_VEL; ind += blockDim.x) {
+    for (int ind = threadIdx.x; ind < grim::NUM_VEL * grim::NUM_VEL; ind += blockDim.x) {
         d_out[ind] = s_out[ind];
     }
 }
@@ -159,24 +159,24 @@ __global__ void floating_minv_runner(
 // d_workspace, freeing ~120 KB of smem on humanoid-scale robots. For smaller
 // robots TIER_MINIMAL is byte-identical to TIER_SHARED in numerical output (only
 // the pointer routing changes). The d_workspace pointer comes from the
-// already-allocated hd_data->d_workspace (size GRID_WORKSPACE_BYTES_PER_TIMESTEP).
+// already-allocated hd_data->d_workspace (size GRIM_WORKSPACE_BYTES_PER_TIMESTEP).
 #if RUN_FORWARD_DYNAMICS
 template <typename T>
 __global__ void floating_forward_dynamics_runner(
     T *d_out, const T *d_q, const T *d_qd, const T *d_u,
-    const grid::robotModel<T> *d_robot_model, const T gravity,
+    const grim::robotModel<T> *d_robot_model, const T gravity,
     unsigned char *d_workspace, T *d_f_ext = nullptr
 ) {
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_qd[grid::NUM_VEL];
-    __shared__ T s_u[grid::NUM_VEL];
-    __shared__ T s_out[grid::NUM_VEL];
+    __shared__ T s_q[grim::NUM_JOINTS];
+    __shared__ T s_qd[grim::NUM_VEL];
+    __shared__ T s_u[grim::NUM_VEL];
+    __shared__ T s_out[grim::NUM_VEL];
     load_floating_inputs(s_q, s_qd, s_u, d_q, d_qd, d_u);
-    grid::forward_dynamics_device<T, grid::TIER_MINIMAL>(
+    grim::forward_dynamics_device<T, grim::TIER_MINIMAL>(
         s_out, s_q, s_qd, s_u, d_robot_model, d_f_ext, gravity,
         reinterpret_cast<T *>(d_workspace));
     __syncthreads();
-    for (int ind = threadIdx.x; ind < grid::NUM_VEL; ind += blockDim.x) {
+    for (int ind = threadIdx.x; ind < grim::NUM_VEL; ind += blockDim.x) {
         d_out[ind] = s_out[ind];
     }
 }
@@ -219,9 +219,9 @@ void print_vector(const std::string &name, const T *data, int count) {
     print_matrix_col_major(name, data, 1, count);
 }
 
-#if GRID_CUDA_FLOATING_BASE
+#if GRIM_CUDA_FLOATING_BASE
 bool floating_algorithm_requested(const std::string &name) {
-    const char *raw = std::getenv("GRID_CUDA_FLOATING_ALGORITHMS");
+    const char *raw = std::getenv("GRIM_CUDA_FLOATING_ALGORITHMS");
     if (raw == nullptr || std::string(raw).empty()) {
         return name == "inverse_dynamics" ||
                name == "minv" ||
@@ -263,22 +263,22 @@ bool floating_algorithm_requested(const std::string &name) {
 #endif
 
 // Register a kernel's opt-in dynamic shared memory, but if the request exceeds
-// this device's per-block cap, emit the standard GRID message and exit cleanly
+// this device's per-block cap, emit the standard GRIM message and exit cleanly
 // (rc=2) instead of letting gpuErrchk hard-abort with "invalid argument". The
 // Python harness (_run_runner) treats that message as a SKIP, so a robot whose
 // PERF-tier kernel doesn't fit this GPU (e.g. h1_2-floating minv) skips
-// honestly rather than failing. Unlike the generated init_grid_kernel_attrs,
+// honestly rather than failing. Unlike the generated init_grim_kernel_attrs,
 // this floating runner block registers a few RUNNER-LOCAL kernels too, so it
 // needs its own guard. (A spilled tier would fit; default tier is PERF.)
 template <typename FuncT>
-static void grid_runner_set_smem_or_skip(FuncT func, const char *name, size_t bytes) {
+static void grim_runner_set_smem_or_skip(FuncT func, const char *name, size_t bytes) {
     int dev = 0;
     gpuErrchk(cudaGetDevice(&dev));
     int smem_max = 0;
     gpuErrchk(cudaDeviceGetAttribute(&smem_max, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev));
     if (bytes > static_cast<size_t>(smem_max)) {
         fprintf(stderr,
-                "GRID shared-memory request for %s is %zu bytes, but this device "
+                "GRIM shared-memory request for %s is %zu bytes, but this device "
                 "supports %d bytes per block\n",
                 name, bytes, smem_max);
         std::exit(2);
@@ -293,14 +293,14 @@ void run() {
     const dim3 block_dimms(1, 1, 1);
     const dim3 thread_dimms(g_num_threads, 1, 1);
 
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robot_model = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robot_model = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     // smem-poison audit setup: poison a generous fixed span (the device's max opt-in
     // dynamic smem) before each launch — it covers every algo's arena, so no per-algo
-    // byte accounting is needed. Off unless GRID_POISON_SMEM is set.
-    g_poison_on = (std::getenv("GRID_POISON_SMEM") != nullptr);
+    // byte accounting is needed. Off unless GRIM_POISON_SMEM is set.
+    g_poison_on = (std::getenv("GRIM_POISON_SMEM") != nullptr);
     if (g_poison_on) {
         gpuErrchk(cudaDeviceGetAttribute(&g_poison_numSMs, cudaDevAttrMultiProcessorCount, 0));
         int max_optin = 0;
@@ -312,32 +312,32 @@ void run() {
                      g_poison_bytes, g_poison_numSMs);
     }
 
-#if GRID_CUDA_FLOATING_BASE
-    std::vector<T> h_q(grid::NUM_JOINTS);
-    std::vector<T> h_qd(grid::NUM_VEL);
-    std::vector<T> h_u(grid::NUM_VEL);
-    std::vector<T> h_q_qd(grid::NUM_JOINTS + grid::NUM_VEL);
+#if GRIM_CUDA_FLOATING_BASE
+    std::vector<T> h_q(grim::NUM_JOINTS);
+    std::vector<T> h_qd(grim::NUM_VEL);
+    std::vector<T> h_u(grim::NUM_VEL);
+    std::vector<T> h_q_qd(grim::NUM_JOINTS + grim::NUM_VEL);
     // canonical nq-wide-slot layout [q | qd | u], each slot NUM_JOINTS wide (qd/u
     // use NUM_VEL of it, pad zero) — matches the generated kernels' unpack
     // (s_qd = &buf[NUM_JOINTS], s_tau = &buf[2*NUM_JOINTS]) and the binding's
     // packing. The old tight NUM_JOINTS+2*NUM_VEL pack sheared qd/u by one slot
     // on a floating base (fixed-base coincides: nq == nv), which went unseen
     // while the floating suite compared only the zero sample.
-    std::vector<T> h_q_qd_u(3 * grid::NUM_JOINTS);
-    std::vector<T> h_vec(grid::NUM_VEL);
-    std::vector<T> h_mat(grid::NUM_VEL * grid::NUM_VEL);
-    std::vector<T> h_grad(grid::NUM_VEL * 2 * grid::NUM_VEL);
-    std::vector<T> h_ee(6 * grid::NUM_EES);
-    std::vector<T> h_dee(6 * grid::NUM_VEL * grid::NUM_EES);
-    std::vector<T> h_d2ee(6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES);
+    std::vector<T> h_q_qd_u(3 * grim::NUM_JOINTS);
+    std::vector<T> h_vec(grim::NUM_VEL);
+    std::vector<T> h_mat(grim::NUM_VEL * grim::NUM_VEL);
+    std::vector<T> h_grad(grim::NUM_VEL * 2 * grim::NUM_VEL);
+    std::vector<T> h_ee(6 * grim::NUM_EES);
+    std::vector<T> h_dee(6 * grim::NUM_VEL * grim::NUM_EES);
+    std::vector<T> h_d2ee(6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES);
 
-    read_vector(h_q.data(), grid::NUM_JOINTS);
-    read_vector(h_qd.data(), grid::NUM_VEL);
-    read_vector(h_u.data(), grid::NUM_VEL);
+    read_vector(h_q.data(), grim::NUM_JOINTS);
+    read_vector(h_qd.data(), grim::NUM_VEL);
+    read_vector(h_u.data(), grim::NUM_VEL);
 
-    print_vector("input_q", h_q.data(), grid::NUM_JOINTS);
-    print_vector("input_qd", h_qd.data(), grid::NUM_VEL);
-    print_vector("input_u", h_u.data(), grid::NUM_VEL);
+    print_vector("input_q", h_q.data(), grim::NUM_JOINTS);
+    print_vector("input_qd", h_qd.data(), grim::NUM_VEL);
+    print_vector("input_u", h_u.data(), grim::NUM_VEL);
 
     T *d_q;
     T *d_qd;
@@ -351,142 +351,142 @@ void run() {
     T *d_ee;
     T *d_dee;
     T *d_d2ee;
-    for (int i = 0; i < grid::NUM_JOINTS; ++i) {
+    for (int i = 0; i < grim::NUM_JOINTS; ++i) {
         h_q_qd[i] = h_q[i];
         h_q_qd_u[i] = h_q[i];
     }
-    for (int i = 0; i < grid::NUM_VEL; ++i) {
-        h_q_qd[grid::NUM_JOINTS + i] = h_qd[i];
-        h_q_qd_u[grid::NUM_JOINTS + i] = h_qd[i];
-        h_q_qd_u[2 * grid::NUM_JOINTS + i] = h_u[i];
+    for (int i = 0; i < grim::NUM_VEL; ++i) {
+        h_q_qd[grim::NUM_JOINTS + i] = h_qd[i];
+        h_q_qd_u[grim::NUM_JOINTS + i] = h_qd[i];
+        h_q_qd_u[2 * grim::NUM_JOINTS + i] = h_u[i];
     }
-    gpuErrchk(cudaMalloc((void**)&d_q, grid::NUM_JOINTS * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_qd, grid::NUM_VEL * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_u, grid::NUM_VEL * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_q_qd, (grid::NUM_JOINTS + grid::NUM_VEL) * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_q_qd_u, 3 * grid::NUM_JOINTS * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_zero, grid::NUM_VEL * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_vec, grid::NUM_VEL * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_mat, grid::NUM_JOINTS * grid::NUM_JOINTS * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_grad, grid::NUM_VEL * 2 * grid::NUM_VEL * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_ee, 6 * grid::NUM_EES * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_dee, 6 * grid::NUM_VEL * grid::NUM_EES * sizeof(T)));
-    gpuErrchk(cudaMalloc((void**)&d_d2ee, 6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES * sizeof(T)));
-    gpuErrchk(cudaMemcpy(d_q, h_q.data(), grid::NUM_JOINTS * sizeof(T), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(d_qd, h_qd.data(), grid::NUM_VEL * sizeof(T), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(d_u, h_u.data(), grid::NUM_VEL * sizeof(T), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMalloc((void**)&d_q, grim::NUM_JOINTS * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_qd, grim::NUM_VEL * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_u, grim::NUM_VEL * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_q_qd, (grim::NUM_JOINTS + grim::NUM_VEL) * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_q_qd_u, 3 * grim::NUM_JOINTS * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_zero, grim::NUM_VEL * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_vec, grim::NUM_VEL * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_mat, grim::NUM_JOINTS * grim::NUM_JOINTS * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_grad, grim::NUM_VEL * 2 * grim::NUM_VEL * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_ee, 6 * grim::NUM_EES * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_dee, 6 * grim::NUM_VEL * grim::NUM_EES * sizeof(T)));
+    gpuErrchk(cudaMalloc((void**)&d_d2ee, 6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES * sizeof(T)));
+    gpuErrchk(cudaMemcpy(d_q, h_q.data(), grim::NUM_JOINTS * sizeof(T), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(d_qd, h_qd.data(), grim::NUM_VEL * sizeof(T), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(d_u, h_u.data(), grim::NUM_VEL * sizeof(T), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_q_qd, h_q_qd.data(), h_q_qd.size() * sizeof(T), cudaMemcpyHostToDevice));
     gpuErrchk(cudaMemcpy(d_q_qd_u, h_q_qd_u.data(), h_q_qd_u.size() * sizeof(T), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemset(d_zero, 0, grid::NUM_VEL * sizeof(T)));
+    gpuErrchk(cudaMemset(d_zero, 0, grim::NUM_VEL * sizeof(T)));
 
     runtime_probe_kernel<T><<<1, g_num_threads>>>(d_vec);
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
-    gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-    print_vector("runtime_probe", h_vec.data(), grid::NUM_VEL);
+    gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+    print_vector("runtime_probe", h_vec.data(), grim::NUM_VEL);
 
-    // External forces (opt-in via GRID_RUNNER_FEXT=1): read 6*NUM_BODIES values
+    // External forces (opt-in via GRIM_RUNNER_FEXT=1): read 6*NUM_BODIES values
     // (body-major, local-frame [angular; linear]) into hd_data->d_f_ext and run
     // the fext-aware launches below. d_f_ext_active is nullptr in the default
     // (no-fext) path, so existing behavior is byte-identical.
-    const bool g_use_fext = (std::getenv("GRID_RUNNER_FEXT") != nullptr);
+    const bool g_use_fext = (std::getenv("GRIM_RUNNER_FEXT") != nullptr);
     T *d_f_ext_active = nullptr;
     if (g_use_fext) {
-        read_vector(hd_data->h_f_ext, 6 * grid::NUM_BODIES);
+        read_vector(hd_data->h_f_ext, 6 * grim::NUM_BODIES);
         gpuErrchk(cudaMemcpy(hd_data->d_f_ext, hd_data->h_f_ext,
-                             6 * grid::NUM_BODIES * sizeof(T), cudaMemcpyHostToDevice));
+                             6 * grim::NUM_BODIES * sizeof(T), cudaMemcpyHostToDevice));
         d_f_ext_active = hd_data->d_f_ext;
-        print_vector("input_f_ext", hd_data->h_f_ext, 6 * grid::NUM_BODIES);
+        print_vector("input_f_ext", hd_data->h_f_ext, 6 * grim::NUM_BODIES);
     }
 
 #if RUN_INVERSE_DYNAMICS
-    grid_runner_set_smem_or_skip(floating_inverse_dynamics_runner<T>,
-        "inverse_dynamics", grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>());
+    grim_runner_set_smem_or_skip(floating_inverse_dynamics_runner<T>,
+        "inverse_dynamics", grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>());
 #endif
 #if RUN_MINV
-    grid_runner_set_smem_or_skip(grid::minv_kernel<T>,
-        "minv", grid::MINV_DYNAMIC_SHARED_MEM_BYTES<T>());
+    grim_runner_set_smem_or_skip(grim::minv_kernel<T>,
+        "minv", grim::MINV_DYNAMIC_SHARED_MEM_BYTES<T>());
 #endif
 #if RUN_FORWARD_DYNAMICS
-    grid_runner_set_smem_or_skip(floating_forward_dynamics_runner<T>,
-        "forward_dynamics", grid::FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_MINIMAL>());
+    grim_runner_set_smem_or_skip(floating_forward_dynamics_runner<T>,
+        "forward_dynamics", grim::FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_MINIMAL>());
 #endif
 #if RUN_ABA
-    grid_runner_set_smem_or_skip(grid::aba_kernel<T>,
-        "aba", grid::ABA_DYNAMIC_SHARED_MEM_BYTES<T>());
+    grim_runner_set_smem_or_skip(grim::aba_kernel<T>,
+        "aba", grim::ABA_DYNAMIC_SHARED_MEM_BYTES<T>());
 #endif
 #if RUN_CRBA
-    grid_runner_set_smem_or_skip(grid::crba_kernel<T>,
-        "crba", grid::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>());
+    grim_runner_set_smem_or_skip(grim::crba_kernel<T>,
+        "crba", grim::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>());
 #endif
 #if RUN_END_EFFECTOR_POSE
-    grid_runner_set_smem_or_skip(grid::end_effector_pose_kernel<T>,
-        "end_effector_pose", grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>());
+    grim_runner_set_smem_or_skip(grim::end_effector_pose_kernel<T>,
+        "end_effector_pose", grim::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>());
 #endif
     // ee-pose grad/hessian SMEM registration: gate on SKIP_EEPOSE so floating
     // mimic (id_du/fd_du emitted, ee derivatives not) skips only the ee kernels.
-#if !GRID_RUNNER_SKIP_EEPOSE_GRADIENTS
+#if !GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS
 #if RUN_END_EFFECTOR_POSE_GRADIENT
     if (floating_algorithm_requested("end_effector_pose_gradient")) {
-        grid_runner_set_smem_or_skip(grid::end_effector_pose_gradient_kernel<T>,
-            "end_effector_pose_gradient", grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+        grim_runner_set_smem_or_skip(grim::end_effector_pose_gradient_kernel<T>,
+            "end_effector_pose_gradient", grim::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
     }
 #endif
 #if RUN_END_EFFECTOR_POSE_HESSIAN
     if (floating_algorithm_requested("end_effector_pose_hessian")) {
-        grid_runner_set_smem_or_skip(grid::end_effector_pose_hessian_kernel<T>,
-            "end_effector_pose_hessian", grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>());
+        grim_runner_set_smem_or_skip(grim::end_effector_pose_hessian_kernel<T>,
+            "end_effector_pose_hessian", grim::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>());
     }
 #endif
-#endif  // !GRID_RUNNER_SKIP_EEPOSE_GRADIENTS
+#endif  // !GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS
 
 #if RUN_INVERSE_DYNAMICS
     if (floating_algorithm_requested("inverse_dynamics")) {
         maybe_poison_smem();
-        floating_inverse_dynamics_runner<T><<<1, g_num_threads, grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        floating_inverse_dynamics_runner<T><<<1, g_num_threads, grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_vec, d_q, d_qd, d_zero, d_robot_model, gravity, /*d_f_ext=*/nullptr
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("inverse_dynamics", h_vec.data(), grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("inverse_dynamics", h_vec.data(), grim::NUM_VEL);
     }
 #endif
 
 #if RUN_MINV
     if (floating_algorithm_requested("minv")) {
         maybe_poison_smem();
-        grid::minv_kernel<T><<<1, g_num_threads, grid::MINV_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
-            d_mat, hd_data->d_workspace, d_q, grid::NUM_JOINTS, d_robot_model, 1
+        grim::minv_kernel<T><<<1, g_num_threads, grim::MINV_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+            d_mat, hd_data->d_workspace, d_q, grim::NUM_JOINTS, d_robot_model, 1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_mat.data(), d_mat, grid::NUM_VEL * grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_matrix_col_major("minv", h_mat.data(), grid::NUM_VEL, grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_mat.data(), d_mat, grim::NUM_VEL * grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_matrix_col_major("minv", h_mat.data(), grim::NUM_VEL, grim::NUM_VEL);
     }
 #endif
 
 #if RUN_FORWARD_DYNAMICS
     if (floating_algorithm_requested("forward_dynamics")) {
         maybe_poison_smem();
-        floating_forward_dynamics_runner<T><<<1, g_num_threads, grid::FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_MINIMAL>()>>>(
+        floating_forward_dynamics_runner<T><<<1, g_num_threads, grim::FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_MINIMAL>()>>>(
             d_vec, d_q, d_qd, d_u, d_robot_model, gravity, hd_data->d_workspace, /*d_f_ext=*/nullptr
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("forward_dynamics", h_vec.data(), grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("forward_dynamics", h_vec.data(), grim::NUM_VEL);
     }
 #endif
 
 #if RUN_ABA
     if (floating_algorithm_requested("aba")) {
         maybe_poison_smem();
-        grid::aba_kernel<T><<<1, g_num_threads, grid::ABA_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::aba_kernel<T><<<1, g_num_threads, grim::ABA_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_vec,
             hd_data->d_workspace,
             d_q_qd_u,
-            3 * grid::NUM_JOINTS,
+            3 * grim::NUM_JOINTS,
             /*d_f_ext=*/nullptr,
             d_robot_model,
             gravity,
@@ -494,110 +494,110 @@ void run() {
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("aba", h_vec.data(), grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("aba", h_vec.data(), grim::NUM_VEL);
     }
 #endif
 
 #if RUN_CRBA
     if (floating_algorithm_requested("crba")) {
         maybe_poison_smem();
-        grid::crba_kernel<T><<<1, g_num_threads, grid::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::crba_kernel<T><<<1, g_num_threads, grim::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_mat,
             hd_data->d_workspace,
             d_q_qd,
-            grid::NUM_JOINTS + grid::NUM_VEL,
+            grim::NUM_JOINTS + grim::NUM_VEL,
             d_robot_model,
             gravity,
             1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_mat.data(), d_mat, grid::NUM_VEL * grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_matrix_col_major("crba", h_mat.data(), grid::NUM_VEL, grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_mat.data(), d_mat, grim::NUM_VEL * grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_matrix_col_major("crba", h_mat.data(), grim::NUM_VEL, grim::NUM_VEL);
     }
 #endif
 
 #if RUN_END_EFFECTOR_POSE
     if (floating_algorithm_requested("end_effector_pose")) {
         maybe_poison_smem();
-        grid::end_effector_pose_kernel<T><<<1, g_num_threads, grid::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::end_effector_pose_kernel<T><<<1, g_num_threads, grim::END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_ee,
             d_q,
-            grid::NUM_JOINTS,
+            grim::NUM_JOINTS,
             d_robot_model,
             1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_ee.data(), d_ee, 6 * grid::NUM_EES * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("end_effector_pose", h_ee.data(), 6 * grid::NUM_EES);
+        gpuErrchk(cudaMemcpy(h_ee.data(), d_ee, 6 * grim::NUM_EES * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("end_effector_pose", h_ee.data(), 6 * grim::NUM_EES);
     }
 #endif
 
-#if !GRID_RUNNER_SKIP_GRADIENTS
+#if !GRIM_RUNNER_SKIP_GRADIENTS
     // ee_pose grad/hessian for FLOATING base. Gated separately from the dynamics
     // gradients so a floating MIMIC robot (which emits id_du/fd_du but NOT the
     // ee-pose derivatives — their floating-root subspace fold is deferred) can
     // compile the id_du/fd_du block while skipping the un-emitted ee kernels.
-    // GRID_RUNNER_SKIP_EEPOSE_GRADIENTS defaults to GRID_RUNNER_SKIP_GRADIENTS,
+    // GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS defaults to GRIM_RUNNER_SKIP_GRADIENTS,
     // so non-mimic floating (both 0) still compiles the ee blocks as before.
-#if !GRID_RUNNER_SKIP_EEPOSE_GRADIENTS
+#if !GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS
 #if RUN_END_EFFECTOR_POSE_GRADIENT
     if (floating_algorithm_requested("end_effector_pose_gradient")) {
         maybe_poison_smem();
-        grid::end_effector_pose_gradient_kernel<T><<<1, g_num_threads, grid::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::end_effector_pose_gradient_kernel<T><<<1, g_num_threads, grim::END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_dee,
             hd_data->d_workspace,
             d_q,
-            grid::NUM_JOINTS,
+            grim::NUM_JOINTS,
             d_robot_model,
             1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_dee.data(), d_dee, 6 * grid::NUM_VEL * grid::NUM_EES * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("end_effector_pose_gradient", h_dee.data(), 6 * grid::NUM_VEL * grid::NUM_EES);
+        gpuErrchk(cudaMemcpy(h_dee.data(), d_dee, 6 * grim::NUM_VEL * grim::NUM_EES * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("end_effector_pose_gradient", h_dee.data(), 6 * grim::NUM_VEL * grim::NUM_EES);
     }
 #endif
 
 #if RUN_END_EFFECTOR_POSE_HESSIAN
     if (floating_algorithm_requested("end_effector_pose_hessian")) {
-        if (grid::GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP) {
-            gpuErrchk(grid::grid_begin_l2_persisting(
-                0, hd_data->d_workspace, grid::GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()
+        if (grim::GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP) {
+            gpuErrchk(grim::grim_begin_l2_persisting(
+                0, hd_data->d_workspace, grim::GRIM_WORKSPACE_BYTES_PER_TIMESTEP<T>()
             ));
         }
         maybe_poison_smem();
-        grid::end_effector_pose_hessian_kernel<T><<<1, g_num_threads, grid::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::end_effector_pose_hessian_kernel<T><<<1, g_num_threads, grim::END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_d2ee,
             d_dee,
             hd_data->d_workspace,
             d_q,
-            grid::NUM_JOINTS,
+            grim::NUM_JOINTS,
             d_robot_model,
             1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        if (grid::GRID_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP) {
-            gpuErrchk(grid::grid_end_l2_persisting(0));
+        if (grim::GRIM_END_EFFECTOR_POSE_HESSIAN_USES_WORKSPACE_TEMP) {
+            gpuErrchk(grim::grim_end_l2_persisting(0));
         }
-        gpuErrchk(cudaMemcpy(h_d2ee.data(), d_d2ee, 6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("end_effector_pose_hessian", h_d2ee.data(), 6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES);
+        gpuErrchk(cudaMemcpy(h_d2ee.data(), d_d2ee, 6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("end_effector_pose_hessian", h_d2ee.data(), 6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES);
     }
 #endif  // RUN_END_EFFECTOR_POSE_HESSIAN
-#endif  // !GRID_RUNNER_SKIP_EEPOSE_GRADIENTS
+#endif  // !GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS
 
 #if RUN_INVERSE_DYNAMICS_GRADIENT
     if (floating_algorithm_requested("inverse_dynamics_gradient_q") ||
         floating_algorithm_requested("inverse_dynamics_gradient_qd")) {
         maybe_poison_smem();
-        grid::inverse_dynamics_gradient_kernel<T><<<1, g_num_threads, grid::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::inverse_dynamics_gradient_kernel<T><<<1, g_num_threads, grim::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_grad,
             hd_data->d_workspace,
             d_q_qd,
-            grid::NUM_JOINTS + grid::NUM_VEL,
+            grim::NUM_JOINTS + grim::NUM_VEL,
             /*d_f_ext=*/nullptr,
             d_robot_model,
             gravity,
@@ -605,13 +605,13 @@ void run() {
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grid::NUM_VEL * 2 * grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_matrix_col_major("inverse_dynamics_gradient_q", h_grad.data(), grid::NUM_VEL, grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grim::NUM_VEL * 2 * grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_matrix_col_major("inverse_dynamics_gradient_q", h_grad.data(), grim::NUM_VEL, grim::NUM_VEL);
         print_matrix_col_major(
             "inverse_dynamics_gradient_qd",
-            &h_grad[grid::NUM_VEL * grid::NUM_VEL],
-            grid::NUM_VEL,
-            grid::NUM_VEL
+            &h_grad[grim::NUM_VEL * grim::NUM_VEL],
+            grim::NUM_VEL,
+            grim::NUM_VEL
         );
     }
 #endif  // RUN_INVERSE_DYNAMICS_GRADIENT
@@ -620,11 +620,11 @@ void run() {
     if (floating_algorithm_requested("forward_dynamics_gradient_q") ||
         floating_algorithm_requested("forward_dynamics_gradient_qd")) {
         maybe_poison_smem();
-        grid::forward_dynamics_gradient_kernel<T><<<1, g_num_threads, grid::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        grim::forward_dynamics_gradient_kernel<T><<<1, g_num_threads, grim::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_grad,
             hd_data->d_workspace,
             d_q_qd_u,
-            3 * grid::NUM_JOINTS,
+            3 * grim::NUM_JOINTS,
             /*d_f_ext=*/nullptr,
             d_robot_model,
             gravity,
@@ -632,86 +632,86 @@ void run() {
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grid::NUM_VEL * 2 * grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_matrix_col_major("forward_dynamics_gradient_q", h_grad.data(), grid::NUM_VEL, grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grim::NUM_VEL * 2 * grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_matrix_col_major("forward_dynamics_gradient_q", h_grad.data(), grim::NUM_VEL, grim::NUM_VEL);
         print_matrix_col_major(
             "forward_dynamics_gradient_qd",
-            &h_grad[grid::NUM_VEL * grid::NUM_VEL],
-            grid::NUM_VEL,
-            grid::NUM_VEL
+            &h_grad[grim::NUM_VEL * grim::NUM_VEL],
+            grim::NUM_VEL,
+            grim::NUM_VEL
         );
     }
 #endif  // RUN_FORWARD_DYNAMICS_GRADIENT
-#endif  // !GRID_RUNNER_SKIP_GRADIENTS
+#endif  // !GRIM_RUNNER_SKIP_GRADIENTS
 
-    // External forces (opt-in via GRID_RUNNER_FEXT=1): re-run the dynamics that
+    // External forces (opt-in via GRIM_RUNNER_FEXT=1): re-run the dynamics that
     // thread d_f_ext, emitting *_fext-labeled outputs. The default outputs above
     // used nullptr (byte-identical to no-fext). d_f_ext_active was populated from
     // stdin earlier in this block.
     if (g_use_fext) {
 #if RUN_INVERSE_DYNAMICS
         maybe_poison_smem();
-        floating_inverse_dynamics_runner<T><<<1, g_num_threads, grid::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+        floating_inverse_dynamics_runner<T><<<1, g_num_threads, grim::INVERSE_DYNAMICS_DEVICE_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
             d_vec, d_q, d_qd, d_zero, d_robot_model, gravity, d_f_ext_active
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("inverse_dynamics_fext", h_vec.data(), grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("inverse_dynamics_fext", h_vec.data(), grim::NUM_VEL);
 #endif
 
 #if RUN_FORWARD_DYNAMICS
         maybe_poison_smem();
-        floating_forward_dynamics_runner<T><<<1, g_num_threads, grid::FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES<T, grid::TIER_MINIMAL>()>>>(
+        floating_forward_dynamics_runner<T><<<1, g_num_threads, grim::FORWARD_DYNAMICS_DEVICE_INLINE_SMEM_BYTES<T, grim::TIER_MINIMAL>()>>>(
             d_vec, d_q, d_qd, d_u, d_robot_model, gravity, hd_data->d_workspace, d_f_ext_active
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("forward_dynamics_fext", h_vec.data(), grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("forward_dynamics_fext", h_vec.data(), grim::NUM_VEL);
 #endif
 
 #if RUN_ABA
         maybe_poison_smem();
-        grid::aba_kernel<T><<<1, g_num_threads, grid::ABA_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
-            d_vec, hd_data->d_workspace, d_q_qd_u, 3 * grid::NUM_JOINTS,
+        grim::aba_kernel<T><<<1, g_num_threads, grim::ABA_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+            d_vec, hd_data->d_workspace, d_q_qd_u, 3 * grim::NUM_JOINTS,
             d_f_ext_active, d_robot_model, gravity, 1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_vector("aba_fext", h_vec.data(), grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_vec.data(), d_vec, grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_vector("aba_fext", h_vec.data(), grim::NUM_VEL);
 #endif
 
-#if !GRID_RUNNER_SKIP_GRADIENTS
+#if !GRIM_RUNNER_SKIP_GRADIENTS
 #if RUN_INVERSE_DYNAMICS_GRADIENT
         maybe_poison_smem();
-        grid::inverse_dynamics_gradient_kernel<T><<<1, g_num_threads, grid::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
-            d_grad, hd_data->d_workspace, d_q_qd, grid::NUM_JOINTS + grid::NUM_VEL,
+        grim::inverse_dynamics_gradient_kernel<T><<<1, g_num_threads, grim::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+            d_grad, hd_data->d_workspace, d_q_qd, grim::NUM_JOINTS + grim::NUM_VEL,
             d_f_ext_active, d_robot_model, gravity, 1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grid::NUM_VEL * 2 * grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_matrix_col_major("inverse_dynamics_gradient_q_fext", h_grad.data(), grid::NUM_VEL, grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grim::NUM_VEL * 2 * grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_matrix_col_major("inverse_dynamics_gradient_q_fext", h_grad.data(), grim::NUM_VEL, grim::NUM_VEL);
         print_matrix_col_major("inverse_dynamics_gradient_qd_fext",
-            &h_grad[grid::NUM_VEL * grid::NUM_VEL], grid::NUM_VEL, grid::NUM_VEL);
+            &h_grad[grim::NUM_VEL * grim::NUM_VEL], grim::NUM_VEL, grim::NUM_VEL);
 #endif
 
 #if RUN_FORWARD_DYNAMICS_GRADIENT
         maybe_poison_smem();
-        grid::forward_dynamics_gradient_kernel<T><<<1, g_num_threads, grid::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
-            d_grad, hd_data->d_workspace, d_q_qd_u, 3 * grid::NUM_JOINTS,
+        grim::forward_dynamics_gradient_kernel<T><<<1, g_num_threads, grim::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>()>>>(
+            d_grad, hd_data->d_workspace, d_q_qd_u, 3 * grim::NUM_JOINTS,
             d_f_ext_active, d_robot_model, gravity, 1
         );
         gpuErrchk(cudaPeekAtLastError());
         gpuErrchk(cudaDeviceSynchronize());
-        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grid::NUM_VEL * 2 * grid::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
-        print_matrix_col_major("forward_dynamics_gradient_q_fext", h_grad.data(), grid::NUM_VEL, grid::NUM_VEL);
+        gpuErrchk(cudaMemcpy(h_grad.data(), d_grad, grim::NUM_VEL * 2 * grim::NUM_VEL * sizeof(T), cudaMemcpyDeviceToHost));
+        print_matrix_col_major("forward_dynamics_gradient_q_fext", h_grad.data(), grim::NUM_VEL, grim::NUM_VEL);
         print_matrix_col_major("forward_dynamics_gradient_qd_fext",
-            &h_grad[grid::NUM_VEL * grid::NUM_VEL], grid::NUM_VEL, grid::NUM_VEL);
+            &h_grad[grim::NUM_VEL * grim::NUM_VEL], grim::NUM_VEL, grim::NUM_VEL);
 #endif
-#endif  // !GRID_RUNNER_SKIP_GRADIENTS
+#endif  // !GRIM_RUNNER_SKIP_GRADIENTS
     }
 
     gpuErrchk(cudaFree(d_q));
@@ -727,216 +727,216 @@ void run() {
     gpuErrchk(cudaFree(d_dee));
     gpuErrchk(cudaFree(d_d2ee));
 #else
-    read_vector(hd_data->h_q, grid::NUM_JOINTS);
-    read_vector(&hd_data->h_q_qd[grid::NUM_JOINTS], grid::NUM_JOINTS);
-    read_vector(&hd_data->h_q_qd_u[2 * grid::NUM_JOINTS], grid::NUM_JOINTS);
+    read_vector(hd_data->h_q, grim::NUM_JOINTS);
+    read_vector(&hd_data->h_q_qd[grim::NUM_JOINTS], grim::NUM_JOINTS);
+    read_vector(&hd_data->h_q_qd_u[2 * grim::NUM_JOINTS], grim::NUM_JOINTS);
 
-    for (int i = 0; i < grid::NUM_JOINTS; ++i) {
+    for (int i = 0; i < grim::NUM_JOINTS; ++i) {
         hd_data->h_q_qd[i] = hd_data->h_q[i];
         hd_data->h_q_qd_u[i] = hd_data->h_q[i];
-        hd_data->h_q_qd_u[i + grid::NUM_JOINTS] =
-            hd_data->h_q_qd[i + grid::NUM_JOINTS];
+        hd_data->h_q_qd_u[i + grim::NUM_JOINTS] =
+            hd_data->h_q_qd[i + grim::NUM_JOINTS];
         hd_data->h_qdd[i] = static_cast<T>(0);
     }
 
-    print_vector("input_q", hd_data->h_q, grid::NUM_JOINTS);
-    print_vector("input_qd", &hd_data->h_q_qd[grid::NUM_JOINTS], grid::NUM_JOINTS);
-    print_vector("input_u", &hd_data->h_q_qd_u[2 * grid::NUM_JOINTS], grid::NUM_JOINTS);
+    print_vector("input_q", hd_data->h_q, grim::NUM_JOINTS);
+    print_vector("input_qd", &hd_data->h_q_qd[grim::NUM_JOINTS], grim::NUM_JOINTS);
+    print_vector("input_u", &hd_data->h_q_qd_u[2 * grim::NUM_JOINTS], grim::NUM_JOINTS);
 
     runtime_probe_kernel<T><<<1, g_num_threads>>>(hd_data->d_c);
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
     gpuErrchk(cudaMemcpy(
-        hd_data->h_c, hd_data->d_c, grid::NUM_JOINTS * sizeof(T),
+        hd_data->h_c, hd_data->d_c, grim::NUM_JOINTS * sizeof(T),
         cudaMemcpyDeviceToHost
     ));
-    print_vector("runtime_probe", hd_data->h_c, grid::NUM_JOINTS);
+    print_vector("runtime_probe", hd_data->h_c, grim::NUM_JOINTS);
 
 #if RUN_INVERSE_DYNAMICS
-    grid::inverse_dynamics<T, false, true>(
+    grim::inverse_dynamics<T, false, true>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
-    print_vector("inverse_dynamics", hd_data->h_c, grid::NUM_JOINTS);
+    print_vector("inverse_dynamics", hd_data->h_c, grim::NUM_JOINTS);
 #endif
 
 #if RUN_MINV
-    grid::minv<T, true>(
+    grim::minv<T, true>(
         hd_data, d_robot_model, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
     print_matrix_col_major(
-        "minv", hd_data->h_Minv, grid::NUM_JOINTS, grid::NUM_JOINTS
+        "minv", hd_data->h_Minv, grim::NUM_JOINTS, grim::NUM_JOINTS
     );
 #endif
 
 #if RUN_FORWARD_DYNAMICS
-    grid::forward_dynamics<T>(
+    grim::forward_dynamics<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
-    print_vector("forward_dynamics", hd_data->h_qdd, grid::NUM_JOINTS);
+    print_vector("forward_dynamics", hd_data->h_qdd, grim::NUM_JOINTS);
 #endif
 
     // Gradient algorithms are NOT emitted for mimic robots (the G0 footgun guard
     // refuses mimic-gradient codegen — deferred to T3-finisher). The test passes
-    // -DGRID_RUNNER_SKIP_GRADIENTS=1 for mimic robots so this runner compiles
+    // -DGRIM_RUNNER_SKIP_GRADIENTS=1 for mimic robots so this runner compiles
     // against their (gradient-free) header; the suite already skips comparing
     // gradient algorithms for mimic robots (MIMIC_SUPPORTED_ALGORITHMS).
-#if !GRID_RUNNER_SKIP_GRADIENTS
+#if !GRIM_RUNNER_SKIP_GRADIENTS
 #if RUN_INVERSE_DYNAMICS_GRADIENT
-    grid::inverse_dynamics_gradient<T, false, true>(
+    grim::inverse_dynamics_gradient<T, false, true>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
     print_matrix_col_major(
         "inverse_dynamics_gradient_q",
         hd_data->h_dc_du,
-        grid::NUM_VEL,
-        grid::NUM_VEL
+        grim::NUM_VEL,
+        grim::NUM_VEL
     );
     print_matrix_col_major(
         "inverse_dynamics_gradient_qd",
-        &hd_data->h_dc_du[grid::NUM_VEL * grid::NUM_VEL],
-        grid::NUM_VEL,
-        grid::NUM_VEL
+        &hd_data->h_dc_du[grim::NUM_VEL * grim::NUM_VEL],
+        grim::NUM_VEL,
+        grim::NUM_VEL
     );
 #endif
 
 #if RUN_FORWARD_DYNAMICS_GRADIENT
-    grid::forward_dynamics_gradient<T, false>(
+    grim::forward_dynamics_gradient<T, false>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
     print_matrix_col_major(
         "forward_dynamics_gradient_q",
         hd_data->h_df_du,
-        grid::NUM_VEL,
-        grid::NUM_VEL
+        grim::NUM_VEL,
+        grim::NUM_VEL
     );
     print_matrix_col_major(
         "forward_dynamics_gradient_qd",
-        &hd_data->h_df_du[grid::NUM_VEL * grid::NUM_VEL],
-        grid::NUM_VEL,
-        grid::NUM_VEL
+        &hd_data->h_df_du[grim::NUM_VEL * grim::NUM_VEL],
+        grim::NUM_VEL,
+        grim::NUM_VEL
     );
 #endif
 #endif
 
 #if RUN_ABA
-    grid::aba<T>(
+    grim::aba<T>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
-    print_vector("aba", hd_data->h_qdd, grid::NUM_JOINTS);
+    print_vector("aba", hd_data->h_qdd, grim::NUM_JOINTS);
 #endif
 
 #if RUN_CRBA
-    grid::crba<T, true>(
+    grim::crba<T, true>(
         hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
     print_matrix_col_major(
-        "crba", hd_data->h_M, grid::NUM_JOINTS, grid::NUM_JOINTS
+        "crba", hd_data->h_M, grim::NUM_JOINTS, grim::NUM_JOINTS
     );
 #endif
 
 #if RUN_END_EFFECTOR_POSE
-    grid::end_effector_pose<T>(
+    grim::end_effector_pose<T>(
         hd_data, d_robot_model, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
-    print_vector("end_effector_pose", hd_data->h_end_effector_pose, 6 * grid::NUM_EES);
+    print_vector("end_effector_pose", hd_data->h_end_effector_pose, 6 * grim::NUM_EES);
 #endif
 
-#if !GRID_RUNNER_SKIP_EEPOSE_GRADIENTS
+#if !GRIM_RUNNER_SKIP_EEPOSE_GRADIENTS
 #if RUN_END_EFFECTOR_POSE_GRADIENT
-    grid::end_effector_pose_gradient<T>(
+    grim::end_effector_pose_gradient<T>(
         hd_data, d_robot_model, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
     print_vector(
         "end_effector_pose_gradient", hd_data->h_end_effector_pose_gradient,
-        6 * grid::NUM_VEL * grid::NUM_EES
+        6 * grim::NUM_VEL * grim::NUM_EES
     );
 #endif
 
 #if RUN_END_EFFECTOR_POSE_HESSIAN
-    grid::end_effector_pose_hessian<T>(
+    grim::end_effector_pose_hessian<T>(
         hd_data, d_robot_model, 1, block_dimms, thread_dimms, streams
     );
     gpuErrchk(cudaPeekAtLastError());
     print_vector(
         "end_effector_pose_hessian", hd_data->h_end_effector_pose_hessian,
-        6 * grid::NUM_VEL * grid::NUM_VEL * grid::NUM_EES
+        6 * grim::NUM_VEL * grim::NUM_VEL * grim::NUM_EES
     );
 #endif
 #endif
 
-    // External forces (opt-in via GRID_RUNNER_FEXT=1). The host wrappers read
+    // External forces (opt-in via GRIM_RUNNER_FEXT=1). The host wrappers read
     // hd_data->d_f_ext (body-major 6*NUM_BODIES local-frame); it is zeroed at
     // init so all the outputs above are byte-identical to the no-fext path.
     // Here we read a nonzero f_ext, copy it into d_f_ext, and re-run the
     // dynamics that thread external forces, emitting *_fext-labeled outputs.
-    if (std::getenv("GRID_RUNNER_FEXT") != nullptr) {
-        read_vector(hd_data->h_f_ext, 6 * grid::NUM_BODIES);
+    if (std::getenv("GRIM_RUNNER_FEXT") != nullptr) {
+        read_vector(hd_data->h_f_ext, 6 * grim::NUM_BODIES);
         gpuErrchk(cudaMemcpy(hd_data->d_f_ext, hd_data->h_f_ext,
-                             6 * grid::NUM_BODIES * sizeof(T), cudaMemcpyHostToDevice));
-        print_vector("input_f_ext", hd_data->h_f_ext, 6 * grid::NUM_BODIES);
+                             6 * grim::NUM_BODIES * sizeof(T), cudaMemcpyHostToDevice));
+        print_vector("input_f_ext", hd_data->h_f_ext, 6 * grim::NUM_BODIES);
 
 #if RUN_INVERSE_DYNAMICS
-        grid::inverse_dynamics<T, false, true>(
+        grim::inverse_dynamics<T, false, true>(
             hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
         );
         gpuErrchk(cudaPeekAtLastError());
-        print_vector("inverse_dynamics_fext", hd_data->h_c, grid::NUM_JOINTS);
+        print_vector("inverse_dynamics_fext", hd_data->h_c, grim::NUM_JOINTS);
 #endif
 
 #if RUN_FORWARD_DYNAMICS
-        grid::forward_dynamics<T>(
+        grim::forward_dynamics<T>(
             hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
         );
         gpuErrchk(cudaPeekAtLastError());
-        print_vector("forward_dynamics_fext", hd_data->h_qdd, grid::NUM_JOINTS);
+        print_vector("forward_dynamics_fext", hd_data->h_qdd, grim::NUM_JOINTS);
 #endif
 
 #if RUN_ABA
-        grid::aba<T>(
+        grim::aba<T>(
             hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
         );
         gpuErrchk(cudaPeekAtLastError());
-        print_vector("aba_fext", hd_data->h_qdd, grid::NUM_JOINTS);
+        print_vector("aba_fext", hd_data->h_qdd, grim::NUM_JOINTS);
 #endif
 
-#if !GRID_RUNNER_SKIP_GRADIENTS
+#if !GRIM_RUNNER_SKIP_GRADIENTS
 #if RUN_INVERSE_DYNAMICS_GRADIENT
-        grid::inverse_dynamics_gradient<T, false, true>(
+        grim::inverse_dynamics_gradient<T, false, true>(
             hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
         );
         gpuErrchk(cudaPeekAtLastError());
         print_matrix_col_major("inverse_dynamics_gradient_q_fext",
-            hd_data->h_dc_du, grid::NUM_VEL, grid::NUM_VEL);
+            hd_data->h_dc_du, grim::NUM_VEL, grim::NUM_VEL);
         print_matrix_col_major("inverse_dynamics_gradient_qd_fext",
-            &hd_data->h_dc_du[grid::NUM_VEL * grid::NUM_VEL],
-            grid::NUM_VEL, grid::NUM_VEL);
+            &hd_data->h_dc_du[grim::NUM_VEL * grim::NUM_VEL],
+            grim::NUM_VEL, grim::NUM_VEL);
 #endif
 
 #if RUN_FORWARD_DYNAMICS_GRADIENT
-        grid::forward_dynamics_gradient<T, false>(
+        grim::forward_dynamics_gradient<T, false>(
             hd_data, d_robot_model, gravity, 1, block_dimms, thread_dimms, streams
         );
         gpuErrchk(cudaPeekAtLastError());
         print_matrix_col_major("forward_dynamics_gradient_q_fext",
-            hd_data->h_df_du, grid::NUM_VEL, grid::NUM_VEL);
+            hd_data->h_df_du, grim::NUM_VEL, grim::NUM_VEL);
         print_matrix_col_major("forward_dynamics_gradient_qd_fext",
-            &hd_data->h_df_du[grid::NUM_VEL * grid::NUM_VEL],
-            grid::NUM_VEL, grid::NUM_VEL);
+            &hd_data->h_df_du[grim::NUM_VEL * grim::NUM_VEL],
+            grim::NUM_VEL, grim::NUM_VEL);
 #endif
 #endif
     }
 #endif
 
-    grid::close_grid<T>(streams, d_robot_model, hd_data);
+    grim::close_grim<T>(streams, d_robot_model, hd_data);
 }
 
 int main(int argc, char **argv) {
@@ -951,17 +951,17 @@ int main(int argc, char **argv) {
         g_num_threads = requested > 0 ? requested : 0;
     }
     // Dynamic clamp: the kernels carry __launch_bounds__(tier_max_threads<TIER>())
-    // (= grid::MAX_PERF_LEVEL_THREADS at the default tier), so launching with MORE
+    // (= grim::MAX_PERF_LEVEL_THREADS at the default tier), so launching with MORE
     // threads is an invalid configuration. Derive the cap from the generated
     // header per-robot rather than hardcoding it; 0 => use SUGGESTED exactly.
-    if (g_num_threads <= 0 || g_num_threads > grid::MAX_PERF_LEVEL_THREADS) {
-        g_num_threads = grid::MAX_PERF_LEVEL_THREADS;
+    if (g_num_threads <= 0 || g_num_threads > grim::MAX_PERF_LEVEL_THREADS) {
+        g_num_threads = grim::MAX_PERF_LEVEL_THREADS;
     }
-    // fp64 (Phase 8): GRID_EQUIV_T=double runs the double-precision path against
+    // fp64 (Phase 8): GRIM_EQUIV_T=double runs the double-precision path against
     // a float64 oracle (tight tol). The runner is already template<typename T>;
-    // the matching grid.cuh must be generated with the dtype="double" codegen
+    // the matching grim.cuh must be generated with the dtype="double" codegen
     // knob so its spill tiers are sized for sizeof(double). Default = float.
-    const char *equiv_t = std::getenv("GRID_EQUIV_T");
+    const char *equiv_t = std::getenv("GRIM_EQUIV_T");
     if (equiv_t != nullptr && std::string(equiv_t) == "double") {
         run<double>();
     } else {

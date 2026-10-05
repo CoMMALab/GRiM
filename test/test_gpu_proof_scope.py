@@ -52,7 +52,7 @@ def test_release_policy_requires_exact_recorded_scope():
 
 
 @pytest.mark.parametrize('path', [
-    'grid_codegen/input.py', 'bindings/grid_rbd/input.py', 'bindings/src/input.py',
+    'grim_codegen/input.py', 'bindings/grim/input.py', 'bindings/src/input.py',
     'test/conftest.py', 'test/cuda_equivalents/input.py', 'config/input.py',
 ])
 def test_correctness_edit_changes_fingerprint(repo, path):

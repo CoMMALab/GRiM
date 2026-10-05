@@ -1,4 +1,4 @@
-"""Joint viscous damping + Coulomb friction (opt-in) on the grid_rbd handle.
+"""Joint viscous damping + Coulomb friction (opt-in) on the grim handle.
 
 `register_robot(..., use_joint_dynamics=True)` emits the joint-local bias
 `tau += damping*qd + friction*sign(qd)` in the inverse_dynamics / forward_dynamics
@@ -11,7 +11,7 @@ the DEFAULT (off) build matches the bare (no-damping) oracle, and checks that
 FRICTION produces ZERO gradient delta (damping-only sensitivity).
 
 Robots: iiwa14 (damping 0.5×7, no friction), fr3 (damping+friction, mimic).
-fp32 + fp64 (numpy backend). Skips if grid_rbd / nvcc / URDF unavailable.
+fp32 + fp64 (numpy backend). Skips if grim / nvcc / URDF unavailable.
 """
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 from config import robot_urdf
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed")
+_grim = pytest.importorskip("grim", reason="grim not installed")
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
 pytestmark = pytest.mark.python_wrappers
 _TOL = 1e-3
@@ -87,17 +87,17 @@ _IDS = ["iiwa14-fp32", "iiwa14-fp64", "fr3-fp32", "fr3-fp64"]
 def robot(request):
     name, urdf, dtype = request.param
     suf = "" if dtype == "float32" else "_f64"
-    # force_rebuild: the grid-rbd cache key is content-addressed on the BUILD
+    # force_rebuild: the grim cache key is content-addressed on the BUILD
     # INPUTS (urdf, flags, arch), NOT on the generated CUDA source, so a robot
     # registered before a codegen change keeps its stale .cuh/.so. This test
     # validates the inverse_dynamics_gradient damping EMIT (codegen), so it must
     # regenerate from the CURRENT codegen rather than trust a possibly-stale store
     # (a pre-helper store has the value-path damping but no gradient-path diagonal
     # -> on==off and the assertions silently regress). Rebuild both handles.
-    h_on = _grid_rbd.register_robot(name=f"{name}_jd_on{suf}_pytest", urdf_path=str(urdf),
+    h_on = _grim.register_robot(name=f"{name}_jd_on{suf}_pytest", urdf_path=str(urdf),
                                     floating_base=False, use_joint_dynamics=True,
                                     dtype=dtype, max_batch_size=8, force_rebuild=True)
-    h_off = _grid_rbd.register_robot(name=f"{name}_jd_off{suf}_pytest", urdf_path=str(urdf),
+    h_off = _grim.register_robot(name=f"{name}_jd_off{suf}_pytest", urdf_path=str(urdf),
                                      floating_base=False, dtype=dtype, max_batch_size=8,
                                      force_rebuild=True)
     np_dt = np.float64 if dtype == "float64" else np.float32

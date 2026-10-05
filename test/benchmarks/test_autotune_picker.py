@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import importlib.util
 
 _RUN_PY = REPO_ROOT / "test" / "benchmarks" / "baselines" / "grid" / "run.py"
-_spec = importlib.util.spec_from_file_location("grid_bench_run", _RUN_PY)
+_spec = importlib.util.spec_from_file_location("grim_bench_run", _RUN_PY)
 run = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run)
 
@@ -40,11 +40,11 @@ def test_tier_thread_cap_matches_codegen_formula():
     assert run._tier_thread_cap("shared", None) == 1024
 
 
-def test_clip_grid_drops_above_cap_but_keeps_one():
+def test_clip_grim_drops_above_cap_but_keeps_one():
     grid = (32, 64, 128, 256, 512, 768)
-    assert run._clip_grid_to_cap(grid, 256) == (32, 64, 128, 256)
+    assert run._clip_grim_to_cap(grid, 256) == (32, 64, 128, 256)
     # Degenerate: cap below every grid point → fall back to the cap itself.
-    assert run._clip_grid_to_cap((512, 768), 256) == (256,)
+    assert run._clip_grim_to_cap((512, 768), 256) == (256,)
 
 
 def test_argmin_tier_threads_picks_global_min():

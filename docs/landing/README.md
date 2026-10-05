@@ -1,11 +1,11 @@
-# GRiD website
+# GRiM website
 
-The cover page lives at `/GRiD/`, with Sphinx at `/GRiD/docs/`.
+The cover page lives at `/GRiM/`, with Sphinx at `/GRiM/docs/`.
 Building the website does not trigger GPU runs or collect benchmark data.
 
 ## Build and review locally
 
-From the GRiD checkout, use an existing docs environment or create one:
+From the GRiM checkout, use an existing docs environment or create one:
 
 ```sh
 python3 -m venv /tmp/grid-docs-venv
@@ -19,7 +19,7 @@ No CUDA build, GPU, JAX, or PyTorch installation is required to build the site.
 
 ```sh
 preview_root=$(mktemp -d)
-GRID_DOCS_REF=modernizing-tests python -m sphinx -b html -W --keep-going \
+GRIM_DOCS_REF=modernizing-tests python -m sphinx -b html -W --keep-going \
   docs/source "$preview_root/html"
 python docs/build_site.py --sphinx "$preview_root/html" --output "$preview_root/site"
 python docs/check_site.py "$preview_root/site"
@@ -29,7 +29,7 @@ python -m http.server 8000 --bind 127.0.0.1 --directory "$preview_root/site"
 Open `http://localhost:8000/` and `http://localhost:8000/docs/`.
 Each rebuild should use a fresh `preview_root`. The assembly script refuses to
 overwrite an existing site and does not touch the user's `docs/_build/` output.
-Relative URLs also support hosting below `/GRiD/`.
+Relative URLs also support hosting below `/GRiM/`.
 
 ## Data and release review
 

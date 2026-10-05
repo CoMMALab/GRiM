@@ -1,4 +1,4 @@
-"""grid-rbd tool / payload welding: attach a rigid tool at RUNTIME, no recompile.
+"""grim tool / payload welding: attach a rigid tool at RUNTIME, no recompile.
 
 A rigidly-welded tool (a gripper, drill, or carried object) has exactly two effects, and
 `handle.attach_tool(...)` handles both with zero recompile on a robot registered with
@@ -107,7 +107,7 @@ def e4_gripping(h, q):
 
 def e5_closed_loop(h, q):
     """E5 -- TWO-FINGER / CLOSED-LOOP grasp + TIP FORCES: a tool bridging two fingertips is a
-    closed kinematic loop, which GRiD's tree codegen cannot represent. Reduce it to an OPEN tree:
+    closed kinematic loop, which GRiM's tree codegen cannot represent. Reduce it to an OPEN tree:
     attach the tool rigidly to ONE contact (palm / one fingertip) and model the OTHER finger's
     grip force (or any environment reaction: grinding, pushing) as a world-aligned wrench on the
     tool tip via `tool_fext`, then feed it to the dynamics as `f_ext=`."""
@@ -151,8 +151,8 @@ def main() -> None:
     if not urdf.exists():
         sys.exit(f"URDF not found: {urdf} (pass --urdf)")
 
-    import grid_rbd
-    h = grid_rbd.register_robot("iiwa14_tool", urdf_path=str(urdf), enable_tool=True)
+    import grim
+    h = grim.register_robot("iiwa14_tool", urdf_path=str(urdf), enable_tool=True)
     q = np.linspace(0.1, 0.6, h.num_joints).astype(np.float32)[None, :]
 
     e1_pure_payload(h, q)

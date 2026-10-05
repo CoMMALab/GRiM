@@ -24,9 +24,9 @@
 #            but is lower priority than Phase 1 and is the part that can crash, so it
 #            runs last, slow and careful.
 #
-# The split is driven by GRID_BENCH_ALGORITHM_LIST (comma-separated; regenerates the
+# The split is driven by GRIM_BENCH_ALGORITHM_LIST (comma-separated; regenerates the
 # bench header to exactly that algo set -- see test/benchmarks/baselines/grid/run.py
-# and GRiDCodeGenerator _normalize_codegen_algorithms).
+# and GRiMCodeGenerator _normalize_codegen_algorithms).
 #
 # ROBOT / BASE MATRIX (user-chosen 2026-06-26): per-robot SINGLE base (no redundant
 # fixed x floating cartesian). h1_2 DROPPED.
@@ -38,7 +38,7 @@
 # QUIET gpu -- no concurrent CPU/compiles during a measured cell. run_multi_version
 # already builds-then-times per cell; do NOT run other heavy work while this runs.
 # Best launched on an idle desktop. The run.py content-addressed cache
-# (.pytest_cache/grid_cuda) resumes across restarts if codegen/.cu are unchanged.
+# (.pytest_cache/grim_cuda) resumes across restarts if codegen/.cu are unchanged.
 #
 # Usage:   bash test/benchmarks/run_tier_sweep_phased.sh [PHASE] [BUILD_JOBS]
 #            PHASE      = 1 | 2 | all   (default all -> phase 1 then phase 2)
@@ -61,14 +61,14 @@
 #     -> compile every cell's binaries into the cache and STOP before timing; drops
 #        the pinocchio column. (Phase 1 no-SO already pre-built 2026-06-26.)
 #
-# VERIFIED 2026-06-26: GRID_BENCH_ALGORITHM_LIST DOES reach run.py via
+# VERIFIED 2026-06-26: GRIM_BENCH_ALGORITHM_LIST DOES reach run.py via
 #   run_multi_version's env-inheriting subprocess (header "Generated algorithms:"
 #   matched the intended set; SO excluded in Phase 1).
 # OPEN: batch sizes 32/256 wiring — run_multi_version prints single/N=16/N=256
 #   summaries; confirm/extend the batch-N knob before trusting a 32-column (256 safe).
 # ============================================================================
 set -uo pipefail
-cd /home/plancher/Desktop/GRiD
+cd /home/plancher/Desktop/GRiM
 export PATH=/usr/local/cuda/bin:$PATH
 
 case "${1:-}" in -h|--help) sed -n '2,69p' "$0"; exit 0 ;; esac
@@ -83,7 +83,7 @@ mkdir -p "$OUTROOT"
 NOSO_ALGOS="inverse_dynamics,minv,forward_dynamics,inverse_dynamics_gradient,forward_dynamics_gradient,aba,crba,end_effector_pose,end_effector_pose_gradient,end_effector_pose_hessian,integrator,integrator_gradient,integrator_with_gradient,f_ext_gradient,inverse_dynamics_regressor,forward_dynamics_parameter_gradient,kinetic_energy_regressor,potential_energy_regressor,com,ccrba,energy,generalized_gravity,nonlinear_effects,coriolis_matrix,dccrba,cmm_time_variation,osc_inertia,frame_jacobian,frame_jacobian_dot"
 # Phase 2 = the SO kernels + their first-order deps (deps are cheap; SO is the wall).
 # integrator family is REQUIRED: the SO algos pull in integrator_gradient transitively,
-# whose floating mjx-output path calls grid_dIntegrate_q_block (defined by base `integrator`,
+# whose floating mjx-output path calls grim_dIntegrate_q_block (defined by base `integrator`,
 # _integrator.py:244). Without integrator in the set the SO-only header emits the caller but
 # not the helper -> "type name is not allowed" on floating (fixed-base never hits that path;
 # the full 'all' header always has integrator). [codegen dep-graph gap backlogged]
@@ -91,7 +91,7 @@ SO_ALGOS="inverse_dynamics,minv,forward_dynamics,inverse_dynamics_gradient,forwa
 
 # --- shared config ----------------------------------------------------------
 # Robot lists are env-overridable. baxter is REGISTERED (commit 1226853: run.py LOCAL_URDF +
-# left_endpoint EE; run_multi_version ROBOTS/EE_FRAMES/GRID_ONLY) and verified fixed-base.
+# left_endpoint EE; run_multi_version ROBOTS/EE_FRAMES/GRIM_ONLY) and verified fixed-base.
 FIXED_ROBOTS="${FIXED_ROBOTS:-iiwa14 baxter}"
 FLOATING_ROBOTS="${FLOATING_ROBOTS:-go2 g1 h2_plus}"
 TIERS="shared lite minimal"
@@ -100,7 +100,7 @@ BATCH_SIZES="32 256"   # see PREREQ (b)
 # BUILD_ONLY=1 -> pre-compile every cell's binaries into the content-addressed cache
 # and STOP before timing (warm the cache now; time later on a quiet GPU with the same
 # command minus --build-only). In build-only mode we also drop the pinocchio column
-# (nothing to pre-build there) so the pre-build is pure GRiD compile.
+# (nothing to pre-build there) so the pre-build is pure GRiM compile.
 BUILD_ONLY="${BUILD_ONLY:-0}"
 
 run_cell() {  # $1=phase-tag $2=algos $3=robots $4=base $5=build_jobs
@@ -108,7 +108,7 @@ run_cell() {  # $1=phase-tag $2=algos $3=robots $4=base $5=build_jobs
   local out="$OUTROOT/${tag}_${base}"
   mkdir -p "$out"
   # SWEEP_COLUMNS overrides the column set (e.g. SWEEP_COLUMNS=glass for a
-  # GRiD-only picks sweep when competitor numbers are already captured —
+  # GRiM-only picks sweep when competitor numbers are already captured —
   # _reuse_competitor_json only reuses within ONE sweep root, so a fresh root
   # re-times every competitor from scratch, incl. the warp big-floating
   # hours-trap).
@@ -117,7 +117,7 @@ run_cell() {  # $1=phase-tag $2=algos $3=robots $4=base $5=build_jobs
   echo "=== [$tag/$base]$([ "$BUILD_ONLY" = "1" ] && echo ' BUILD-ONLY') robots=[$robots] build_jobs=$bj  $(date) ==="
   echo "    free -g: $(free -g | awk '/Mem:/{print "used="$3" free="$4" avail="$7}')"
   echo "    GPU: $(nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null)"
-  GRID_BENCH_ALGORITHM_LIST="$algos" \
+  GRIM_BENCH_ALGORITHM_LIST="$algos" \
   .venv/bin/python test/benchmarks/run_multi_version.py \
       --columns "${cols[@]}" \
       --robots $robots \
@@ -169,7 +169,7 @@ overnight() {
   # h2_plus f_ext DE-QUARANTINED 2026-08-23 PM (user call, after root cause +
   # fix): both box freezes were the DRIVER's lazy-vidmem-free race under rapid
   # ~30 GB context churn (nvidia_uvm free_chunk NULL deref — guide §7.x), NOT
-  # a GRiD kernel fault. Defenses now in every launch path: the settle gate
+  # a GRiM kernel fault. Defenses now in every launch path: the settle gate
   # (wait for memory.used baseline before each exe) + the IN-PROCESS thread
   # sweep (one context per grid, >10x fewer churn cycles). Killer arm
   # re-validated twice same-day (same winner both methods).

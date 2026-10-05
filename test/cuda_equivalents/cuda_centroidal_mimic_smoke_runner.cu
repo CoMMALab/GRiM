@@ -2,16 +2,16 @@
 //
 // This is a MINIMAL companion to cuda_centroidal_smoke_runner.cu. It drives the
 // mimic-supported centroidal DEVICE fns:
-//   grid::generalized_gravity_device  (g(q)   = RNEA(q, 0, 0))
-//   grid::nonlinear_effects_device    (c(q,qd)= RNEA(q, qd, 0))
-//   grid::com_device                  (p_com (3) + J_com (3 x NV))
-//   grid::ccrba_device                (A (6 x NV) + h (6))
-//   grid::energy_device               ({KE, PE, mechanical})
+//   grim::generalized_gravity_device  (g(q)   = RNEA(q, 0, 0))
+//   grim::nonlinear_effects_device    (c(q,qd)= RNEA(q, qd, 0))
+//   grim::com_device                  (p_com (3) + J_com (3 x NV))
+//   grim::ccrba_device                (A (6 x NV) + h (6))
+//   grim::energy_device               ({KE, PE, mechanical})
 //
 // The com/ccrba/energy kinematics-domain device fns are now ALPHA-FOLDED for
 // mimic robots (centroidal_inner's per-body world Jacobian carries the mimic
 // multiplier), so they emit + validate for mimic robots. The FULL centroidal
-// runner additionally drives the grid_plant com_cost / momentum_cost costs,
+// runner additionally drives the grim_plant com_cost / momentum_cost costs,
 // which are emitted for NON-MIMIC robots only (_plant.py) — that is what keeps
 // the full runner structurally non-mimic-only. This runner only references the
 // centroidal device fns, so it links + runs on a mimic robot (and on the
@@ -36,7 +36,7 @@
 #include <string>
 #include <vector>
 
-#include "grid.cuh"
+#include "grim.cuh"
 
 template <typename T>
 void read_vector(T *dst, int count) {
@@ -65,13 +65,13 @@ void print_vector(const std::string &name, const T *data, int count) {
     print_matrix_col_major(name, data, 1, count);
 }
 
-constexpr int NQ = grid::NUM_POS;
-constexpr int NV = grid::NUM_VEL;
+constexpr int NQ = grim::NUM_POS;
+constexpr int NV = grim::NUM_VEL;
 
 // Drive ONLY the two mimic-supported id-bias device functions.
 template <typename T>
 __global__ void centroidal_bias_kernel(const T *g_q, const T *g_qd,
-                                       const grid::robotModel<T> *d_robotModel, T gravity,
+                                       const grim::robotModel<T> *d_robotModel, T gravity,
                                        T *o_grav, T *o_nle) {
     __shared__ T s_q[NQ], s_qd[NV];
     __shared__ T s_grav[NV], s_nle[NV];
@@ -82,9 +82,9 @@ __global__ void centroidal_bias_kernel(const T *g_q, const T *g_qd,
     for (int i = tid; i < NV; i += nth) s_qd[i] = g_qd[i];
     __syncthreads();
 
-    grid::generalized_gravity_device<T>(s_grav, s_q, s_qd, d_robotModel, gravity);
+    grim::generalized_gravity_device<T>(s_grav, s_q, s_qd, d_robotModel, gravity);
     __syncthreads();
-    grid::nonlinear_effects_device<T>(s_nle, s_q, s_qd, d_robotModel, gravity);
+    grim::nonlinear_effects_device<T>(s_nle, s_q, s_qd, d_robotModel, gravity);
     __syncthreads();
 
     for (int i = tid; i < NV; i += nth) { o_grav[i] = s_grav[i]; o_nle[i] = s_nle[i]; }
@@ -93,14 +93,14 @@ __global__ void centroidal_bias_kernel(const T *g_q, const T *g_qd,
 
 // com_device: s_out = [p_com (3); J_com (3 x NV col-major)] = 3 + 3*NV.
 template <typename T>
-__global__ void com_kernel(const T *g_q, const grid::robotModel<T> *d_robotModel, T *o_com) {
+__global__ void com_kernel(const T *g_q, const grim::robotModel<T> *d_robotModel, T *o_com) {
     __shared__ T s_q[NQ];
     __shared__ T s_out[3 + 3 * NV];
     const int tid = threadIdx.x + threadIdx.y * blockDim.x;
     const int nth = blockDim.x * blockDim.y;
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     __syncthreads();
-    grid::com_device<T>(s_out, s_q, d_robotModel);
+    grim::com_device<T>(s_out, s_q, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 3 + 3 * NV; i += nth) o_com[i] = s_out[i];
     __syncthreads();
@@ -109,7 +109,7 @@ __global__ void com_kernel(const T *g_q, const grid::robotModel<T> *d_robotModel
 // ccrba_device: s_out = [A (6 x NV col-major); h (6)] = 6*NV + 6.
 template <typename T>
 __global__ void ccrba_kernel(const T *g_q, const T *g_qd,
-                             const grid::robotModel<T> *d_robotModel, T *o_ccrba) {
+                             const grim::robotModel<T> *d_robotModel, T *o_ccrba) {
     __shared__ T s_q[NQ], s_qd[NV];
     __shared__ T s_out[6 * NV + 6];
     const int tid = threadIdx.x + threadIdx.y * blockDim.x;
@@ -117,7 +117,7 @@ __global__ void ccrba_kernel(const T *g_q, const T *g_qd,
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     for (int i = tid; i < NV; i += nth) s_qd[i] = g_qd[i];
     __syncthreads();
-    grid::ccrba_device<T>(s_out, s_q, s_qd, d_robotModel);
+    grim::ccrba_device<T>(s_out, s_q, s_qd, d_robotModel);
     __syncthreads();
     for (int i = tid; i < 6 * NV + 6; i += nth) o_ccrba[i] = s_out[i];
     __syncthreads();
@@ -126,7 +126,7 @@ __global__ void ccrba_kernel(const T *g_q, const T *g_qd,
 // energy_device: s_out = [KE, PE, mechanical] = 3.
 template <typename T>
 __global__ void energy_kernel(const T *g_q, const T *g_qd,
-                              const grid::robotModel<T> *d_robotModel, T gravity, T *o_energy) {
+                              const grim::robotModel<T> *d_robotModel, T gravity, T *o_energy) {
     __shared__ T s_q[NQ], s_qd[NV];
     __shared__ T s_out[3];
     const int tid = threadIdx.x + threadIdx.y * blockDim.x;
@@ -134,7 +134,7 @@ __global__ void energy_kernel(const T *g_q, const T *g_qd,
     for (int i = tid; i < NQ; i += nth) s_q[i] = g_q[i];
     for (int i = tid; i < NV; i += nth) s_qd[i] = g_qd[i];
     __syncthreads();
-    grid::energy_device<T>(s_out, s_q, s_qd, d_robotModel, gravity);
+    grim::energy_device<T>(s_out, s_q, s_qd, d_robotModel, gravity);
     __syncthreads();
     for (int i = tid; i < 3; i += nth) o_energy[i] = s_out[i];
     __syncthreads();
@@ -152,9 +152,9 @@ void dcopy_out(const std::string &name, T *dptr, int rows, int cols) {
 template <typename T>
 void run() {
     const T gravity = static_cast<T>(-9.81);
-    cudaStream_t *streams = grid::init_grid<T>();
-    grid::robotModel<T> *d_robotModel = grid::init_robotModel<T>();
-    grid::gridData<T> *hd_data = grid::init_gridData<T, 1>();
+    cudaStream_t *streams = grim::init_grim<T>();
+    grim::robotModel<T> *d_robotModel = grim::init_robotModel<T>();
+    grim::grimData<T> *hd_data = grim::init_grimData<T, 1>();
 
     std::vector<T> h_q(NQ), h_qd(NV);
     read_vector(h_q.data(), NQ);
@@ -169,16 +169,16 @@ void run() {
 
     T *o_grav = dmalloc<T>(NV), *o_nle = dmalloc<T>(NV);
 
-    const int nthreads = grid::MAX_PERF_LEVEL_THREADS;
+    const int nthreads = grim::MAX_PERF_LEVEL_THREADS;
     // generalized_gravity / nonlinear_effects compose the RNEA id-bias arena via
     // the auto-allocating extern __shared__ wrapper; size to the ID_BIAS macro.
-    size_t dyn = grid::INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn = grim::INVERSE_DYNAMICS_BIAS_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(centroidal_bias_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn);
 
     centroidal_bias_kernel<T><<<1, nthreads, dyn>>>(g_q, g_qd, d_robotModel, gravity, o_grav, o_nle);
     // Fail loudly on a bad launch: an unchecked launch failure leaves the (zeroed)
     // outputs untouched, which then masquerades as a real (wrong) result the Python
-    // oracle would silently diff against. gpuErrchkKernel() (from grid.cuh) does
+    // oracle would silently diff against. gpuErrchkKernel() (from grim.cuh) does
     // cudaPeekAtLastError() + cudaDeviceSynchronize() and aborts on any error.
     gpuErrchkKernel();
 
@@ -192,17 +192,17 @@ void run() {
     T *o_ccrba = dmalloc<T>(6 * NV + 6);
     T *o_energy = dmalloc<T>(3);
 
-    size_t dyn_com = grid::COM_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_com = grim::COM_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(com_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_com);
     com_kernel<T><<<1, nthreads, dyn_com>>>(g_q, d_robotModel, o_com);
     gpuErrchkKernel();
 
-    size_t dyn_ccrba = grid::CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_ccrba = grim::CCRBA_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(ccrba_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_ccrba);
     ccrba_kernel<T><<<1, nthreads, dyn_ccrba>>>(g_q, g_qd, d_robotModel, o_ccrba);
     gpuErrchkKernel();
 
-    size_t dyn_energy = grid::ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>();
+    size_t dyn_energy = grim::ENERGY_DYNAMIC_SHARED_MEM_BYTES<T>();
     cudaFuncSetAttribute(energy_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)dyn_energy);
     energy_kernel<T><<<1, nthreads, dyn_energy>>>(g_q, g_qd, d_robotModel, gravity, o_energy);
     gpuErrchkKernel();
@@ -223,7 +223,7 @@ void run() {
     }
     dcopy_out("energy", o_energy, 1, 3);
 
-    grid::close_grid<T>(streams, d_robotModel, hd_data);
+    grim::close_grim<T>(streams, d_robotModel, hd_data);
 }
 
 int main() {

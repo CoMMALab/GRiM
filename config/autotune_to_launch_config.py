@@ -11,7 +11,7 @@ the canonical per-host artifact
     {"metadata": {hostname, gpu_name, cuda_arch}, "best": {robot: {base: {algo: {tier, threads, us}}}}}
 
 ``config/launch_configs/<robot>/<gpu>.json`` (consumed by codegen to emit
-``grid_launch_config.cuh``) wants the documented schema::
+``grim_launch_config.cuh``) wants the documented schema::
 
     {gpu, cuda_arch, gpu_name, autotune_N, source,
      bases: {fixed|floating: {algo: {tier, threads, us_at_optimal}}}}
@@ -28,7 +28,7 @@ Usage::
         --gpu-key rtx5090_sm120 --cuda-arch sm_120 \
         --gpu-name "NVIDIA GeForce RTX 5090" --autotune-N 256 \
         [--best test/benchmarks/results/autotune_best_<host>.json] \
-        [--source "GRiD autotune sweep 2026-06-13"] \
+        [--source "GRiM autotune sweep 2026-06-13"] \
         [--out config/launch_configs/iiwa14/rtx5090_sm120.json]
 """
 
@@ -43,9 +43,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# autotune_best / algo_picks key the entries by the GRiD *symbol* (long name, e.g.
+# autotune_best / algo_picks key the entries by the GRiM *symbol* (long name, e.g.
 # "forward_dynamics"), but launch_configs `bases` must use the *short* launch-config
-# key (e.g. "fd") — that's what GRiDCodeGenerator.load_launch_config() looks up in
+# key (e.g. "fd") — that's what GRiMCodeGenerator.load_launch_config() looks up in
 # LAUNCH_CONFIG_ALGO_TO_SYMBOL. Build the long->short reverse map so the bake emits
 # loadable keys (long keys would be silently skipped by load_launch_config).
 sys.path.insert(0, str(REPO_ROOT))
@@ -54,7 +54,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # load_launch_config() drops, so the committed bake was inert for the mapped algos
 # while the stale short keys stayed live). If this import breaks, the tool cannot
 # emit loadable keys and must say so loudly.
-from grid_codegen.algo_registry import build_launch_config_algo_to_symbol
+from grim_codegen.algo_registry import build_launch_config_algo_to_symbol
 
 LAUNCH_CONFIG_ALGO_TO_SYMBOL = build_launch_config_algo_to_symbol()
 SYMBOL_TO_KEY = {sym: key for key, sym in LAUNCH_CONFIG_ALGO_TO_SYMBOL.items()}
@@ -88,7 +88,7 @@ def main() -> None:
                          "results/autotune_best_<host>.json).")
     ap.add_argument("--source", default=None,
                     help="`source` provenance string (default: "
-                         "'GRiD autotune sweep <today>').")
+                         "'GRiM autotune sweep <today>').")
     ap.add_argument("--out", type=Path, default=None,
                     help="Output path (default: config/launch_configs/<robot>/<gpu_key>.json).")
     args = ap.parse_args()
@@ -127,7 +127,7 @@ def main() -> None:
         for algo, info in base_slice.items():
             # Resolve to the SHORT launch-config key, accepting EITHER convention
             # the autotune_best may carry: an already-short key (e.g. "fd") or the
-            # long GRiD symbol (e.g. "forward_dynamics"). Skip anything in neither —
+            # long GRiM symbol (e.g. "forward_dynamics"). Skip anything in neither —
             # load_launch_config() would skip it anyway, so don't bake dead keys.
             if algo in LAUNCH_CONFIG_ALGO_TO_SYMBOL:    # already a short key
                 key = algo
@@ -153,7 +153,7 @@ def main() -> None:
         sys.exit(1)
 
     today = datetime.date.today().isoformat()
-    source = args.source or f"GRiD autotune sweep {today}"
+    source = args.source or f"GRiM autotune sweep {today}"
 
     out_path = args.out or (
         REPO_ROOT / "config" / "launch_configs" / args.robot / f"{args.gpu_key}.json")

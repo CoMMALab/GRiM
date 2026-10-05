@@ -1,7 +1,7 @@
 """PS5 value-op binding coverage: coriolis_matrix / energy regressors / dccrba /
 cmm_time_variation.
 
-Exercises the grid_rbd handle methods newly bound for the PS5 value algorithms
+Exercises the grim handle methods newly bound for the PS5 value algorithms
 and asserts numerical agreement with the RBDReference numpy oracle at float32
 precision:
 
@@ -25,7 +25,7 @@ import pytest
 
 
 # Repo root is parent of `test/`. Insert FIRST so this clone's submodules
-# (URDFParser / RBDReference / GRiDCodeGenerator) and `bindings/` win import.
+# (URDFParser / RBDReference / GRiMCodeGenerator) and `bindings/` win import.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_REPO_ROOT / "bindings"), str(_REPO_ROOT)):
     if _p not in sys.path:
@@ -33,15 +33,15 @@ for _p in (str(_REPO_ROOT / "bindings"), str(_REPO_ROOT)):
 from config import ROBOT_ASSETS_DIR
 
 
-_grid_rbd = pytest.importorskip("grid_rbd", reason="grid-rbd not installed (build bindings/ _core)")
+_grim = pytest.importorskip("grim", reason="grim not installed (build bindings/ _core)")
 
 if shutil.which("nvcc") is None:
-    pytest.skip("nvcc not on PATH; grid-rbd register_robot requires it", allow_module_level=True)
+    pytest.skip("nvcc not on PATH; grim register_robot requires it", allow_module_level=True)
 
-_GRID_RBD_DIR = Path(_grid_rbd.__file__).resolve().parent
-if _REPO_ROOT not in _GRID_RBD_DIR.parents:
+_GRIM_DIR = Path(_grim.__file__).resolve().parent
+if _REPO_ROOT not in _GRIM_DIR.parents:
     pytest.skip(
-        f"grid_rbd resolved to {_GRID_RBD_DIR} (not this clone under {_REPO_ROOT}); "
+        f"grim resolved to {_GRIM_DIR} (not this clone under {_REPO_ROOT}); "
         "set PYTHONPATH=<clone>/bindings and build _core in-place",
         allow_module_level=True,
     )
@@ -58,7 +58,7 @@ def _register(name, urdf):
     urdf_path = _ASSETS / urdf
     if not urdf_path.exists():
         pytest.skip(f"{urdf} fixture not present at {urdf_path}")
-    return _grid_rbd.register_robot(
+    return _grim.register_robot(
         name=f"{name}_ps5_value_pytest",
         urdf_path=str(urdf_path),
         floating_base=False,

@@ -1,7 +1,7 @@
-GRiD documentation
+GRiM documentation
 ==================
 
-`GRiD <https://github.com/A2R-Lab/GRiD>`_ turns a URDF into optimized,
+`GRiM <https://github.com/A2R-Lab/GRiD>`_ turns a URDF into optimized,
 per-robot CUDA C++ for dynamics, kinematics, and collisions, with **analytical
 derivatives and Hessians** for supported numerical operations and a
 trajectory-optimization plant layer. Numerical Python interfaces include a numpy handle, a
@@ -26,7 +26,7 @@ reductions, no cooperative groups, bit-deterministic and thread-count
 invariant. Artifacts are built per target architecture (``sm_XX``); the
 model, the API and the generated code carry over, the binary does not.
 
-.. grid:: 1 1 3 3
+.. grim:: 1 1 3 3
    :gutter: 3
 
    .. grid-item-card:: numpy
@@ -84,9 +84,9 @@ Performance and release measurements
 ------------------------------------------------------------
 
 The :doc:`release measurements <release_measurements>` page holds one audited
-collection — three robots, fifteen operations, batches 16 to 1024, GRiD through
+collection — three robots, fifteen operations, batches 16 to 1024, GRiM through
 every surface beside Pinocchio, MJX, MuJoCo Warp, MuJoCo CPU, BARD and Frax —
-with the protocol, every cell's validation status and the cases GRiD loses.
+with the protocol, every cell's validation status and the cases GRiM loses.
 The :doc:`benchmarks page <user_guide/tutorials/benchmarks>` retains dated
 development experiments and harness guidance; those results are not release
 evidence.
@@ -102,7 +102,7 @@ largest humanoids still fit a 48 KB budget), launch configurations are
 autotuned per robot and architecture, and a **runtime context** carries the device arena, streams
 and model tables — several isolated pipelines can share one GPU, one handle
 can swap inertial parameters at run time, and autograd refuses to
-differentiate a model that changed under it. GRiD targets a single GPU, from
+differentiate a model that changed under it. GRiM targets a single GPU, from
 embedded Jetson-class devices to desktop cards, one artifact per
 architecture; the tested deployment platform of this release is Linux x86_64
 (see :doc:`compatibility and known limitations <user_guide/getting_started/compatibility>`).
@@ -118,7 +118,7 @@ Install from a recursive clone (editable install; the extras pin the CPU jax
 
 .. code-block:: shell
 
-   git clone --recursive https://github.com/A2R-Lab/GRiD && cd GRiD
+   git clone --recursive https://github.com/A2R-Lab/GRiD && cd GRiM
    bash install/base_install.sh && source .venv/bin/activate
    pip install -e ".[jax,torch]" "jax[cuda12]"      # optional: the JAX and torch surfaces
 
@@ -128,7 +128,7 @@ minutes for the 7-DoF iiwa14 on an RTX 5090, an hour for a humanoid (the dated
 cold/warm table and the RAM-safe subset builds are on
 :doc:`fast robot setup <user_guide/getting_started/fast_robot_setup>`).
 Every later load is seconds: the artifact is cached by content key and rebuilt
-only when the URDF, the options, the GRiD version or the toolchain change.
+only when the URDF, the options, the GRiM version or the toolchain change.
 
 .. tab-set::
 
@@ -137,9 +137,9 @@ only when the URDF, the options, the GRiD version or the toolchain change.
       .. code-block:: python
 
          import numpy as np
-         import grid_rbd
+         import grim
 
-         r = grid_rbd.load_robot("config/robot_assets/iiwa14.urdf")
+         r = grim.load_robot("config/robot_assets/iiwa14.urdf")
          q, qd, u = (np.zeros((8, r.nq), np.float32) for _ in range(3))
          qdd = r.forward_dynamics(q, qd, u)                 # (8, 7)
          dqdd = r.forward_dynamics_gradient(q, qd, u)       # (8, 7, 14) = [d/dq | d/dqd]
@@ -151,9 +151,9 @@ only when the URDF, the options, the GRiD version or the toolchain change.
 
          import jax
          import jax.numpy as jnp
-         import grid_rbd
+         import grim
 
-         r = grid_rbd.load_robot("config/robot_assets/go2.urdf", backend="jax",
+         r = grim.load_robot("config/robot_assets/go2.urdf", backend="jax",
                                  floating_base=True)
          q = jnp.zeros((8, r.nq), jnp.float32).at[:, 6].set(1.0)   # unit quaternion (x, y, z, w)
          qd = jnp.zeros((8, r.nv), jnp.float32)                    # nv-wide: the tangent width
@@ -167,9 +167,9 @@ only when the URDF, the options, the GRiD version or the toolchain change.
       .. code-block:: python
 
          import torch
-         import grid_rbd
+         import grim
 
-         r = grid_rbd.load_robot("config/robot_assets/iiwa14.urdf", backend="torch")
+         r = grim.load_robot("config/robot_assets/iiwa14.urdf", backend="torch")
          q = torch.zeros(8, r.nq, device="cuda", requires_grad=True)
          qd = torch.zeros(8, r.nq, device="cuda")
          u = torch.zeros(8, r.nq, device="cuda")
@@ -181,7 +181,7 @@ only when the URDF, the options, the GRiD version or the toolchain change.
 Go deeper
 ---------
 
-.. grid:: 1 1 3 3
+.. grim:: 1 1 3 3
    :gutter: 3
 
    .. grid-item-card:: How do I…?
@@ -202,10 +202,10 @@ Go deeper
       :link: user_guide/tutorials/codegen
       :link-type: doc
 
-      ``grid-generate robot.urdf`` emits a self-contained ``grid.cuh`` to
+      ``grim-generate robot.urdf`` emits a self-contained ``grim.cuh`` to
       ``#include`` in your own kernels.
 
-.. grid:: 1 1 3 3
+.. grim:: 1 1 3 3
    :gutter: 3
 
    .. grid-item-card:: API Reference
@@ -236,7 +236,7 @@ The original ICRA 2022 paper describes the implementation preserved at
 `robot-acceleration/GRiD <https://github.com/robot-acceleration/GRiD>`_.
 Ongoing development lives at
 `A2R-Lab/GRiD <https://github.com/A2R-Lab/GRiD>`_. The paper does not describe
-all current features or establish their performance. If you use GRiD in your
+all current features or establish their performance. If you use GRiM in your
 research, cite the original paper and record the software commit or release:
 
 .. code-block:: text

@@ -38,7 +38,7 @@ from RBDReference.equivalents.pinocchio_backend import build_pinocchio_adapter
 from RBDReference.tests.state_sampling import build_dynamics_samples
 from RBDReference.tests.tolerances import get_tolerance
 
-from grid_codegen import GRiDCodeGenerator
+from grim_codegen import GRiMCodeGenerator
 
 from test.cuda_equivalents.cuda_harness import (
     _detect_cuda_arch,
@@ -78,8 +78,8 @@ def _build_adapters(robot_id, base_mode):
 
 
 def _gen_and_compile(proj, build_dir, floating_base, codegen_profile="all"):
-    header = build_dir / "grid.cuh"
-    codegen = GRiDCodeGenerator(
+    header = build_dir / "grim.cuh"
+    codegen = GRiMCodeGenerator(
         proj.robot, DEBUG_MODE=False, NEED_PRINT_MAT=True, FILE_NAMESPACE="grid"
     )
     import contextlib
@@ -95,8 +95,8 @@ def _gen_and_compile(proj, build_dir, floating_base, codegen_profile="all"):
     exe = build_dir / "cuda_f_ext_gradient_runner.exe"
     cmd = [
         nvcc, "-std=c++11", "-O0",
-        f"-DGRID_CUDA_FLOATING_BASE={1 if floating_base else 0}",
-        "-DGRID_CUDA_LINALG_BACKEND=GRID_LINALG_GLASS",
+        f"-DGRIM_CUDA_FLOATING_BASE={1 if floating_base else 0}",
+        "-DGRIM_CUDA_LINALG_BACKEND=GRIM_LINALG_GLASS",
         "-I", str(Path(__file__).resolve().parents[2]),
         "-gencode", f"arch=compute_{arch},code=sm_{arch}",
         "-gencode", f"arch=compute_{arch},code=compute_{arch}",
@@ -139,7 +139,7 @@ def test_cuda_f_ext_gradient_equivalence(robot_id, base_mode, tmp_path):
     # id/minv deps — full-profile codegen bought nothing here.
     exe = _gen_and_compile(proj, tmp_path, floating, codegen_profile="f-ext-gradient")
 
-    # Mimic robots: GRiD/RBDReference expose a per-BODY f_ext column for ALL NB
+    # Mimic robots: GRiM/RBDReference expose a per-BODY f_ext column for ALL NB
     # bodies (the mimic body is a real physical link that can receive an external
     # wrench), so the f_ext-gradient is nv x 6*NB. Pinocchio's reduced model
     # collapses the mimic body, so its f_ext_gradient adapter only exposes the

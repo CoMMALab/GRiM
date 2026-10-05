@@ -5,16 +5,16 @@ in-process run dlopens ~40 robot .so's + torch + jax into one interpreter and
 NOTHING ever called RobotHandle.close() — the historical late-suite SIGABRT and
 the ps5 ordering-dependent failure live here):
 
-1. **Handle close tracker** (default ON): wraps grid_rbd.register_robot for the
+1. **Handle close tracker** (default ON): wraps grim.register_robot for the
    duration of each test module and closes every handle the module produced at
    module teardown — covering fixture registrations AND bare in-test calls
    without editing ~24 modules. close() is idempotent and only drops the Runner
    ref (numpy handles actually dlclose; torch/jax keep process-global CDLL/op
-   refs by design). Disable with GRID_TEST_NO_CLOSE=1 to A/B the old behavior.
+   refs by design). Disable with GRIM_TEST_NO_CLOSE=1 to A/B the old behavior.
 
-2. **Per-test VRAM watermark probe** (opt-in, GRID_PROBE_VRAM=1): after each
+2. **Per-test VRAM watermark probe** (opt-in, GRIM_PROBE_VRAM=1): after each
    test, append `module,test,pid_mib,total_mib` for THIS pid to the CSV at
-   GRID_PROBE_VRAM_OUT (default .split_suite/vram_probe.csv). Per-PID via
+   GRIM_PROBE_VRAM_OUT (default .split_suite/vram_probe.csv). Per-PID via
    nvidia-smi --query-compute-apps so concurrent GPU work (e.g. a sanitizer
    arm) cannot contaminate the trajectory.
 """
@@ -30,27 +30,27 @@ import pytest
 
 @pytest.fixture(autouse=True, scope="module")
 def _close_module_handles():
-    if os.environ.get("GRID_TEST_NO_CLOSE") == "1":
+    if os.environ.get("GRIM_TEST_NO_CLOSE") == "1":
         yield
         return
     try:
-        import grid_rbd
+        import grim
     except Exception:
         yield
         return
     produced = []
-    real = grid_rbd.register_robot
+    real = grim.register_robot
 
     def _tracking_register(*args, **kwargs):
         handle = real(*args, **kwargs)
         produced.append(handle)
         return handle
 
-    grid_rbd.register_robot = _tracking_register
+    grim.register_robot = _tracking_register
     try:
         yield
     finally:
-        grid_rbd.register_robot = real
+        grim.register_robot = real
         for handle in produced:
             try:
                 handle.close()
@@ -80,11 +80,11 @@ def _pid_vram_mib() -> tuple[int, int]:
 @pytest.fixture(autouse=True)
 def _vram_watermark(request):
     yield
-    if os.environ.get("GRID_PROBE_VRAM") != "1":
+    if os.environ.get("GRIM_PROBE_VRAM") != "1":
         return
     mine, total = _pid_vram_mib()
     out = Path(os.environ.get(
-        "GRID_PROBE_VRAM_OUT",
+        "GRIM_PROBE_VRAM_OUT",
         str(Path(__file__).resolve().parents[1] / ".split_suite" / "vram_probe.csv")))
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("a") as f:
