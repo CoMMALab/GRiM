@@ -4,7 +4,7 @@ The kernels are GRiM's own generated dynamics; what this module adds is the hand
 (packing, scratch workspace, output layouts). So every op is checked against the float64
 RBDReference oracle on a header generated from the same parsed model: values directly, and
 the gradient ops against central differences of the oracle. Also: determinism, a batch larger
-than grim.jax's default max_batch, and the runtime inertia table (baseline reproduces the
+than grid_rbd.jax's default max_batch, and the runtime inertia table (baseline reproduces the
 baked kernels; a change moves the result; a reset restores it bit for bit).
 """
 
@@ -23,7 +23,7 @@ from .conftest import ASSETS, assert_close_scaled, requires_gpu
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
 
 NAME = "iiwa14"
-B = 300          # above grim.jax's default max_batch (256)
+B = 300          # above grid_rbd.jax's default max_batch (256)
 
 
 def _parse():
@@ -32,8 +32,8 @@ def _parse():
 
 
 def _header(runtime_inertia=False):
-    from grim_codegen.GRiMCodeGenerator import GRiMCodeGenerator
-    gen = GRiMCodeGenerator(_parse(), False, False, FILE_NAMESPACE="grim")
+    from grid_codegen import GRiDCodeGenerator
+    gen = GRiDCodeGenerator(_parse(), False, False)
     with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
         cwd = os.getcwd()
         try:
@@ -41,7 +41,7 @@ def _header(runtime_inertia=False):
             gen.gen_all_code(runtime_inertia=runtime_inertia)
         finally:
             os.chdir(cwd)
-        return open(os.path.join(d, "grim.cuh")).read()
+        return open(os.path.join(d, "grid.cuh")).read()
 
 
 @pytest.fixture(scope="module")

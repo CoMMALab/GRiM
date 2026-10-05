@@ -1,5 +1,0 @@
-# Generated GRiM headers are build artifacts -- regenerate with the gen_*.py
-# helpers / build_and_validate.sh, never commit them.
-grim.cuh
-grim_so.cuh
-*.o

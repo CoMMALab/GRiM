@@ -11,7 +11,7 @@ import pytest
 
 from grim.motion import MotionRobot
 
-ASSETS = Path(__file__).resolve().parents[2] / "config" / "robot_assets"
+ASSETS = Path(__file__).resolve().parents[2] / "external" / "GRiD" / "config" / "robot_assets"
 ROBOTS = sorted(p.stem for p in ASSETS.glob("*.urdf"))
 
 

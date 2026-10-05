@@ -1,6 +1,6 @@
-// XLA FFI handlers for a robot's GRiM-generated dynamics kernels (grim.cuh), for JAX callers
+// XLA FFI handlers for a robot's GRiD-generated dynamics kernels (grid.cuh), for JAX callers
 // that need any batch size: workspace comes from XLA's scratch allocator per call, and the
-// robot model is cached per device. (grim.jax's generated handles instead copy through
+// robot model is cached per device. (grid_rbd.jax's generated handles instead copy through
 // buffers preallocated at the build's max_batch.) Built by grim.motion.generated_dynamics.
 //
 // The generated __global__ kernels are launched directly on the XLA stream; the __host__
@@ -8,7 +8,7 @@
 // contract copied from them:
 //   * dynamic shared memory is sized by <ALGO>_DYNAMIC_SHARED_MEM_BYTES<T>();
 //   * every kernel except inverse_dynamics takes a global spill workspace sized
-//     GRIM_WORKSPACE_BYTES_PER_TIMESTEP * GRIM_WORKSPACE_SLOTS per timestep;
+//     GRID_WORKSPACE_BYTES_PER_TIMESTEP * GRID_WORKSPACE_SLOTS per timestep;
 //   * the dynamics kernels take a `T *d_f_ext` buffer, passed as nullptr here.
 //
 // Batch mapping: the batch dimension B is the kernels' NUM_TIMESTEPS. Inputs arrive as
@@ -22,7 +22,7 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "grim.cuh"
+#include "grid.cuh"
 
 #include "xla/ffi/api/ffi.h"
 
@@ -32,7 +32,7 @@ namespace {
 
 using T = float;
 
-constexpr int kNq = grim::NUM_JOINTS;
+constexpr int kNq = grid::NUM_JOINTS;
 
 // ---------------------------------------------------------------------------
 // Per-device robot model cache (mirrors the FK kernel's ModelCache pattern).
@@ -44,34 +44,34 @@ void AllowSmem(Kernel kernel, size_t bytes) {
     cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)bytes);
 }
 
-grim::robotModel<T>* GetRobotModel() {
+grid::robotModel<T>* GetRobotModel() {
   static std::mutex mu;
-  static std::unordered_map<int, grim::robotModel<T>*> models;
+  static std::unordered_map<int, grid::robotModel<T>*> models;
   int device = -1;
   cudaGetDevice(&device);
   std::lock_guard<std::mutex> lock(mu);
   auto it = models.find(device);
   if (it != models.end()) return it->second;
-  grim::robotModel<T>* model = grim::init_robotModel<T>();
+  grid::robotModel<T>* model = grid::init_robotModel<T>();
   // Allow the gradient kernels to exceed the default dynamic shared memory
-  // limit on large robots (replicates grim::init_grid's cudaFuncSetAttribute
+  // limit on large robots (replicates grid::init_grid's cudaFuncSetAttribute
   // calls for the kernel instantiations used here). The overload set is
   // disambiguated by taking the address through an exactly-typed pointer.
   void (*id_du_kern)(T*, unsigned char*, const T*, int, const T*, T*,
-                     const grim::robotModel<T>*, const T, const int) =
-      &grim::inverse_dynamics_gradient_kernel<T>;
+                     const grid::robotModel<T>*, const T, const int) =
+      &grid::inverse_dynamics_gradient_kernel<T>;
   void (*fd_du_kern)(T*, unsigned char*, const T*, int, T*,
-                     const grim::robotModel<T>*, const T, const int) =
-      &grim::forward_dynamics_gradient_kernel<T>;
+                     const grid::robotModel<T>*, const T, const int) =
+      &grid::forward_dynamics_gradient_kernel<T>;
   cudaFuncSetAttribute(id_du_kern, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                       grim::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+                       grid::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
   cudaFuncSetAttribute(fd_du_kern, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                       grim::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
+                       grid::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>());
   // A free-flyer's arenas can pass the default 48 KB too; opt every kernel in.
-  AllowSmem(&grim::forward_dynamics_kernel<T>,
-            grim::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>());
-  AllowSmem(&grim::minv_kernel<T>, grim::MINV_DYNAMIC_SHARED_MEM_BYTES<T>());
-  AllowSmem(&grim::crba_kernel<T>, grim::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>());
+  AllowSmem(&grid::forward_dynamics_kernel<T>,
+            grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>());
+  AllowSmem(&grid::minv_kernel<T>, grid::MINV_DYNAMIC_SHARED_MEM_BYTES<T>());
+  AllowSmem(&grid::crba_kernel<T>, grid::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>());
   models[device] = model;
   return model;
 }
@@ -104,7 +104,7 @@ inline dim3 LaunchDims(int batch) {
 }
 
 inline dim3 ThreadDims() {
-  return dim3(static_cast<unsigned>(grim::MAX_PERF_LEVEL_THREADS), 1, 1);
+  return dim3(static_cast<unsigned>(grid::MAX_PERF_LEVEL_THREADS), 1, 1);
 }
 
 inline int PackBlocks(int total) { return (total + 255) / 256; }
@@ -150,7 +150,7 @@ struct ScratchBuffer {
 };
 
 // The global spill workspace every non-inverse_dynamics kernel now takes.
-// Sized exactly as grim::init_gridData does. It is scratch: the kernels only
+// Sized exactly as grid::init_gridData does. It is scratch: the kernels only
 // use it to spill what does not fit in the shared arena at the chosen resource
 // tier, so a stream-ordered per-call allocation is correct (and at TIER_SHARED
 // several kernels never touch it at all).
@@ -158,8 +158,8 @@ struct WorkspaceBuffer {
   unsigned char* ptr = nullptr;
   ffi::Error err = ffi::Error::Success();
   WorkspaceBuffer(ffi::ScratchAllocator& scratch, int64_t batch) {
-    const size_t bytes = grim::GRIM_WORKSPACE_BYTES_PER_TIMESTEP<T>() *
-                         GRIM_WORKSPACE_SLOTS * static_cast<size_t>(batch);
+    const size_t bytes = grid::GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() *
+                         GRID_WORKSPACE_SLOTS * static_cast<size_t>(batch);
     if (bytes == 0) return;
     auto p = scratch.Allocate(bytes, alignof(std::max_align_t));
     if (!p.has_value()) {
@@ -186,15 +186,15 @@ ffi::Error DynIdImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   const int64_t n = q.dimensions()[1];
   if (auto err = CheckDims(batch, n, q.element_count()); err.failure())
     return err;
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   ScratchBuffer q_qd(scratch, 2 * kNq * batch);
   if (q_qd.err.failure()) return q_qd.err;
   Pack2Kernel<<<PackBlocks(batch * kNq), 256, 0, stream>>>(
       q_qd.ptr, q.typed_data(), qd.typed_data(), kNq, batch);
-  grim::inverse_dynamics_kernel<T>
+  grid::inverse_dynamics_kernel<T>
       <<<LaunchDims(batch), ThreadDims(),
-         grim::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
+         grid::INVERSE_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
           c->typed_data(), q_qd.ptr, 2 * kNq, qdd.typed_data(),
           /*d_f_ext=*/nullptr, model, gravity, batch);
   return CudaCheck(cudaGetLastError(), "inverse_dynamics_kernel");
@@ -211,7 +211,7 @@ ffi::Error DynFdImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   const int64_t n = q.dimensions()[1];
   if (auto err = CheckDims(batch, n, q.element_count()); err.failure())
     return err;
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   ScratchBuffer q_qd_u(scratch, 3 * kNq * batch);
   if (q_qd_u.err.failure()) return q_qd_u.err;
@@ -219,9 +219,9 @@ ffi::Error DynFdImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
       q_qd_u.ptr, q.typed_data(), qd.typed_data(), u.typed_data(), kNq, batch);
   WorkspaceBuffer ws(scratch, batch);
   if (ws.err.failure()) return ws.err;
-  grim::forward_dynamics_kernel<T>
+  grid::forward_dynamics_kernel<T>
       <<<LaunchDims(batch), ThreadDims(),
-         grim::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
+         grid::FORWARD_DYNAMICS_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
           qdd->typed_data(), ws.ptr, q_qd_u.ptr, 3 * kNq, /*d_f_ext=*/nullptr,
           model, gravity, batch);
   return CudaCheck(cudaGetLastError(), "forward_dynamics_kernel");
@@ -235,13 +235,13 @@ ffi::Error DynMinvImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   const int64_t n = q.dimensions()[1];
   if (auto err = CheckDims(batch, n, q.element_count()); err.failure())
     return err;
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   WorkspaceBuffer ws(scratch, batch);
   if (ws.err.failure()) return ws.err;
-  grim::minv_kernel<T>
+  grid::minv_kernel<T>
       <<<LaunchDims(batch), ThreadDims(),
-         grim::MINV_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
+         grid::MINV_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
           minv->typed_data(), ws.ptr, q.typed_data(), kNq, model, batch);
   return CudaCheck(cudaGetLastError(), "minv_kernel");
 }
@@ -260,7 +260,7 @@ ffi::Error DynCrbaImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   const int64_t n = q.dimensions()[1];
   if (auto err = CheckDims(batch, n, q.element_count()); err.failure())
     return err;
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   ScratchBuffer qd_zero(scratch, kNq * batch);
   if (qd_zero.err.failure()) return qd_zero.err;
@@ -276,8 +276,8 @@ ffi::Error DynCrbaImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
 
   WorkspaceBuffer ws(scratch, batch);
   if (ws.err.failure()) return ws.err;
-  grim::crba_kernel<T><<<LaunchDims(batch), ThreadDims(),
-                        grim::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
+  grid::crba_kernel<T><<<LaunchDims(batch), ThreadDims(),
+                        grid::CRBA_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
       m->typed_data(), ws.ptr, q_qd.ptr, 2 * kNq, model, gravity, batch);
   return CudaCheck(cudaGetLastError(), "crba_kernel");
 }
@@ -294,7 +294,7 @@ ffi::Error DynIdGradImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   const int64_t n = q.dimensions()[1];
   if (auto err = CheckDims(batch, n, q.element_count()); err.failure())
     return err;
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   ScratchBuffer q_qd(scratch, 2 * kNq * batch);
   if (q_qd.err.failure()) return q_qd.err;
@@ -302,9 +302,9 @@ ffi::Error DynIdGradImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
       q_qd.ptr, q.typed_data(), qd.typed_data(), kNq, batch);
   WorkspaceBuffer ws(scratch, batch);
   if (ws.err.failure()) return ws.err;
-  grim::inverse_dynamics_gradient_kernel<T>
+  grid::inverse_dynamics_gradient_kernel<T>
       <<<LaunchDims(batch), ThreadDims(),
-         grim::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(),
+         grid::INVERSE_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(),
          stream>>>(dc_du->typed_data(), ws.ptr, q_qd.ptr, 2 * kNq,
                    qdd.typed_data(), /*d_f_ext=*/nullptr, model, gravity,
                    batch);
@@ -323,7 +323,7 @@ ffi::Error DynFdGradImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   const int64_t n = q.dimensions()[1];
   if (auto err = CheckDims(batch, n, q.element_count()); err.failure())
     return err;
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   ScratchBuffer q_qd_u(scratch, 3 * kNq * batch);
   if (q_qd_u.err.failure()) return q_qd_u.err;
@@ -331,9 +331,9 @@ ffi::Error DynFdGradImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
       q_qd_u.ptr, q.typed_data(), qd.typed_data(), u.typed_data(), kNq, batch);
   WorkspaceBuffer ws(scratch, batch);
   if (ws.err.failure()) return ws.err;
-  grim::forward_dynamics_gradient_kernel<T>
+  grid::forward_dynamics_gradient_kernel<T>
       <<<LaunchDims(batch), ThreadDims(),
-         grim::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(),
+         grid::FORWARD_DYNAMICS_GRADIENT_DYNAMIC_SHARED_MEM_BYTES<T>(),
          stream>>>(df_du->typed_data(), ws.ptr, q_qd_u.ptr, 3 * kNq,
                    /*d_f_ext=*/nullptr, model, gravity, batch);
   return CudaCheck(cudaGetLastError(), "forward_dynamics_gradient_kernel");
@@ -361,7 +361,7 @@ ffi::Error DynIdsvaSoImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
   return ffi::Error(ffi::ErrorCode::kUnimplemented,
                     "idsva_so: no body-frame second-order kernel for a floating base");
 #else
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
 
   ScratchBuffer q_qd_qdd(scratch, 3 * kNq * batch);
   if (q_qd_qdd.err.failure()) return q_qd_qdd.err;
@@ -370,9 +370,9 @@ ffi::Error DynIdsvaSoImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
       batch);
   WorkspaceBuffer ws(scratch, batch);
   if (ws.err.failure()) return ws.err;
-  grim::idsva_so_body_frame_kernel<T>
+  grid::idsva_so_body_frame_kernel<T>
       <<<LaunchDims(batch), ThreadDims(),
-         grim::IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
+         grid::IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES<T>(), stream>>>(
           out->typed_data(), ws.ptr, q_qd_qdd.ptr, 3 * kNq, model, gravity,
           batch);
   return CudaCheck(cudaGetLastError(), "idsva_so_body_frame_kernel");
@@ -387,12 +387,12 @@ ffi::Error DynIdsvaSoImpl(cudaStream_t stream, ffi::ScratchAllocator scratch,
 // These are NOT FFI handlers and are deliberately not stream-ordered:
 // set_inertia_params is a blocking host->device memcpy into device-resident *model* state,
 // which is not a traceable JAX value. Call it between launches, never under a trace.
-extern "C" int DynInertiaParamsSize() { return 10 * grim::NUM_JOINTS; }
+extern "C" int DynInertiaParamsSize() { return 10 * grid::NUM_JOINTS; }
 
 extern "C" void DynSetInertiaParams(const float* h_params) {
-  grim::robotModel<T>* model = GetRobotModel();
+  grid::robotModel<T>* model = GetRobotModel();
   cudaDeviceSynchronize();  // the table is read by any in-flight kernel launch
-  grim::set_inertia_params<T>(model, h_params);
+  grid::set_inertia_params<T>(model, h_params);
 }
 #endif  // GRIM_GEN_DYN_RUNTIME_INERTIA
 

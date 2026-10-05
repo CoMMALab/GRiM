@@ -20,7 +20,7 @@ from grim.motion.reference import kinematics as K
 
 pytestmark = pytest.mark.pinocchio_equivalence
 
-ASSETS = Path(__file__).resolve().parents[2] / "config" / "robot_assets"
+ASSETS = Path(__file__).resolve().parents[2] / "external" / "GRiD" / "config" / "robot_assets"
 ROBOTS = sorted(p.stem for p in ASSETS.glob("*.urdf"))
 
 

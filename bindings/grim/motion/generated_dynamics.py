@@ -1,9 +1,9 @@
 """Any-batch JAX FFI handlers for a robot's GRiM-generated dynamics (``kernels/dynamics/
 generated_dynamics.cu``).
 
-The caller supplies the generated ``grim.cuh`` (``grim_codegen.GRiMCodeGenerator`` output, so
+The caller supplies the generated ``grid.cuh`` (GRiD's ``grid_codegen.GRiDCodeGenerator`` output, so
 the joint order, signs and floating-base layout are whatever its parsed model says) and gets
-one FFI target per op. Unlike :mod:`grim.jax`'s handles, these take any batch size: the
+one FFI target per op. Unlike :mod:`grid_rbd.jax`'s handles, these take any batch size: the
 spill workspace comes from XLA's scratch allocator per call, and nothing is preallocated.
 
 Every target takes float32 ``(B, NUM_POS)`` buffers (velocity-like inputs zero-padded past
@@ -44,5 +44,5 @@ def build(header: str, *, floating_base: bool = False,
     """
     flags = (*(("-DGRIM_GEN_DYN_FLOATING_BASE",) if floating_base else ()),
              *(("-DGRIM_GEN_DYN_RUNTIME_INERTIA",) if runtime_inertia else ()))
-    so = _build.compile_kernel("dynamics/generated_dynamics", {"grim.cuh": header}, flags)
+    so = _build.compile_kernel("dynamics/generated_dynamics", {"grid.cuh": header}, flags)
     return dict(zip(SYMBOLS, _build.register(so, tuple(SYMBOLS.values())))), so

@@ -1,12 +1,7 @@
-[submodule "RBDReference"]
-	path = external/RBDReference
-	url = https://github.com/A2R-Lab/RBDReference.git
-[submodule "URDFParser"]
-	path = external/URDFParser
-	url = https://github.com/A2R-Lab/URDFParser.git
-[submodule "test/benchmarks/baselines/pinocchio/ReusableThreads"]
-	path = test/benchmarks/baselines/pinocchio/ReusableThreads
-	url = https://github.com/plancherb1/ReusableThreads
-[submodule "GLASS"]
-	path = external/GLASS
-	url = https://github.com/A2R-Lab/GLASS.git
+[submodule "external/GRiD"]
+	path = external/GRiD
+	url = https://github.com/A2R-Lab/GRiD.git
+[submodule "external/cricket"]
+	path = external/cricket
+	url = https://github.com/saiccoumar/cricket.git
+	branch = cuda_backend-v3

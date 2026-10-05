@@ -34,7 +34,7 @@ from .robot import MotionRobot
 
 KERNELS_DIR = Path(__file__).parent / "kernels"
 _REPO = Path(__file__).resolve().parents[3]
-GLASS_DIR = Path(os.environ.get("GRIM_GLASS_DIR", _REPO / "external" / "GLASS"))
+GLASS_DIR = Path(os.environ.get("GRIM_GLASS_DIR", _REPO / "external" / "GRiD" / "external" / "GLASS"))
 
 WORLD_KINDS = ("spheres", "capsules", "boxes", "halfspaces")
 # Row width of each world obstacle kind, as the kernels read it.
