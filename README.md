@@ -24,7 +24,7 @@ is no DOF ceiling.
 | `grim.motion.trajopt` | SCO, STOMP, CHOMP and least-squares trajectory optimization |
 | `grim.motion.collision` | fused FK + self / world-primitive / ESDF distances and their Jacobians |
 | `grim.motion.costs` | compiled least squares (dense, banded) and the C3+ contact solver numerics, for problem compilers such as pyroffi |
-| `grim.motion.dynamics` | cricket-traced dynamics (RNEA, CRBA, ABA, RNEA derivatives) at thread and warp-split tiers |
+| `grim.motion.dynamics` | cricket2-traced dynamics (RNEA, CRBA, ABA, RNEA derivatives) at thread and warp-split tiers |
 | `grim.motion.kinematics` | batched FK, pose residuals and Jacobians |
 
 Verification follows GRiD's two-surface rule: a float64 numpy oracle
@@ -41,14 +41,14 @@ determinism invariances. See [test/motion/TESTING.md](test/motion/TESTING.md).
 | `bindings/grim/motion/` | motion kernels (`kernels/*.cu`, GLASS-form thread / warp / block tiers), their per-robot builder `_build.py`, JAX launchers, and the float64 oracle in `reference/` |
 | `test/motion/` | the motion test suite; see [TESTING.md](test/motion/TESTING.md) |
 | `external/GRiD` | GRiD (submodule), which brings `GLASS`, `RBDReference`, `URDFParser` and the sample robots in `config/robot_assets/` |
-| `external/cricket` | cricket (submodule), the Pinocchio trace compiler behind `traced=True` and `grim.motion.dynamics` |
+| `external/cricket2` | cricket2, the trace compiler behind `traced=True` and `grim.motion.dynamics` |
 
 ## Install
 
 ```shell
 git clone --recursive https://github.com/commalab/GRiM.git   # or: git submodule update --init --recursive
-conda activate <env>                                          # cricket builds against conda-forge Pinocchio
-bash install/motion_install.sh                                # cricket + grim (editable) + jax[cuda13]
+conda activate <env>                                          # Pinocchio (conda-forge) is the tests' second oracle
+bash install/motion_install.sh                                # cricket2 + grim (editable) + jax[cuda13]
 python -m pytest test/motion -q
 ```
 

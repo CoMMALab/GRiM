@@ -11,10 +11,11 @@ optimization, fused collision, compiled least squares, C3+, traced dynamics). GR
 (`grid_codegen` → `grid.cuh`, `grid::` namespace) and brings the GLASS / RBDReference /
 URDFParser peers and the sample robots (`external/GRiD/config/robot_assets/`). Motion kernels use
 their own `grim::` namespace; only `kernels/dynamics/generated_dynamics.cu` calls GRiD's generated
-kernels. cricket (`external/cricket`) is the Pinocchio trace compiler behind `traced=True`.
+kernels. cricket2 (`external/cricket2`) is the trace compiler behind `traced=True` and
+`grim.motion.dynamics`.
 
-**Do not edit `external/`.** A change GRiM needs in GRiD goes upstream to A2R-Lab/GRiD (cricket:
-saiccoumar/cricket), then the submodule pointer is bumped and the motion suite re-run.
+**Do not edit `external/`.** A change GRiM needs in GRiD goes upstream to A2R-Lab/GRiD, then the
+submodule pointer is bumped and the motion suite re-run.
 
 ## Layout
 
@@ -22,14 +23,14 @@ saiccoumar/cricket), then the submodule pointer is bumped and the motion suite r
   installed (`GRIM_GRID_PATH` overrides the location).
 - `bindings/grim/motion/` — kernels (`kernels/*.cu`, hand-written, GLASS-form thread / warp /
   block tiers) built per robot by `_build.py` (robot tables baked as `__constant__`, optional
-  cricket traces), their JAX launchers, and the float64 oracle in `reference/`.
+  cricket2 traces), their JAX launchers, and the float64 oracle in `reference/`.
 - `test/motion/` — read `test/motion/TESTING.md` before touching a kernel.
-- `install/motion_install.sh` — conda-env install: cricket, GRiD and GRiM editable, jax[cuda13].
+- `install/motion_install.sh` — conda-env install: cricket2, GRiD and GRiM editable, jax[cuda13].
 
 ## Test
 
 ```bash
-python -m pytest test/motion -q                       # needs a GPU, nvcc, jax[cuda]; cricket for traced cases
+python -m pytest test/motion -q                       # needs a GPU, nvcc, jax[cuda]; cricket2 for traced cases
 python -m pytest test/motion -m pinocchio_equivalence  # oracle vs Pinocchio (CPU)
 ```
 

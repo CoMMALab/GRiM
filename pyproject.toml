@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# cricket traces (traced=True kinematics, grim.motion.dynamics): built from the
-# external/cricket submodule by install/motion_install.sh, not from PyPI.
+# cricket2 traces (traced=True kinematics, grim.motion.dynamics): installed from
+# external/cricket2 by install/motion_install.sh, not from PyPI.
 dev = [
     "pytest>=7.0",
 ]
