@@ -1,0 +1,1687 @@
+{
+  "environment": {
+    "gpu_info": {
+      "cuda_visible_devices": "1",
+      "devices": [
+        {
+          "compute_capability": "8.6",
+          "driver_version": "595.99.02",
+          "index": "0",
+          "memory": "24564 MiB",
+          "name": "NVIDIA RTX A5000",
+          "uuid": "GPU-011518c6-7bf8-137a-9909-63857565fb42"
+        },
+        {
+          "compute_capability": "8.6",
+          "driver_version": "595.99.02",
+          "index": "1",
+          "memory": "24564 MiB",
+          "name": "NVIDIA RTX A5000",
+          "uuid": "GPU-f87eab63-68e6-a21f-0343-753cf066d739"
+        },
+        {
+          "compute_capability": "8.6",
+          "driver_version": "595.99.02",
+          "index": "2",
+          "memory": "24564 MiB",
+          "name": "NVIDIA RTX A5000",
+          "uuid": "GPU-0067c2cf-7a05-b68b-c33a-edaf1b4d0dd6"
+        },
+        {
+          "compute_capability": "8.6",
+          "driver_version": "595.99.02",
+          "index": "3",
+          "memory": "24564 MiB",
+          "name": "NVIDIA RTX A5000",
+          "uuid": "GPU-d2a0d57a-1bab-a890-33d4-7838ab424605"
+        }
+      ],
+      "source": "nvidia-smi"
+    },
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "plugin_version": "0.4.1",
+    "pytest_version": "9.1.1",
+    "python_version": "3.11.15"
+  },
+  "fingerprint": {
+    "algorithm": "sha256-manifest-v2",
+    "digest": "6a49858f708ec6aa5385a2af95663c89b147572fe4cbe98d67630836642fef6e",
+    "excluded_paths": [
+      "gpu-proof.json",
+      "test/motion/TESTING.md"
+    ],
+    "extra_paths": [],
+    "file_count": 68,
+    "included_paths": [
+      "bindings/grim",
+      "external/GRiD",
+      "external/cricket2",
+      "pyproject.toml",
+      "test/gpu-proof-policy.yaml",
+      "test/motion"
+    ]
+  },
+  "mode": "local",
+  "repo": {
+    "branch": "grid-submodule",
+    "commit_sha": "f1a98d4548e1ddcbb1ed7cabcf782e2fd5c2cd4b",
+    "dirty": true,
+    "github_username": "saiccoumar",
+    "remote_url": "https://github.com/commalab/GRiM"
+  },
+  "schema_version": "3",
+  "session": {
+    "ended_at": "2026-10-17T17:45:07Z",
+    "node_ids": [
+      "test/motion/test_analytic_ik.py::test_analytic_ik_fr3",
+      "test/motion/test_analytic_ik.py::test_analytic_ik_rejects_other_families",
+      "test/motion/test_c3.py::test_projection_and_box",
+      "test/motion/test_c3.py::test_riccati_matches_dense_qp",
+      "test/motion/test_canonical_ik.py::test_canonical_ik_kkt[iiwa14]",
+      "test/motion/test_canonical_ik.py::test_canonical_ik_kkt[fr3]",
+      "test/motion/test_collision.py::test_self_and_world[fr3]",
+      "test/motion/test_collision.py::test_self_and_world[iiwa14]",
+      "test/motion/test_collision.py::test_self_and_world[g1]",
+      "test/motion/test_collision.py::test_jacobians[fr3]",
+      "test/motion/test_collision.py::test_jacobians[iiwa14]",
+      "test/motion/test_collision.py::test_esdf[fr3]",
+      "test/motion/test_collision.py::test_esdf[iiwa14]",
+      "test/motion/test_costs.py::test_dense_constrained_rosenbrock[float-thread]",
+      "test/motion/test_costs.py::test_dense_constrained_rosenbrock[float-warp]",
+      "test/motion/test_costs.py::test_dense_constrained_rosenbrock[float-block]",
+      "test/motion/test_costs.py::test_dense_constrained_rosenbrock[double-thread]",
+      "test/motion/test_costs.py::test_dense_constrained_rosenbrock[double-warp]",
+      "test/motion/test_costs.py::test_dense_constrained_rosenbrock[double-block]",
+      "test/motion/test_costs.py::test_banded_chain",
+      "test/motion/test_costs.py::test_pointwise",
+      "test/motion/test_generated_dynamics.py::test_values_match_the_oracle",
+      "test/motion/test_generated_dynamics.py::test_gradients_match_oracle_differences",
+      "test/motion/test_generated_dynamics.py::test_deterministic",
+      "test/motion/test_generated_dynamics.py::test_runtime_inertia_table",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-ls]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-mppi]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-ls]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-mppi]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-ls]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-mppi]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-ls]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-mppi]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[fr3-0-ls]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[fr3-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[fr3-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[iiwa14-0-ls]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[iiwa14-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[iiwa14-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[baxter-1-ls]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[baxter-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[baxter-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[g1-1-ls]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[g1-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[g1-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[fr3-0-ls]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[fr3-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[fr3-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[iiwa14-0-ls]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[iiwa14-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[iiwa14-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[baxter-1-ls]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[baxter-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[baxter-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[g1-1-ls]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[g1-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[g1-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-ls]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-ls]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-ls]",
+      "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-mppi]",
+      "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-ls]",
+      "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-hjcd_coarse]",
+      "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-mppi]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-ls]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-mppi]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-ls]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-sqp]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-hjcd]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-mppi]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-ls]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-sqp]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-hjcd]",
+      "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-mppi]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-all-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-all-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-chain-tables]",
+      "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-chain-traced]",
+      "test/motion/test_kinematics_equivalence.py::test_frame_poses_without_end_effectors[False]",
+      "test/motion/test_kinematics_equivalence.py::test_frame_poses_without_end_effectors[True]",
+      "test/motion/test_kinematics_equivalence.py::test_chain_only_solves_fewer_columns[fr3]",
+      "test/motion/test_kinematics_equivalence.py::test_chain_only_solves_fewer_columns[iiwa14]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[0-fr3-0]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[0-iiwa14-0]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[0-baxter-1]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[0-g1-1]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[1-fr3-0]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[1-iiwa14-0]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[1-baxter-1]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[1-g1-1]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[2-fr3-0]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[2-iiwa14-0]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[2-baxter-1]",
+      "test/motion/test_ls_ik.py::test_iterations_match_reference[2-g1-1]",
+      "test/motion/test_region_ik.py::test_brownian[fr3]",
+      "test/motion/test_region_ik.py::test_brownian[iiwa14]",
+      "test/motion/test_region_ik.py::test_hit_and_run[fr3]",
+      "test/motion/test_region_ik.py::test_hit_and_run[iiwa14]",
+      "test/motion/test_region_ik.py::test_svgd[fr3]",
+      "test/motion/test_region_ik.py::test_svgd[iiwa14]",
+      "test/motion/test_runtime_rotation.py::test_kinematics_and_launch_ordering",
+      "test/motion/test_runtime_rotation.py::test_ls_ik_solves_the_rotated_problem",
+      "test/motion/test_runtime_rotation.py::test_trajopt_zero_iteration_cost_uses_the_rotation",
+      "test/motion/test_runtime_rotation.py::test_traced_build_refuses_a_runtime_rotation",
+      "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[iiwa14-thread]",
+      "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[iiwa14-block]",
+      "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[rizon4-thread]",
+      "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[rizon4-block]",
+      "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[fr3-thread]",
+      "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[fr3-block]",
+      "test/motion/test_traced_dynamics.py::test_continuous_joints_are_refused",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-sco]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-stomp]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-chomp]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-ls]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-sco]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-stomp]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-chomp]",
+      "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-ls]",
+      "test/motion/test_trajopt.py::test_solution[fr3-sco]",
+      "test/motion/test_trajopt.py::test_solution[fr3-stomp]",
+      "test/motion/test_trajopt.py::test_solution[fr3-chomp]",
+      "test/motion/test_trajopt.py::test_solution[fr3-ls]",
+      "test/motion/test_trajopt.py::test_solution[iiwa14-sco]",
+      "test/motion/test_trajopt.py::test_solution[iiwa14-stomp]",
+      "test/motion/test_trajopt.py::test_solution[iiwa14-chomp]",
+      "test/motion/test_trajopt.py::test_solution[iiwa14-ls]",
+      "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[sco]",
+      "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[stomp]",
+      "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[chomp]",
+      "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[ls]",
+      "test/motion/test_trajopt.py::test_deterministic[sco]",
+      "test/motion/test_trajopt.py::test_deterministic[stomp]",
+      "test/motion/test_trajopt.py::test_deterministic[chomp]",
+      "test/motion/test_trajopt.py::test_deterministic[ls]",
+      "test/motion/test_trajopt.py::test_batch_invariant[sco]",
+      "test/motion/test_trajopt.py::test_batch_invariant[chomp]",
+      "test/motion/test_trajopt.py::test_batch_invariant[ls]"
+    ],
+    "outcome": "failed",
+    "pytest_args": [
+      "test/motion",
+      "--gpu-proof-enable"
+    ],
+    "started_at": "2026-10-17T17:32:39Z"
+  },
+  "signature": {
+    "value": "YIEIlEYsBw4GQRn3nrB+lp8fvNm4siaainXCwJrLMdgJGOZNYT/7nwxC2xzG69loeijYu+IXhMYnR8/6g3dzCg=="
+  },
+  "signer": {
+    "algorithm": "ed25519",
+    "backend": "ssh-local",
+    "github_user": "saiccoumar",
+    "key_fingerprint": "SHA256:MnVkBgp6V/JBdTJipvh+Oy64JnDD2uYa58n8M7GBA2s"
+  },
+  "tests": [
+    {
+      "checks": [],
+      "duration_s": 7.121,
+      "node_id": "test/motion/test_analytic_ik.py::test_analytic_ik_fr3",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0028,
+      "node_id": "test/motion/test_analytic_ik.py::test_analytic_ik_rejects_other_families",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 10.9197,
+      "node_id": "test/motion/test_c3.py::test_projection_and_box",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0511,
+      "node_id": "test/motion/test_c3.py::test_riccati_matches_dense_qp",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.9014,
+      "node_id": "test/motion/test_canonical_ik.py::test_canonical_ik_kkt[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.8751,
+      "node_id": "test/motion/test_canonical_ik.py::test_canonical_ik_kkt[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.5181,
+      "node_id": "test/motion/test_collision.py::test_self_and_world[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.2957,
+      "node_id": "test/motion/test_collision.py::test_self_and_world[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.9306,
+      "node_id": "test/motion/test_collision.py::test_self_and_world[g1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.8824,
+      "node_id": "test/motion/test_collision.py::test_jacobians[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.4257,
+      "node_id": "test/motion/test_collision.py::test_jacobians[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.2272,
+      "node_id": "test/motion/test_collision.py::test_esdf[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.1937,
+      "node_id": "test/motion/test_collision.py::test_esdf[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.1932,
+      "node_id": "test/motion/test_costs.py::test_dense_constrained_rosenbrock[float-thread]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.1707,
+      "node_id": "test/motion/test_costs.py::test_dense_constrained_rosenbrock[float-warp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.2898,
+      "node_id": "test/motion/test_costs.py::test_dense_constrained_rosenbrock[float-block]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.1699,
+      "node_id": "test/motion/test_costs.py::test_dense_constrained_rosenbrock[double-thread]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.234,
+      "node_id": "test/motion/test_costs.py::test_dense_constrained_rosenbrock[double-warp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.3085,
+      "node_id": "test/motion/test_costs.py::test_dense_constrained_rosenbrock[double-block]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.1816,
+      "node_id": "test/motion/test_costs.py::test_banded_chain",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.1277,
+      "node_id": "test/motion/test_costs.py::test_pointwise",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.162,
+      "node_id": "test/motion/test_generated_dynamics.py::test_values_match_the_oracle",
+      "outcome": "failed",
+      "phase": "setup"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0002,
+      "node_id": "test/motion/test_generated_dynamics.py::test_gradients_match_oracle_differences",
+      "outcome": "failed",
+      "phase": "setup"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0001,
+      "node_id": "test/motion/test_generated_dynamics.py::test_deterministic",
+      "outcome": "failed",
+      "phase": "setup"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0001,
+      "node_id": "test/motion/test_generated_dynamics.py::test_runtime_inertia_table",
+      "outcome": "failed",
+      "phase": "setup"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.9133,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.6878,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.8306,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1272,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.1973,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[fr3-0-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.8846,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.6886,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 9.119,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.078,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.192,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[iiwa14-0-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.6076,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.9084,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.3131,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6151,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.3983,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[baxter-1-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 10.9199,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 12.4327,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 12.1472,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.5545,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.9917,
+      "node_id": "test/motion/test_ik_solvers.py::test_zero_iterations_return_seed_and_merit[g1-1-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1828,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[fr3-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2622,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[fr3-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1821,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[fr3-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1603,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[iiwa14-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2258,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[iiwa14-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1626,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[iiwa14-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1988,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[baxter-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2062,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[baxter-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2061,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[baxter-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2407,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[g1-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.5529,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[g1-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2458,
+      "node_id": "test/motion/test_ik_solvers.py::test_block_tier_is_thread_count_invariant[g1-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1231,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[fr3-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1286,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[fr3-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1319,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[fr3-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1114,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[iiwa14-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1145,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[iiwa14-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1197,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[iiwa14-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1427,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[baxter-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1429,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[baxter-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1501,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[baxter-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.139,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[g1-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1552,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[g1-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.149,
+      "node_id": "test/motion/test_ik_solvers.py::test_tiers_agree_to_roundoff[g1-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1427,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.198,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1365,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1045,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[fr3-0-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1181,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1427,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1145,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.093,
+      "node_id": "test/motion/test_ik_solvers.py::test_batch_position_invariance[iiwa14-0-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0636,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1087,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0653,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0459,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0856,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[fr3-0-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0433,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0672,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0442,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0328,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-hjcd_coarse]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0622,
+      "node_id": "test/motion/test_ik_solvers.py::test_deterministic[iiwa14-0-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6267,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.7296,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.627,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.595,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[fr3-0-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.3103,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.3645,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.326,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2941,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[iiwa14-0-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.4442,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.4098,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-sqp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.4774,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-hjcd]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.4939,
+      "node_id": "test/motion/test_ik_solvers.py::test_reachable_targets_are_solved[baxter-1-mppi]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 3.7322,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.287,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 3.7528,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.1639,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[baxter-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.9029,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6782,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.8898,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.7627,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fetch-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.6301,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.9575,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.6347,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.9526,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[fr3-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.6295,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.4089,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.4845,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.3477,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[g1-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2806,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.5143,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2579,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.4814,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[gen3-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.6588,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.1559,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.7019,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.1402,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[go2-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.2163,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 15.4469,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.1854,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 15.3862,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h1_2-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 22.083,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 36.8325,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 22.1419,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 36.2658,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[h2_plus-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6301,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.9879,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6189,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.0599,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[iiwa14-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2526,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-all-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.8192,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-all-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2375,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-chain-tables]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.8045,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_kinematics_match_reference[rizon4-chain-traced]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1187,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_frame_poses_without_end_effectors[False]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.774,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_frame_poses_without_end_effectors[True]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0014,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_chain_only_solves_fewer_columns[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0008,
+      "node_id": "test/motion/test_kinematics_equivalence.py::test_chain_only_solves_fewer_columns[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1082,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[0-fr3-0]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0573,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[0-iiwa14-0]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.5963,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[0-baxter-1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.5316,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[0-g1-1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6314,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[1-fr3-0]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.3028,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[1-iiwa14-0]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 3.8092,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[1-baxter-1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 3.5625,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[1-g1-1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.133,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[2-fr3-0]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.5183,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[2-iiwa14-0]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.4791,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[2-baxter-1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.5631,
+      "node_id": "test/motion/test_ls_ik.py::test_iterations_match_reference[2-g1-1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.2458,
+      "node_id": "test/motion/test_region_ik.py::test_brownian[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.8216,
+      "node_id": "test/motion/test_region_ik.py::test_brownian[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.8597,
+      "node_id": "test/motion/test_region_ik.py::test_hit_and_run[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.533,
+      "node_id": "test/motion/test_region_ik.py::test_hit_and_run[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.8917,
+      "node_id": "test/motion/test_region_ik.py::test_svgd[fr3]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.8618,
+      "node_id": "test/motion/test_region_ik.py::test_svgd[iiwa14]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.4055,
+      "node_id": "test/motion/test_runtime_rotation.py::test_kinematics_and_launch_ordering",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.787,
+      "node_id": "test/motion/test_runtime_rotation.py::test_ls_ik_solves_the_rotated_problem",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.1655,
+      "node_id": "test/motion/test_runtime_rotation.py::test_trajopt_zero_iteration_cost_uses_the_rotation",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.7584,
+      "node_id": "test/motion/test_runtime_rotation.py::test_traced_build_refuses_a_runtime_rotation",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.7106,
+      "node_id": "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[iiwa14-thread]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.1482,
+      "node_id": "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[iiwa14-block]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.014,
+      "node_id": "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[rizon4-thread]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.1333,
+      "node_id": "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[rizon4-block]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.1128,
+      "node_id": "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[fr3-thread]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.742,
+      "node_id": "test/motion/test_traced_dynamics.py::test_traced_dynamics_match_pinocchio[fr3-block]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.4332,
+      "node_id": "test/motion/test_traced_dynamics.py::test_continuous_joints_are_refused",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.4224,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.6807,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-stomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.3079,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.3018,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[fr3-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.9786,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.378,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-stomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.9791,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 6.9565,
+      "node_id": "test/motion/test_trajopt.py::test_zero_iterations_cost_matches_reference[iiwa14-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.3057,
+      "node_id": "test/motion/test_trajopt.py::test_solution[fr3-sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.23,
+      "node_id": "test/motion/test_trajopt.py::test_solution[fr3-stomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 3.3337,
+      "node_id": "test/motion/test_trajopt.py::test_solution[fr3-chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 5.5149,
+      "node_id": "test/motion/test_trajopt.py::test_solution[fr3-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.624,
+      "node_id": "test/motion/test_trajopt.py::test_solution[iiwa14-sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6063,
+      "node_id": "test/motion/test_trajopt.py::test_solution[iiwa14-stomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 1.9691,
+      "node_id": "test/motion/test_trajopt.py::test_solution[iiwa14-chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.1962,
+      "node_id": "test/motion/test_trajopt.py::test_solution[iiwa14-ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 9.5021,
+      "node_id": "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 7.46,
+      "node_id": "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[stomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 9.7266,
+      "node_id": "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.7076,
+      "node_id": "test/motion/test_trajopt.py::test_traced_zero_iterations_cost_matches_reference[ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2156,
+      "node_id": "test/motion/test_trajopt.py::test_deterministic[sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0805,
+      "node_id": "test/motion/test_trajopt.py::test_deterministic[stomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.249,
+      "node_id": "test/motion/test_trajopt.py::test_deterministic[chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.6276,
+      "node_id": "test/motion/test_trajopt.py::test_deterministic[ls]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2153,
+      "node_id": "test/motion/test_trajopt.py::test_batch_invariant[sco]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 4.2579,
+      "node_id": "test/motion/test_trajopt.py::test_batch_invariant[chomp]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 8.6267,
+      "node_id": "test/motion/test_trajopt.py::test_batch_invariant[ls]",
+      "outcome": "passed",
+      "phase": "call"
+    }
+  ]
+}
