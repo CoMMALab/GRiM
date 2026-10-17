@@ -27,6 +27,7 @@ dependencies = [
 # external/cricket2 by install/motion_install.sh, not from PyPI.
 dev = [
     "pytest>=7.0",
+    "pytest-gpu-proof>=0.4.1",
 ]
 
 [project.urls]
@@ -45,4 +46,21 @@ norecursedirs = ["*.egg", ".*", "build", "dist", "external", "scratchpad"]
 markers = [
     "pinocchio_equivalence: numpy oracle vs Pinocchio (CPU).",
     "cuda_equivalence: CUDA kernels vs the float64 oracle (needs a GPU).",
+    "gpu_proof: recorded in the signed pytest-gpu-proof receipt (auto-applied to cuda_equivalence by test/motion/conftest.py).",
 ]
+
+[tool.gpu_proof]
+# GPU tests run locally; the signed receipt (gpu-proof.json) is verified CPU-only in CI.
+#   python -m pytest test/motion --gpu-proof-enable
+#   gpu-proof verify --receipt gpu-proof.json --policy test/gpu-proof-policy.yaml
+mode = "local"
+output = "gpu-proof.json"
+github_username = "saiccoumar"
+required_marker = "gpu_proof"
+# external/cricket2 and external/GRiD are gitlinks: bumping either stales the receipt.
+fingerprint_paths = [
+    "bindings/grim", "external/cricket2", "external/GRiD", "pyproject.toml",
+    "test/motion", "test/gpu-proof-policy.yaml",
+]
+fingerprint_excluded_paths = ["gpu-proof.json", "test/motion/TESTING.md"]
+max_age_days = 30
