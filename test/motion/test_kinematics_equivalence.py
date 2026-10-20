@@ -3,7 +3,7 @@
 Every solver reads the robot through robot.cuh, so this is the primitive gate the solver
 tests build on: frame poses, pose residuals and geometric Jacobians, for one and several
 end-effectors, over all joints and over the end-effector chains alone, from the baked
-tables and (when cricket is installed) from the traced straight-line FK.
+tables and (when crocket is installed) from the traced straight-line FK.
 """
 
 from __future__ import annotations
@@ -13,13 +13,13 @@ import pytest
 
 from grim.motion.reference import kinematics as K
 
-from .conftest import (ROBOTS, assert_close_scaled, config_samples, cricket_available, ee_sets,
+from .conftest import (ROBOTS, assert_close_scaled, config_samples, crocket_available, ee_sets,
                        load_robot, requires_gpu)
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
 
 RTOL = 2e-5   # float32 kernels vs float64 oracle
-CONTINUOUS = {"fetch", "gen3"}   # cricket cannot trace continuous joints
+CONTINUOUS = {"fetch", "gen3"}   # crocket v1 does not trace continuous joints
 
 
 def _targets(robot, q, ees, rng):
@@ -34,7 +34,7 @@ def _targets(robot, q, ees, rng):
 
 
 @pytest.mark.parametrize("traced", [False, pytest.param(True, marks=pytest.mark.skipif(
-    not cricket_available(), reason="cricket not installed"))], ids=["tables", "traced"])
+    not crocket_available(), reason="crocket not installed"))], ids=["tables", "traced"])
 @pytest.mark.parametrize("chain_only", [False, True], ids=["all", "chain"])
 @pytest.mark.parametrize("name", ROBOTS)
 def test_kinematics_match_reference(name, chain_only, traced):
@@ -73,8 +73,8 @@ def test_kinematics_match_reference(name, chain_only, traced):
 def test_frame_poses_without_end_effectors(traced):
     """FK alone (no end-effector): pyroffi's use_cuda FK path. Once failed to compile
     (zero-sized residual arrays)."""
-    if traced and not cricket_available():
-        pytest.skip("cricket not installed")
+    if traced and not crocket_available():
+        pytest.skip("crocket not installed")
     robot = load_robot("iiwa14")
     q = config_samples(robot)
     from grim.motion.kinematics import kinematics

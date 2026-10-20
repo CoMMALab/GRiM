@@ -2,7 +2,7 @@
 
 How GRiM's motion kernels (IK, region IK, trajectory optimization, fused collision, compiled
 least squares, C3+, traced dynamics) are tested, and why. It applies GRiD's equivalence
-strategy (`test/TESTING_STRATEGY.md`) to iterative solvers. Read that first; this file covers
+strategy (`external/GRiD/test/TESTING_STRATEGY.md`) to iterative solvers. Read that first; this file covers
 what changes when a kernel is an optimizer rather than a closed-form algorithm.
 
 ## Two surfaces, three levels

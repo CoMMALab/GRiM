@@ -1,12 +1,13 @@
-"""Rigid-body dynamics from cricket traces, built per robot (``kernels/dynamics/
+"""Rigid-body dynamics from crocket traces, built per robot (``kernels/dynamics/
 traced_dynamics.cu``).
 
-cricket traces Pinocchio's algorithms for one robot into straight-line code; GRiM compiles
-each op at two tiers, complementing GRiM's own block-cooperative dynamics kernels:
+crocket traces RNEA, CRBA, ABA and the analytical RNEA derivatives for one robot into
+straight-line code with the robot's constants folded; GRiM compiles each op at two tiers,
+complementing GRiM's own block-cooperative dynamics kernels:
 
 * ``thread``: one configuration per thread (wins at large batch);
-* ``block``: the same trace scheduled by ``cricket.tiered`` (warp-split): 32 configurations
-  per block, the block's warps splitting each dataflow level.
+* ``block``: crocket's ``split`` tier: 32 configurations per block, the block's warps
+  splitting each stage of the kinematic tree.
 
 ======== ======================================= =================================
 op       computes                                 inputs -> output
@@ -18,14 +19,14 @@ fd_crba  forward dynamics as M qdd = tau - b      q, qd, tau -> qdd (GLASS Chole
 id_du    inverse-dynamics derivatives             q, qd, qdd -> [dtau/dq | dtau/dqd]
 ======== ======================================= =================================
 
-Arguments and results are float32 in the robot's actuated joint order. Large derivative
-traces can be miscompiled by ptxas at -O2/-O3 (CUDA 13.3, G1's id_du); every build is
-validated by the test suite, and ``ptxas_opt`` lowers ptxas' level for such robots.
+Arguments and results are float32 in the robot's actuated joint order. crocket splits
+functions over its statement budget into ``__noinline__`` stages, the guard against ptxas
+miscompiling very large straight-line traces; every build is still validated by the test
+suite, and ``ptxas_opt`` lowers ptxas' level if one ever needs it.
 """
 
 from __future__ import annotations
 
-import re
 import tempfile
 from pathlib import Path
 
@@ -39,15 +40,15 @@ from .robot import MotionRobot
 CONTRACT_VERSION = 2
 BLOCK_WARPS = 8
 _SMEM_LIMIT = 96 * 1024
-# op -> (cricket GenOptions flag, inputs per joint, outputs as a function of n)
+# op -> (crocket algorithm, inputs per joint, outputs as a function of n)
 _TRACED = {
-    "id": ("inverse_dynamics", 3, lambda n: n),
-    "crba": ("mass_matrix", 1, lambda n: n * n),
-    "fd": ("forward_dynamics", 3, lambda n: n),
-    "id_du": ("inverse_dynamics_derivatives", 3, lambda n: 2 * n * n),
+    "id": ("rnea", 3, lambda n: n),
+    "crba": ("crba", 1, lambda n: n * n),
+    "fd": ("aba", 3, lambda n: n),
+    "id_du": ("rnea_derivatives", 3, lambda n: 2 * n * n),
 }
 OPS = ("id", "crba", "fd", "fd_crba", "id_du")
-# cricket's ABA crashes on models with mimic joints and its derivative tracer refuses them;
+# ABA is not defined on mimic-coupled trees and Pinocchio's derivatives refuse mimic joints;
 # forward dynamics on such robots goes through CRBA + Cholesky (fd_crba).
 MIMIC_OPS = ("id", "crba", "fd_crba")
 
@@ -59,61 +60,56 @@ def _needed_traces(ops) -> set[str]:
     return need
 
 
-def _cricket_traces(robot: MotionRobot, ops) -> tuple[dict, list[str]]:
-    import cricket
+def _crocket_traces(robot: MotionRobot, ops):
+    import crocket
 
     with tempfile.TemporaryDirectory(prefix="grim_dynamics_") as tmp:
-        urdf, srdf = Path(tmp) / "robot.urdf", Path(tmp) / "robot.srdf"
+        urdf = Path(tmp) / "robot.urdf"
         urdf.write_text(_build.kinematic_urdf(robot.urdf_xml))
-        srdf.write_text(_build._EMPTY_SRDF)
-        # Name the end-effector: cricket's own pick of a distal link can crash.
-        ee = _build._child_link(robot, _build.deepest_actuated_joint(robot))
-        opts = cricket.GenOptions(urdf=urdf, srdf=srdf, end_effector=ee, language="cuda",
-                                  data={"name": "Robot"})
-        need = _needed_traces(ops)
-        for op, (flag, *_) in _TRACED.items():
-            setattr(opts, flag, op in need)
         try:
-            gen = cricket.generate_robot_source(opts)
-        except RuntimeError as exc:
+            model = crocket.Robot(urdf, name="robot")
+        except ValueError as exc:
             if "Unsupported joint type" in str(exc):
                 raise ValueError("traced dynamics supports revolute, prismatic and fixed joints "
                                  f"only (no continuous / planar / floating): {exc}") from exc
             raise
-    return gen.data, list(gen.data["joint_names"])
+    programs = {op: crocket.trace(model, _TRACED[op][0]) for op in _needed_traces(ops)}
+    return model, programs
 
 
-def _thread_fn(name: str, code: str) -> str:
-    n_v = max([int(v) for v in re.findall(r"\bv\[(\d+)\]", code)] + [0]) + 1
-    body = re.sub(r"\by\[(\d+)\]", r"y[\1 * ys]", code)
-    return (f"__device__ __forceinline__ void {name}_thread(const float* x, float* y, int ys)\n"
-            f"{{\n    float v[{n_v}];\n{body}\n}}\n")
+def _wrappers(op: str, alg: str, n: int) -> str:
+    """The contract's ``<op>_thread(x, y, ys)`` / ``<op>_block(rank, x, y, s, ys)`` over crocket's
+    thread and split tiers; ``x`` packs the inputs, the outputs are consecutive in ``y``."""
+    ins = ", ".join(f"x + {k * n}" for k in range(_TRACED[op][1]))
+    outs = "y, y + %d * ys" % (n * n) if op == "id_du" else "y"
+    return (f"__device__ __forceinline__ void {op}_thread(const float* x, float* y, int ys)\n"
+            f"{{\n    R::{alg}_thread<float>({ins}, {outs}, ys);\n}}\n"
+            f"__device__ __forceinline__ void {op}_block(int rank, const float* x, float* y, float* s, int ys)\n"
+            f"{{\n    (void)rank;  // the split tier ranks by warp itself\n"
+            f"    R::{alg}_split<float>({ins}, {outs}, s, ys);\n}}\n")
 
 
-def _block_fn(name: str, code: str) -> tuple[str, int]:
-    from cricket import tiered
+def contract_header(model, programs: dict, n: int, ops: tuple[str, ...]) -> str:
+    """Every op in ``ops`` at thread and block tier, in crocket's joint order."""
+    import crocket
 
-    sched = tiered.schedule(code, BLOCK_WARPS)
-    src = tiered.emit(sched, f"{name}_block", "warp", y_stride="ys")
-    return src.replace("float* s)", "float* s, int ys)", 1), tiered.smem_floats(sched, "warp")
-
-
-def contract_header(data: dict, n: int, ops: tuple[str, ...]) -> str:
-    """Every op in ``ops`` at thread and block tier, in cricket's joint order."""
-    out = ["#pragma once\n// GRiM traced dynamics, generated. Do not edit.\n",
+    variants = [crocket.Variant("thread"), crocket.Variant("split", BLOCK_WARPS)]
+    sections = [crocket.cuda.emit(programs[op], variants) for op in ("id", "crba", "fd", "id_du")
+                if op in programs]
+    out = ["// GRiM traced dynamics, generated. Do not edit.\n",
+           crocket.cuda.header(model, sections, name="robot"),
            '#include "glass.cuh"\n',
            f"namespace grim::traced {{\nconstexpr int contract_version = {CONTRACT_VERSION};\n"
            f"constexpr int n_q = {n};\n}}\n",
-           "namespace grim::traced::ops {\n"]
+           "namespace grim::traced::ops {\nnamespace R = crocket::robots::robot;\n"]
     scratch, entries = {}, []
     for op in ("id", "crba", "fd", "id_du"):
-        if op not in ops and not (op in ("id", "crba") and "fd_crba" in ops):
+        if op not in programs:
             continue
-        flag, per_joint, n_out = _TRACED[op]
-        code = data[f"{flag}_code"]
-        block, floats = _block_fn(op, code)
-        scratch[op] = floats
-        out += [_thread_fn(op, code), block]
+        alg, per_joint, n_out = _TRACED[op]
+        sc = crocket.schedule.build(programs[op], variants[1].units, variants[1].threshold)
+        scratch[op] = crocket.cuda.smem(sc, "split")
+        out.append(_wrappers(op, alg, n))
         if op in ops:
             entries.append((op, per_joint * n, n_out(n)))
     if "fd_crba" in ops:
@@ -138,7 +134,7 @@ __device__ __forceinline__ void fd_crba_thread(const float* x, float* y, int ys)
     fd_crba_solve(M, b);
     for (int i = 0; i < {n}; ++i) y[i * ys] = b[i];
 }}
-// Mass matrix and bias by the warp-split tier into per-lane scratch, then warp 0's lanes each
+// Mass matrix and bias by the split tier into per-lane scratch, then warp 0's lanes each
 // solve their own configuration.
 __device__ __forceinline__ void fd_crba_block(int rank, const float* x, float* y, float* s, int ys)
 {{
@@ -148,6 +144,7 @@ __device__ __forceinline__ void fd_crba_block(int rank, const float* x, float* y
     for (int i = 0; i < {n}; ++i) xb[{2 * n} + i] = 0.f;
     crba_block(rank, x, s + {m_off} + lane, s, 32);
     id_block(rank, xb, s + {b_off} + lane, s + {scratch["crba"]}, 32);
+    __syncthreads();  // M and b were written by every warp; crocket's tiers end without a barrier
     if (rank != 0) return;
     float M[{n * n}], b[{n}];
     for (int i = 0; i < {n * n}; ++i) M[i] = s[{m_off} + i * 32 + lane];
@@ -170,7 +167,7 @@ class TracedDynamics:
     """Dynamics of one robot at the thread and warp-split tiers.
 
     Methods take ``(B, n_q)`` arrays (actuated order) and ``tier`` ``"thread"`` or
-    ``"block"``. Gravity is cricket's (Pinocchio's) ``-9.81`` along world z.
+    ``"block"``. Gravity is Pinocchio's ``-9.81`` along world z.
     """
 
     def __init__(self, robot: MotionRobot, ops: tuple[str, ...] | None = None,
@@ -180,18 +177,19 @@ class TracedDynamics:
             ops = MIMIC_OPS if has_mimic else OPS
         if has_mimic and set(ops) - set(MIMIC_OPS):
             raise ValueError(f"ops {sorted(set(ops) - set(MIMIC_OPS))} are not supported for "
-                             "robots with mimic joints (cricket); use fd via_crba=True")
+                             "robots with mimic joints; use fd via_crba=True")
         self.actuated = list(robot.actuated_names)
         self.n_q = n = robot.n_act
-        data, names = _cricket_traces(robot, ops)
+        model, programs = _crocket_traces(robot, ops)
+        names = model.joint_names
         if sorted(names) != sorted(self.actuated):
-            raise ValueError(f"cricket joints {names} do not match actuated joints {self.actuated}")
+            raise ValueError(f"crocket joints {names} do not match actuated joints {self.actuated}")
         self._to_gen = np.array([self.actuated.index(nm) for nm in names])   # generator <- ours
         self._from_gen = np.argsort(self._to_gen)
         self.ops = ops
         flags = (f"-Xptxas=-O{ptxas_opt}",) if ptxas_opt is not None else ()
         so = _build.compile_kernel("dynamics/traced_dynamics",
-                                   {"traced_dynamics_gen.cuh": contract_header(data, n, ops)}, flags)
+                                   {"traced_dynamics_gen.cuh": contract_header(model, programs, n, ops)}, flags)
         symbols = tuple(f"Contract_{op}_{tier}" for op in ops for tier in ("thread", "block"))
         self._targets = dict(zip(((op, tier) for op in ops for tier in ("thread", "block")),
                                  _build.register(so, symbols)))

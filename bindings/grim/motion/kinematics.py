@@ -20,7 +20,7 @@ def kinematics(robot: MotionRobot, q, targets=None, ee_joints: tuple[int, ...] =
         targets: (B, n_ee, 7) target poses ``[qw, qx, qy, qz, x, y, z]`` (identity if None).
         ee_joints: joint frames whose residual/Jacobian to return.
         chain_only: Jacobian columns over the end-effector chains only (see ``Problem``).
-        traced: use cricket's straight-line FK instead of the baked tables.
+        traced: use crocket's straight-line FK instead of the baked tables.
         runtime_rot_joint, rot: that joint's parent rotation (wxyz) supplied per call.
 
     Returns:

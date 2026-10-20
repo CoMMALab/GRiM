@@ -8,7 +8,7 @@ structure. :func:`robot_header` writes everything that build depends on into
 * which actuated joints are solved and which ride along frozen from the seed;
 * the end-effector frames and their ancestor chains;
 * the collision tables (robot spheres, self-collision pairs) and the world obstacle counts;
-* optionally (``traced=True``) cricket's straight-line FK of the same robot.
+* optionally (``traced=True``) crocket's straight-line FK of the same robot.
 
 :func:`build` nvcc's a kernel source against that header into a shared library, cached on
 disk under a key over every input, and :func:`register` exposes its XLA FFI handlers to JAX.
@@ -34,7 +34,7 @@ from .robot import MotionRobot
 
 KERNELS_DIR = Path(__file__).parent / "kernels"
 _REPO = Path(__file__).resolve().parents[3]
-GLASS_DIR = Path(os.environ.get("GRIM_GLASS_DIR", _REPO / "external" / "GLASS"))
+GLASS_DIR = Path(os.environ.get("GRIM_GLASS_DIR", _REPO / "external" / "GRiD" / "external" / "GLASS"))
 
 WORLD_KINDS = ("spheres", "capsules", "boxes", "halfspaces")
 # Row width of each world obstacle kind, as the kernels read it.
@@ -188,11 +188,6 @@ def _traj_tables(robot: MotionRobot, tc: TrajCollision | None) -> str:
             + _constant("int", "kTrajPairI", pi) + _constant("int", "kTrajPairJ", pj))
 
 
-# Kinematics are all cricket is used for, so an empty SRDF keeps it from sampling
-# self-collisions it would otherwise guess without one.
-_EMPTY_SRDF = '<?xml version="1.0"?>\n<robot name="robot"></robot>\n'
-
-
 def kinematic_urdf(xml: str) -> str:
     """``xml`` without <visual>/<collision> geometry: tracing needs only the kinematic tree and
     inertias, and loading meshes would make it depend on files a URDF merely points to."""
@@ -201,42 +196,32 @@ def kinematic_urdf(xml: str) -> str:
 
 
 def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee: list[int]) -> str:
-    """cricket's straight-line FK, plus the maps between its joint order and ours."""
+    """crocket's straight-line FK, plus the maps between its joint order and ours."""
     try:
-        import cricket
+        import crocket
     except ImportError as exc:  # pragma: no cover - environment dependent
-        raise RuntimeError("traced=True needs cricket's Python extension "
-                           "(see install/motion_install.sh)") from exc
-    # cricket traces the Jacobian of ONE end-effector link, which must be named: its own
-    # choice of a distal link crashes on some URDFs. It also rejects some fixed-joint frames;
-    # then the build traces frame poses only (FRAMES_ONLY) and the end-effector residual and
-    # Jacobian come from those frames, so the traced EE is never a different frame than ours.
+        raise RuntimeError("traced=True needs crocket (see install/motion_install.sh)") from exc
+    # crocket traces the pose and Jacobian of ONE end-effector frame (any joint frame, fixed
+    # ones included); with several end-effectors the build traces frame poses only
+    # (FRAMES_ONLY) and each residual and Jacobian comes from those frames.
     target = int(ee[0]) if ee else deepest_actuated_joint(robot)
-    frames_only = False
     with tempfile.TemporaryDirectory(prefix="grim_traced_") as tmp:
-        urdf, srdf = Path(tmp) / "robot.urdf", Path(tmp) / "robot.srdf"
+        urdf = Path(tmp) / "robot.urdf"
         urdf.write_text(kinematic_urdf(robot.urdf_xml))
-        srdf.write_text(_EMPTY_SRDF)
-
-        def trace(ee_link):
-            return cricket.generate_robot_source(cricket.GenOptions(
-                urdf=urdf, srdf=srdf, end_effector=ee_link, language="cuda",
-                data={"name": "Robot", "trace_frames": list(robot.joint_names)}))
         try:
-            gen = trace(_child_link(robot, target))
-        except RuntimeError as exc:
+            model = crocket.Robot(urdf, name="robot")
+        except ValueError as exc:
             if "Unsupported joint type" in str(exc):
                 raise ValueError("traced builds support revolute, prismatic and fixed joints "
                                  f"only (no continuous / planar / floating): {exc}") from exc
-            if "Invalid EE name" not in str(exc):
-                raise
-            frames_only = True
-            gen = trace(_child_link(robot, deepest_actuated_joint(robot)))
-    names = list(gen.data["joint_names"])
+            raise
+    names = model.joint_names
     if sorted(names) != sorted(robot.actuated_names):
-        raise ValueError(f"cricket's joints {names} do not match the robot's actuated joints "
+        raise ValueError(f"crocket's joints {names} do not match the robot's actuated joints "
                          f"{list(robot.actuated_names)} (continuous/planar/floating joints are "
                          "not supported by the traced build)")
+    source = crocket.generate(model, {}, name="robot", kinematics={
+        "frames": list(robot.joint_names), "end_effector": robot.joint_names[target]})
     src = {a: f"cfg[{solved.index(a)}]" if a in solved else f"frz[{frozen.index(a)}]"
            for a in range(robot.n_act)}
     gather = "".join(f"    q[{i}] = {src[robot.actuated_names.index(n)]};\n"
@@ -246,10 +231,10 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
         f"Jt[{row * len(names) + i}];\n"
         for row in range(6) for i, n in enumerate(names)
         if robot.actuated_names.index(n) in solved)
-    return (f"{gen.source}\n#define GRIM_TRACED_KINEMATICS 1\n"
-            + ("#define GRIM_TRACED_FRAMES_ONLY 1\n" if frames_only or len(ee) > 1 else "")
+    return (f"{source}\n#define GRIM_TRACED_KINEMATICS 1\n"
+            + ("#define GRIM_TRACED_FRAMES_ONLY 1\n" if len(ee) > 1 else "")
             + "namespace grim::robot {\n"
-            "namespace traced = cricket::robots::robot;\n"
+            "namespace traced = crocket::robots::robot;\n"
             "static __device__ __forceinline__ void gather_q(const float* __restrict__ cfg,\n"
             "    const float* __restrict__ frz, float* __restrict__ q)\n"
             f"{{\n{gather}    (void)frz;\n}}\n"
@@ -262,13 +247,6 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
 def deepest_actuated_joint(robot: MotionRobot) -> int:
     return max((j for j in range(robot.n_joints) if robot.act_idx[j] != -1),
                key=lambda j: len(robot.chain(j)))
-
-
-def _child_link(robot: MotionRobot, joint: int) -> str:
-    for link, j in zip(robot.link_names, robot.link_parent_joint):
-        if j == joint:
-            return link
-    raise ValueError(f"joint {robot.joint_names[joint]!r} has no child link")
 
 
 def cache_root() -> Path:
@@ -335,6 +313,9 @@ def build(kernel: str, header: str, n_solve: int, n_frames: int, n_ee: int,
                     *extra_flags))
 
 
+LIBRARIES: dict = {}   # FFI target name -> its loaded library (for host-side setters)
+
+
 @lru_cache(maxsize=None)
 def register(so: Path, symbols: tuple[str, ...]) -> tuple[str, ...]:
     """Register each FFI handler in ``so`` as a CUDA custom-call target; returns the names."""
@@ -349,6 +330,7 @@ def register(so: Path, symbols: tuple[str, ...]) -> tuple[str, ...]:
         capsule = capsule_new(ctypes.cast(getattr(lib, symbol), ctypes.c_void_p),
                               b"xla._CUSTOM_CALL_TARGET", None)
         names.append(f"grim_{symbol}_{tag}")
+        LIBRARIES[names[-1]] = lib
         jax.ffi.register_ffi_target(names[-1], capsule, platform="CUDA")
     return tuple(names)
 
@@ -360,7 +342,7 @@ def target(kernel: str, symbols: tuple[str, ...], robot: MotionRobot, problem: P
     n_solve = len(solved_joints(robot, problem))
     if problem.runtime_rot_joint >= 0:
         if traced:
-            raise ValueError("a runtime parent rotation needs the baked tables: cricket's "
+            raise ValueError("a runtime parent rotation needs the baked tables: crocket's "
                              "traced FK folds every transform into constants")
         extra_flags = (*extra_flags, f"-DGRIM_RUNTIME_ROT_JOINT={problem.runtime_rot_joint}")
     so = build(kernel, header, n_solve, robot.n_joints, len(problem.ee_joints), extra_flags)

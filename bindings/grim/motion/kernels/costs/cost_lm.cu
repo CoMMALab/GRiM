@@ -71,12 +71,20 @@ using grim::Tier;
 constexpr Tier TIER = static_cast<Tier>(GRIM_COST_TIER);
 constexpr int NX = G::n_x;
 constexpr int NR = G::n_r;
+// Manifold variables (Lie groups): the state x has the ambient size n_q (e.g. 7 per SE3),
+// the Jacobian, step and normal equations live in the n_x-dimensional tangent space, and
+// G::retract(x, p, dx, xt) applies a step. Euclidean problems have n_q = n_x and xt = x + dx.
+#ifdef GRIM_COST_MANIFOLD
+constexpr int NQ = G::n_q;
+#else
+constexpr int NQ = NX;
+#endif
 constexpr int NS = G::scratch_size > 0 ? G::scratch_size : 1;
 
-// Per-problem state: x, xt, dx, g (NX each), H (NX*NX), r, rt, lam, w, s (NR each),
-// J (NR*NX). The generated code's scratch (NS per problem) lives in a global workspace: it
+// Per-problem state: x, xt (NQ each), dx, g (NX each), H (NX*NX), r, rt, lam, w, s (NR
+// each), J (NR*NX). The generated code's scratch (NS per problem) lives in a global workspace: it
 // can be far larger than shared memory, and one problem's slice stays in L1/L2.
-constexpr int SLOT_FLOATS = 4 * NX + NX * NX + 5 * NR + NR * NX;
+constexpr int SLOT_FLOATS = 2 * NQ + 2 * NX + NX * NX + 5 * NR + NR * NX;
 constexpr int SHARED_BUDGET = 48 * 1024;
 constexpr int slots_that_fit(int want)
 {
@@ -148,7 +156,7 @@ cost_lm_kernel(const io_t* __restrict__ x0, const io_t* __restrict__ params, int
 
 #if GRIM_COST_TIER == 0
     // Separate small arrays, indexed by constants after unrolling: registers, not local memory.
-    real x[NX], xt[NX], dx[NX], g[NX], H[NX * NX], r[NR], rt[NR], lam[NR], w[NR], s[NR];
+    real x[NQ], xt[NQ], dx[NX], g[NX], H[NX * NX], r[NR], rt[NR], lam[NR], w[NR], s[NR];
 #ifdef GRIM_COST_NORMAL_EQUATIONS
     real* J = nullptr;
 #else
@@ -161,8 +169,8 @@ cost_lm_kernel(const io_t* __restrict__ x0, const io_t* __restrict__ params, int
     __shared__ int sfail[SLOTS];
     int* s_fail = &sfail[slot];
     real* x = smem[slot];
-    real* xt = x + NX;
-    real* dx = xt + NX;
+    real* xt = x + NQ;
+    real* dx = xt + NQ;
     real* g = dx + NX;
     real* H = g + NX;
     real* r = H + NX * NX;
@@ -178,7 +186,7 @@ cost_lm_kernel(const io_t* __restrict__ x0, const io_t* __restrict__ params, int
 
     #pragma unroll
 
-    for (int j = rank; j < NX; j += size) x[j] = (real)x0[(size_t)b * NX + j];
+    for (int j = rank; j < NQ; j += size) x[j] = (real)x0[(size_t)b * NQ + j];
     #pragma unroll
     for (int i = rank; i < NR; i += size) lam[i] = real(0.0);
     sync();
@@ -296,12 +304,15 @@ cost_lm_kernel(const io_t* __restrict__ x0, const io_t* __restrict__ params, int
             sync();
             real step2 = real(0.0), x2 = real(0.0);
             #pragma unroll
-            for (int j = 0; j < NX; ++j) {
-                step2 += dx[j] * dx[j];
-                x2 += x[j] * x[j];
-            }
+            for (int j = 0; j < NX; ++j) step2 += dx[j] * dx[j];
+            #pragma unroll
+            for (int j = 0; j < NQ; ++j) x2 += x[j] * x[j];
+#ifdef GRIM_COST_MANIFOLD
+            if (rank == 0) G::retract(x, p, dx, xt);
+#else
             #pragma unroll
             for (int j = rank; j < NX; j += size) xt[j] = x[j] + dx[j];
+#endif
             sync();
             G::residual(xt, p, rt, scratch, rank, size);
             sync();
@@ -309,7 +320,7 @@ cost_lm_kernel(const io_t* __restrict__ x0, const io_t* __restrict__ params, int
             bool inner_done;
             if (ok && ft < f) {
                 #pragma unroll
-                for (int j = rank; j < NX; j += size) x[j] = xt[j];
+                for (int j = rank; j < NQ; j += size) x[j] = xt[j];
                 #pragma unroll
                 for (int i = rank; i < NR; i += size) r[i] = rt[i];
                 sync();
@@ -350,7 +361,7 @@ cost_lm_kernel(const io_t* __restrict__ x0, const io_t* __restrict__ params, int
 
     #pragma unroll
 
-    for (int j = rank; j < NX; j += size) x_out[(size_t)b * NX + j] = (io_t)x[j];
+    for (int j = rank; j < NQ; j += size) x_out[(size_t)b * NQ + j] = (io_t)x[j];
     if (rank == 0) {
         real cost = real(0.0), viol = real(0.0);
         #pragma unroll
@@ -400,9 +411,9 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     CostLmFfi, CostLmImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
-        .Arg<ffi::Buffer<GRIM_COST_IO_DT>>()   // x0      (B, n_x)
+        .Arg<ffi::Buffer<GRIM_COST_IO_DT>>()   // x0      (B, n_q)
         .Arg<ffi::Buffer<GRIM_COST_IO_DT>>()   // params  (B | 1, max(n_p, 1))
-        .Ret<ffi::Buffer<GRIM_COST_IO_DT>>()   // x       (B, n_x)
+        .Ret<ffi::Buffer<GRIM_COST_IO_DT>>()   // x       (B, n_q)
         .Ret<ffi::Buffer<GRIM_COST_IO_DT>>()   // cost    (B,)  sum of squared cost rows
         .Ret<ffi::Buffer<GRIM_COST_IO_DT>>()   // viol    (B,)  max constraint violation
         .Ret<ffi::Buffer<ffi::DataType::U8>>()    // workspace (B, scratch * sizeof(real)) bytes

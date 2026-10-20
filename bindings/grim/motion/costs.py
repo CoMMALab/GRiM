@@ -14,7 +14,10 @@ solvers. The header contracts:
     Optional variants, enabled by the header defining the macro: ``GRIM_COST_JVP``
     (``residual_jvp``, column-parallel tiers), ``GRIM_COST_NORMAL_EQUATIONS``
     (``normal_equations``, symbolic H/g), ``GRIM_COST_SPARSE_NE`` (``g_ptr``/``g_rows``,
-    ``h_ptr``/``h_rows``/``h_a``/``h_c``/``h_nnz``: the structural H pattern).
+    ``h_ptr``/``h_rows``/``h_a``/``h_c``/``h_nnz``: the structural H pattern),
+    ``GRIM_COST_MANIFOLD`` (Lie-group variables: ``n_q`` parameters stored per problem,
+    the solve in the ``n_x``-dimensional tangent space, and ``retract(x, p, t, xn)`` the
+    step; ``x0`` and ``x`` are then ``(B, n_q)``).
 
 ``cost_gen.cuh`` (banded, :func:`banded_solver`): cost GROUPS of identical instances over
     local variables -- ``stage_res(g, xl, pl, r)``, ``stage_jvp(g, xl, pl, t, r, jt)``,
@@ -57,8 +60,10 @@ def dense_solver(header: str, tier: str, real: str = "float", io: str = "float")
 @lru_cache(maxsize=None)
 def banded_solver(header: str, real: str = "double", io: str = "double",
                   profile: bool = False) -> tuple[str, int]:
-    """LM / augmented Lagrangian with a banded Cholesky, one block per problem
-    (``kernels/costs/cost_lm_banded.cu``) -> (FFI target, workspace bytes per problem)."""
+    """LM / augmented Lagrangian with a banded Cholesky (``kernels/costs/cost_lm_banded.cu``)
+    -> (FFI target, workspace bytes per problem). Host-driven iterations: the Jacobian,
+    assembly and trial residual spread over many blocks per problem, the factorization and
+    control run in one block per problem."""
     so = _build.compile_kernel("costs/cost_lm_banded", {"cost_gen.cuh": header},
                                (*_precision_flags(real, io),
                                 *(("-DGRIM_COST_PROFILE",) if profile else ())))

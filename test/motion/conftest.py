@@ -11,7 +11,7 @@ import pytest
 
 from grim.motion import MotionRobot
 
-ASSETS = Path(__file__).resolve().parents[2] / "config" / "robot_assets"
+ASSETS = Path(__file__).resolve().parents[2] / "external" / "GRiD" / "grid_assets" / "robots"
 ROBOTS = sorted(p.stem for p in ASSETS.glob("*.urdf"))
 
 
@@ -25,9 +25,9 @@ def gpu_available() -> bool:
         return False
 
 
-def cricket_available() -> bool:
+def crocket_available() -> bool:
     try:
-        import cricket  # noqa: F401
+        import crocket  # noqa: F401
         return True
     except ImportError:
         return False
@@ -82,3 +82,10 @@ def assert_close_scaled(actual, expected, rtol: float, what: str = ""):
 @pytest.fixture(scope="session", autouse=True)
 def _jax_gpu_memory():
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Record every CUDA equivalence test in the signed gpu-proof receipt (pyproject [tool.gpu_proof])."""
+    for item in items:
+        if item.get_closest_marker("cuda_equivalence"):
+            item.add_marker(pytest.mark.gpu_proof)

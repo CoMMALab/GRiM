@@ -1,23 +1,23 @@
-"""Traced dynamics (cricket) at the thread and warp-split tiers vs Pinocchio, float64.
+"""Traced dynamics (crocket) at the thread and warp-split tiers vs Pinocchio, float64.
 
 Principle 1 samples (zero, conservative, high velocity / acceleration) through
 grim.motion's config sampler; every op at both tiers; fd via ABA and via CRBA + Cholesky.
-Needs cricket's Python extension (skipped otherwise)."""
+Needs crocket (skipped otherwise)."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from .conftest import assert_close_scaled, config_samples, cricket_available, load_robot, requires_gpu
+from .conftest import assert_close_scaled, config_samples, crocket_available, load_robot, requires_gpu
 
 pin = pytest.importorskip("pinocchio")
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence,
-              pytest.mark.skipif(not cricket_available(), reason="cricket not installed")]
+              pytest.mark.skipif(not crocket_available(), reason="crocket not installed")]
 
 
 def _pin(robot):
-    # Mimic joints follow their source in both models (cricket traces with mimic=true).
+    # Mimic joints follow their source in both models.
     model = pin.buildModelFromXML(robot.urdf_xml, mimic=bool((robot.mimic_act_idx != -1).any()))
     idx_q = [model.idx_qs[model.getJointId(n)] for n in robot.actuated_names]
     idx_v = [model.idx_vs[model.getJointId(n)] for n in robot.actuated_names]

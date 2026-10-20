@@ -17,7 +17,7 @@ import pytest
 
 from grim.motion.reference import trajopt as ref
 
-from .conftest import assert_close_scaled, cricket_available, load_robot, requires_gpu
+from .conftest import assert_close_scaled, crocket_available, load_robot, requires_gpu
 from .traj_cases import obstacle_world, sphere_model, straight_lines
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
@@ -79,10 +79,10 @@ def test_solution(kind, name):
     assert np.all(want <= init * (1 + 1e-5) + 1e-6), f"{kind} {name}: cost increased {init} -> {want}"
 
 
-@pytest.mark.skipif(not cricket_available(), reason="cricket not installed")
+@pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
 @pytest.mark.parametrize("kind", OPTIMIZERS)
 def test_traced_zero_iterations_cost_matches_reference(kind):
-    """The cricket-traced build poses spheres from cricket's FK: same oracle cost."""
+    """The crocket-traced build poses spheres from crocket's FK: same oracle cost."""
     robot, x, start, goal, tc, world = _setup("iiwa14")
     t, c = _run(kind, robot, x, tc, world, start, goal, traced=True, **ZERO[kind])
     want = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])

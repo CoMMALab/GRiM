@@ -2,7 +2,7 @@
 
 A :class:`MotionRobot` is everything a per-robot build bakes in: the kinematic tables (one
 row per URDF joint, fixed joints included, so every link has a frame), the joint orders the
-caller uses, and the URDF itself for the optional cricket trace.
+caller uses, and the URDF itself for the optional crocket trace.
 
 Conventions (shared with pyroffi, so a pyroffi robot passes its own tables unchanged):
 
