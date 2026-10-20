@@ -55,7 +55,7 @@
     "included_paths": [
       "bindings/grim",
       "external/GRiD",
-      "external/cricket2",
+      "external/crocket",
       "pyproject.toml",
       "test/gpu-proof-policy.yaml",
       "test/motion"

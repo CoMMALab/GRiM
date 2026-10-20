@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# cricket2 traces (traced=True kinematics, grim.motion.dynamics): installed from
-# external/cricket2 by install/motion_install.sh, not from PyPI.
+# crocket traces (traced=True kinematics, grim.motion.dynamics): installed from
+# external/crocket by install/motion_install.sh, not from PyPI.
 dev = [
     "pytest>=7.0",
     "pytest-gpu-proof>=0.4.1",
@@ -57,9 +57,9 @@ mode = "local"
 output = "gpu-proof.json"
 github_username = "saiccoumar"
 required_marker = "gpu_proof"
-# external/cricket2 and external/GRiD are gitlinks: bumping either stales the receipt.
+# external/crocket and external/GRiD are gitlinks: bumping either stales the receipt.
 fingerprint_paths = [
-    "bindings/grim", "external/cricket2", "external/GRiD", "pyproject.toml",
+    "bindings/grim", "external/crocket", "external/GRiD", "pyproject.toml",
     "test/motion", "test/gpu-proof-policy.yaml",
 ]
 fingerprint_excluded_paths = ["gpu-proof.json", "test/motion/TESTING.md"]

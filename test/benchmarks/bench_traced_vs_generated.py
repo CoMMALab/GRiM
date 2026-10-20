@@ -1,4 +1,4 @@
-"""cricket2-traced dynamics (``grim.motion.dynamics``, thread and warp-split tiers) against
+"""crocket-traced dynamics (``grim.motion.dynamics``, thread and warp-split tiers) against
 GRiD's generated block-cooperative kernels (``grim.motion.generated_dynamics``).
 
 Both sides are JAX FFI calls on the same random float32 states, so call overhead matches;

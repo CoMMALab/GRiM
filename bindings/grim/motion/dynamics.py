@@ -1,12 +1,12 @@
-"""Rigid-body dynamics from cricket2 traces, built per robot (``kernels/dynamics/
+"""Rigid-body dynamics from crocket traces, built per robot (``kernels/dynamics/
 traced_dynamics.cu``).
 
-cricket2 traces RNEA, CRBA, ABA and the analytical RNEA derivatives for one robot into
+crocket traces RNEA, CRBA, ABA and the analytical RNEA derivatives for one robot into
 straight-line code with the robot's constants folded; GRiM compiles each op at two tiers,
 complementing GRiM's own block-cooperative dynamics kernels:
 
 * ``thread``: one configuration per thread (wins at large batch);
-* ``block``: cricket2's ``split`` tier: 32 configurations per block, the block's warps
+* ``block``: crocket's ``split`` tier: 32 configurations per block, the block's warps
   splitting each stage of the kinematic tree.
 
 ======== ======================================= =================================
@@ -19,7 +19,7 @@ fd_crba  forward dynamics as M qdd = tau - b      q, qd, tau -> qdd (GLASS Chole
 id_du    inverse-dynamics derivatives             q, qd, qdd -> [dtau/dq | dtau/dqd]
 ======== ======================================= =================================
 
-Arguments and results are float32 in the robot's actuated joint order. cricket2 splits
+Arguments and results are float32 in the robot's actuated joint order. crocket splits
 functions over its statement budget into ``__noinline__`` stages, the guard against ptxas
 miscompiling very large straight-line traces; every build is still validated by the test
 suite, and ``ptxas_opt`` lowers ptxas' level if one ever needs it.
@@ -40,7 +40,7 @@ from .robot import MotionRobot
 CONTRACT_VERSION = 2
 BLOCK_WARPS = 8
 _SMEM_LIMIT = 96 * 1024
-# op -> (cricket2 algorithm, inputs per joint, outputs as a function of n)
+# op -> (crocket algorithm, inputs per joint, outputs as a function of n)
 _TRACED = {
     "id": ("rnea", 3, lambda n: n),
     "crba": ("crba", 1, lambda n: n * n),
@@ -60,25 +60,25 @@ def _needed_traces(ops) -> set[str]:
     return need
 
 
-def _cricket2_traces(robot: MotionRobot, ops):
-    import cricket2
+def _crocket_traces(robot: MotionRobot, ops):
+    import crocket
 
     with tempfile.TemporaryDirectory(prefix="grim_dynamics_") as tmp:
         urdf = Path(tmp) / "robot.urdf"
         urdf.write_text(_build.kinematic_urdf(robot.urdf_xml))
         try:
-            model = cricket2.Robot(urdf, name="robot")
+            model = crocket.Robot(urdf, name="robot")
         except ValueError as exc:
             if "Unsupported joint type" in str(exc):
                 raise ValueError("traced dynamics supports revolute, prismatic and fixed joints "
                                  f"only (no continuous / planar / floating): {exc}") from exc
             raise
-    programs = {op: cricket2.trace(model, _TRACED[op][0]) for op in _needed_traces(ops)}
+    programs = {op: crocket.trace(model, _TRACED[op][0]) for op in _needed_traces(ops)}
     return model, programs
 
 
 def _wrappers(op: str, alg: str, n: int) -> str:
-    """The contract's ``<op>_thread(x, y, ys)`` / ``<op>_block(rank, x, y, s, ys)`` over cricket2's
+    """The contract's ``<op>_thread(x, y, ys)`` / ``<op>_block(rank, x, y, s, ys)`` over crocket's
     thread and split tiers; ``x`` packs the inputs, the outputs are consecutive in ``y``."""
     ins = ", ".join(f"x + {k * n}" for k in range(_TRACED[op][1]))
     outs = "y, y + %d * ys" % (n * n) if op == "id_du" else "y"
@@ -90,25 +90,25 @@ def _wrappers(op: str, alg: str, n: int) -> str:
 
 
 def contract_header(model, programs: dict, n: int, ops: tuple[str, ...]) -> str:
-    """Every op in ``ops`` at thread and block tier, in cricket2's joint order."""
-    import cricket2
+    """Every op in ``ops`` at thread and block tier, in crocket's joint order."""
+    import crocket
 
-    variants = [cricket2.Variant("thread"), cricket2.Variant("split", BLOCK_WARPS)]
-    sections = [cricket2.cuda.emit(programs[op], variants) for op in ("id", "crba", "fd", "id_du")
+    variants = [crocket.Variant("thread"), crocket.Variant("split", BLOCK_WARPS)]
+    sections = [crocket.cuda.emit(programs[op], variants) for op in ("id", "crba", "fd", "id_du")
                 if op in programs]
     out = ["// GRiM traced dynamics, generated. Do not edit.\n",
-           cricket2.cuda.header(model, sections, name="robot"),
+           crocket.cuda.header(model, sections, name="robot"),
            '#include "glass.cuh"\n',
            f"namespace grim::traced {{\nconstexpr int contract_version = {CONTRACT_VERSION};\n"
            f"constexpr int n_q = {n};\n}}\n",
-           "namespace grim::traced::ops {\nnamespace R = cricket2::robots::robot;\n"]
+           "namespace grim::traced::ops {\nnamespace R = crocket::robots::robot;\n"]
     scratch, entries = {}, []
     for op in ("id", "crba", "fd", "id_du"):
         if op not in programs:
             continue
         alg, per_joint, n_out = _TRACED[op]
-        sc = cricket2.schedule.build(programs[op], variants[1].units, variants[1].threshold)
-        scratch[op] = cricket2.cuda.smem(sc, "split")
+        sc = crocket.schedule.build(programs[op], variants[1].units, variants[1].threshold)
+        scratch[op] = crocket.cuda.smem(sc, "split")
         out.append(_wrappers(op, alg, n))
         if op in ops:
             entries.append((op, per_joint * n, n_out(n)))
@@ -144,7 +144,7 @@ __device__ __forceinline__ void fd_crba_block(int rank, const float* x, float* y
     for (int i = 0; i < {n}; ++i) xb[{2 * n} + i] = 0.f;
     crba_block(rank, x, s + {m_off} + lane, s, 32);
     id_block(rank, xb, s + {b_off} + lane, s + {scratch["crba"]}, 32);
-    __syncthreads();  // M and b were written by every warp; cricket2's tiers end without a barrier
+    __syncthreads();  // M and b were written by every warp; crocket's tiers end without a barrier
     if (rank != 0) return;
     float M[{n * n}], b[{n}];
     for (int i = 0; i < {n * n}; ++i) M[i] = s[{m_off} + i * 32 + lane];
@@ -180,10 +180,10 @@ class TracedDynamics:
                              "robots with mimic joints; use fd via_crba=True")
         self.actuated = list(robot.actuated_names)
         self.n_q = n = robot.n_act
-        model, programs = _cricket2_traces(robot, ops)
+        model, programs = _crocket_traces(robot, ops)
         names = model.joint_names
         if sorted(names) != sorted(self.actuated):
-            raise ValueError(f"cricket2 joints {names} do not match actuated joints {self.actuated}")
+            raise ValueError(f"crocket joints {names} do not match actuated joints {self.actuated}")
         self._to_gen = np.array([self.actuated.index(nm) for nm in names])   # generator <- ours
         self._from_gen = np.argsort(self._to_gen)
         self.ops = ops

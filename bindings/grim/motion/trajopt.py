@@ -3,7 +3,7 @@
 Every optimizer takes initial trajectories ``(B, T, n_q)``, joint limits, endpoints (``(n_q,)``
 shared or ``(B, n_q)`` per trajectory) and the world, and returns the optimized trajectories
 with a cost per trajectory. Collision uses a :class:`~grim.motion._build.TrajCollision` model.
-``traced=True`` builds against cricket2's straight-line FK instead of the baked tables.
+``traced=True`` builds against crocket's straight-line FK instead of the baked tables.
 ``runtime_rot_joint`` >= 0 takes that joint's parent rotation per call as ``rot`` (wxyz): the
 reference rotation of a floating base's chart.
 """

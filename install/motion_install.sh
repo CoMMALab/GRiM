@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GRiM install: GRiD (external/GRiD) and cricket2 (external/cricket2, pure Python), for traced
+# GRiM install: GRiD (external/GRiD) and crocket (external/crocket, pure Python), for traced
 # kinematics (grim.motion, traced=True) and traced dynamics (grim.motion.dynamics). Pinocchio
 # (conda-forge) is only the tests' second oracle, so run this inside a conda env
 # (e.g. `conda activate grim`), not the pip venv.
@@ -13,6 +13,6 @@ if [[ ! -f "${REPO_ROOT}/external/GRiD/grid_codegen/__init__.py" ]]; then
 fi
 
 conda install -c conda-forge --solver=libmamba -y pinocchio
-pip install -e "${REPO_ROOT}/external/cricket2"
+pip install -e "${REPO_ROOT}/external/crocket"
 pip install -e "${REPO_ROOT}/external/GRiD" -e "${REPO_ROOT}" "jax[cuda13]" pytest
 echo "Verify: python -m pytest test/motion -q"

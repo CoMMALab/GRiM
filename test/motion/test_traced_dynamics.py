@@ -1,19 +1,19 @@
-"""Traced dynamics (cricket2) at the thread and warp-split tiers vs Pinocchio, float64.
+"""Traced dynamics (crocket) at the thread and warp-split tiers vs Pinocchio, float64.
 
 Principle 1 samples (zero, conservative, high velocity / acceleration) through
 grim.motion's config sampler; every op at both tiers; fd via ABA and via CRBA + Cholesky.
-Needs cricket2 (skipped otherwise)."""
+Needs crocket (skipped otherwise)."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from .conftest import assert_close_scaled, config_samples, cricket2_available, load_robot, requires_gpu
+from .conftest import assert_close_scaled, config_samples, crocket_available, load_robot, requires_gpu
 
 pin = pytest.importorskip("pinocchio")
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence,
-              pytest.mark.skipif(not cricket2_available(), reason="cricket2 not installed")]
+              pytest.mark.skipif(not crocket_available(), reason="crocket not installed")]
 
 
 def _pin(robot):

@@ -5,6 +5,6 @@
 	path = external/cricket
 	url = https://github.com/saiccoumar/cricket.git
 	branch = cuda_backend-v3
-[submodule "external/cricket2"]
-	path = external/cricket2
+[submodule "external/crocket"]
+	path = external/crocket
 	url = https://github.com/saiccoumar/cricket2.git

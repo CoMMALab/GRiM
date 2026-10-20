@@ -25,9 +25,9 @@ def gpu_available() -> bool:
         return False
 
 
-def cricket2_available() -> bool:
+def crocket_available() -> bool:
     try:
-        import cricket2  # noqa: F401
+        import crocket  # noqa: F401
         return True
     except ImportError:
         return False
