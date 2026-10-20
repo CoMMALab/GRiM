@@ -1,56 +1,42 @@
 # GRiM
 
-A GPU-accelerated library for rigid-body **motion generation**: robot dynamics, kinematics and
-collisions with analytical derivatives and Hessians, plus inverse kinematics, trajectory
-optimization and compiled least-squares solvers built per robot.
+GRiM is a GPU library for robot motion generation. It solves inverse kinematics, optimizes
+trajectories, and checks collisions on CUDA, with analytical derivatives throughout.
 
-GRiM builds on [GRiD](https://github.com/A2R-Lab/GRiD), which it includes unmodified as the
-`external/GRiD` submodule: GRiD generates the per-robot rigid-body dynamics (`grid_codegen`,
-`grid.cuh`, the `grid_rbd` numpy/JAX/torch wrapper) and GRiM adds the motion layer
-(`grim.motion`, below), held to GRiD's verification standard. For dynamics, kinematics and
-their derivatives, use GRiD directly and read its README.
-
-## Motion generation (`grim.motion`)
-
-Every kernel is compiled for one robot (and one collision / problem structure) on first use and
-cached on disk; there is no runtime robot description, so loops are sized by the robot and there
-is no DOF ceiling.
-
-| module | kernels |
-|---|---|
-| `grim.motion.ik` | Levenberg-Marquardt, SQP with hard limits and collision constraints, HJCD (coordinate descent + LM), MPPI + L-BFGS, canonical (redundancy-resolved) IK; thread / warp / block tiers |
-| `grim.motion.analytic_ik` | closed-form IK for the Panda / FR3 family |
-| `grim.motion.region_ik` | Brownian, hit-and-run and SVGD sampling of end-effector regions |
-| `grim.motion.trajopt` | SCO, STOMP, CHOMP and least-squares trajectory optimization |
-| `grim.motion.collision` | fused FK + self / world-primitive / ESDF distances and their Jacobians |
-| `grim.motion.costs` | compiled least squares (dense, banded) and the C3+ contact solver numerics, for problem compilers such as pyroffi |
-| `grim.motion.dynamics` | crocket-traced dynamics (RNEA, CRBA, ABA, RNEA derivatives) at thread and warp-split tiers |
-| `grim.motion.kinematics` | batched FK, pose residuals and Jacobians |
-
-Verification follows GRiD's two-surface rule: a float64 numpy oracle
-(`grim.motion.reference`, validated against Pinocchio) and the CUDA kernels validated against
-it at three levels (primitives, solver steps, certificates), with thread-count, tier, batch and
-determinism invariances. See [test/motion/TESTING.md](test/motion/TESTING.md).
+GRiM is built on [GRiD](https://github.com/A2R-Lab/GRiD), which generates robot-specific
+rigid-body dynamics kernels. GRiD is included unmodified as a submodule. If you only need
+dynamics, kinematics, or their derivatives, use GRiD directly.
 
 ![The GRiM package ecosystem: a user's URDF goes through URDFParser to the code generator (built on GLASS) and RBDReference, producing CUDA C++ with NumPy, JAX, and PyTorch wrappers; benchmarks and tests, backed by pytest-gpu-proof and external oracles, produce validated outputs and performance benchmarks.](docs/imgs/GRiM.png)
 
-## Layout
+## What's in it
 
-| path | what |
+Kernels are compiled for your robot the first time you use them, then cached on disk. Because
+each build is specialized to one robot, there is no limit on the number of joints.
+
+| module | what it does |
 |---|---|
-| `bindings/grim/motion/` | motion kernels (`kernels/*.cu`, GLASS-form thread / warp / block tiers), their per-robot builder `_build.py`, JAX launchers, and the float64 oracle in `reference/` |
-| `test/motion/` | the motion test suite; see [TESTING.md](test/motion/TESTING.md) |
-| `external/GRiD` | GRiD (submodule), which brings `GLASS`, `RBDReference`, `URDFParser` and the sample robots in `config/robot_assets/` |
-| `external/crocket` | crocket, the trace compiler behind `traced=True` and `grim.motion.dynamics` |
+| `grim.motion.ik` | Inverse kinematics: Levenberg-Marquardt, SQP with joint limits and collision constraints, coordinate descent, MPPI + L-BFGS, and redundancy-resolved IK |
+| `grim.motion.analytic_ik` | Closed-form IK for the Franka Panda and FR3 |
+| `grim.motion.region_ik` | Sampling joint configurations whose end effector lies in a target region |
+| `grim.motion.trajopt` | Trajectory optimization: SCO, STOMP, CHOMP, and least squares |
+| `grim.motion.collision` | Self- and world-collision distances and their Jacobians |
+| `grim.motion.costs` | Compiled least-squares solvers and contact (C3+) numerics, used by problem compilers such as pyroffi |
+| `grim.motion.dynamics` | Inverse and forward dynamics, mass matrix, and dynamics derivatives, compiled by [crocket](https://github.com/commalab/crocket) |
+| `grim.motion.kinematics` | Batched forward kinematics, pose errors, and Jacobians |
+
+Each kernel is tested against a float64 NumPy reference implementation, which is itself tested
+against [Pinocchio](https://github.com/stack-of-tasks/pinocchio). See
+[test/motion/TESTING.md](test/motion/TESTING.md).
 
 ## Install
 
+You need an NVIDIA GPU, the CUDA toolkit (`nvcc`), and a conda environment. Pinocchio from
+conda-forge is needed for some tests.
+
 ```shell
-git clone --recursive https://github.com/commalab/GRiM.git   # or: git submodule update --init --recursive
-conda activate <env>                                          # Pinocchio (conda-forge) is the tests' second oracle
-bash install/motion_install.sh                                # crocket + grim (editable) + jax[cuda13]
+git clone --recursive https://github.com/commalab/GRiM.git
+conda activate <env>
+bash install/motion_install.sh   # installs crocket, GRiM, and jax[cuda13]
 python -m pytest test/motion -q
 ```
-
-`import grim` puts the `external/GRiD` checkout on `sys.path` when GRiD is not installed
-(`GRIM_GRID_PATH` points it elsewhere), so a source checkout runs without installing GRiD.
