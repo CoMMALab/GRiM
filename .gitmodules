@@ -7,4 +7,4 @@
 	branch = cuda_backend-v3
 [submodule "external/crocket"]
 	path = external/crocket
-	url = https://github.com/saiccoumar/cricket2.git
+	url = https://github.com/CoMMALab/crocket.git

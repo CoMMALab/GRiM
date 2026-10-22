@@ -68,6 +68,7 @@ class CollisionModel:
 # kernel -> (source, FFI symbol, tiered, solves every joint)
 KERNELS = {
     "ls": ("ik/ls_ik", "LsIkFfi", True, False),
+    "dls": ("ik/dls_ik", "DlsIkFfi", False, False),
     "sqp": ("ik/sqp_ik", "SqpIkFfi", True, False),
     "hjcd_coarse": ("ik/hjcd_ik", "HjcdIkCoarseFfi", False, False),
     "hjcd_lm": ("ik/hjcd_ik", "HjcdIkLmFfi", True, False),
@@ -89,11 +90,12 @@ class Target:
     lower: tuple[float, ...]
     upper: tuple[float, ...]
     runtime_rot: bool = False       # takes a per-call parent rotation (see Problem)
+    fused_dls_ori_ratio: float | None = None   # dls: crocket's whole step traced (see Problem)
 
 
 def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = None,
             world_counts=(0, 0, 0, 0), chain_only: bool = True,
-            runtime_rot_joint: int = -1) -> _build.Problem:
+            runtime_rot_joint: int = -1, fused_dls_ori_ratio: float | None = None) -> _build.Problem:
     c = collision or CollisionModel()
     has_spheres = c.robot_spheres is not None and len(c.robot_spheres) > 0
     sc = c.self_collision
@@ -103,21 +105,24 @@ def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = No
         robot_sphere_joint=np.asarray(c.robot_sphere_joint, np.int32) if has_spheres else None,
         self_collision=sc if sc is not None and len(sc.pair_i) > 0 else None,
         world_counts=tuple(int(n) for n in world_counts), chain_only=chain_only,
-        runtime_rot_joint=int(runtime_rot_joint))
+        runtime_rot_joint=int(runtime_rot_joint), fused_dls_ori_ratio=fused_dls_ori_ratio)
 
 
 def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
           world_counts=(0, 0, 0, 0), chain_only: bool = True, traced: bool = False,
-          runtime_rot_joint: int = -1) -> Target:
+          runtime_rot_joint: int = -1, fused_dls_ori_ratio: float | None = None) -> Target:
     """Compile (or load) ``kernel`` for this robot and problem structure. With
-    ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call."""
+    ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call.
+    ``fused_dls_ori_ratio`` (``dls``, traced, one end-effector) traces crocket's whole step."""
     source, symbol, _, all_joints = KERNELS[kernel]
+    if fused_dls_ori_ratio is not None and (kernel != "dls" or not traced):
+        raise ValueError("fused_dls_ori_ratio needs kernel='dls' and traced=True")
     prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
-                   runtime_rot_joint)
+                   runtime_rot_joint, fused_dls_ori_ratio)
     (name,) = _build.target(source, (symbol,), robot, prob, traced)
     return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
-                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0)
+                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, fused_dls_ori_ratio)
 
 
 def run(target: Target, seeds, targets, *, world: World = World(), lower=None, upper=None,
@@ -127,6 +132,14 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
     functions); ``noise`` is hjcd_lm's stall-kick noise, ``rng_seed`` mppi's seed and ``rot``
     the wxyz parent rotation of a ``runtime_rot_joint`` build."""
     _, _, tiered, _ = KERNELS[target.kernel]
+    if target.fused_dls_ori_ratio is not None:
+        if lower is not None or upper is not None or fixed_mask is not None:
+            raise ValueError("a fused DLS build bakes the URDF limits and frees every joint: "
+                             "pass no lower / upper / fixed_mask, or build with traced=False")
+        ratio = settings["ori_weight"] / settings["pos_weight"]
+        if not np.isclose(ratio, target.fused_dls_ori_ratio, rtol=1e-6):
+            raise ValueError(f"this fused DLS build bakes ori_weight / pos_weight = "
+                             f"{target.fused_dls_ori_ratio}; the call has {ratio}")
     if world.counts() != target.world_counts:
         raise ValueError(f"world has obstacle counts {world.counts()}; the target was built "
                          f"for {target.world_counts}")
@@ -190,6 +203,30 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
                   max_iter=max_iter, pos_weight=pos_weight, ori_weight=ori_weight,
                   lambda_init=lambda_init, eps_pos=eps_pos, eps_ori=eps_ori,
                   collision_weight=collision_weight, collision_margin=collision_margin)
+
+
+def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=None,
+           fixed_mask=None, max_iter: int = 60, pos_weight: float = 50.0,
+           ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
+           eps_ori: float = 1e-3, traced: bool = False, chain_only: bool = True):
+    """Damped least squares, LM in its dual form (``kernels/ik/dls_ik.cu``) -> ``(q, err)``.
+
+    The step ``-J^T (J J^T + lam I)^-1 r`` is LS-IK's direction without column scaling, solved
+    as a 6 n_ee system in float32; plain LM accept/reject, no line search or trust radius. One
+    seed per thread, no collision. Faster than :func:`ls_ik` at a slightly lower solve rate.
+
+    ``traced=True`` with one end-effector and no ``lower`` / ``upper`` / ``fixed_mask`` runs
+    crocket's whole traced step (``ik_lm_step``: FK, Jacobian, solve and limit projection in
+    straight-line code; URDF limits and the weight ratio baked into the build). Otherwise
+    ``traced=True`` traces the kinematics only.
+    """
+    fused = traced and len(ee_joints) == 1 and lower is None and upper is None \
+        and fixed_mask is None
+    t = build("dls", robot, ee_joints, chain_only=chain_only, traced=traced,
+              fused_dls_ori_ratio=ori_weight / pos_weight if fused else None)
+    return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, max_iter=max_iter, pos_weight=pos_weight,
+                  ori_weight=ori_weight, lambda_init=lambda_init, eps_pos=eps_pos,
+                  eps_ori=eps_ori)
 
 
 def sqp_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=None,
