@@ -95,3 +95,37 @@ def ls_ik(robot: MotionRobot, seed, targets, ee_joints, cols, *, lower, upper, f
         if e_k < best_err:
             best_err, best_q = e_k, x_k.copy()
     return best_q, best_err
+
+
+def dls_ik(robot: MotionRobot, seed, targets, ee_joints, cols, *, lower, upper, fixed_mask,
+           max_iter, pos_weight, ori_weight, lambda_init, eps_pos, eps_ori):
+    """One seed of ``kernels/ik/dls_ik.cu``; returns (q, weighted squared error)."""
+    W = np.array([pos_weight] * 3 + [ori_weight] * 3, np.float64)
+    q = np.asarray(seed, np.float64).copy()
+    lo, hi = np.asarray(lower, np.float64)[cols], np.asarray(upper, np.float64)[cols]
+    free = np.asarray(fixed_mask)[cols] == 0
+    n_ee = len(ee_joints)
+    Wr = np.tile(W, n_ee)
+    r, J = stacked_residual_jacobian(robot, q, targets, ee_joints, cols)
+    err = float(np.sum((r * Wr) ** 2))
+    lam = lambda_init
+    for _ in range(max_iter):
+        r, J = stacked_residual_jacobian(robot, q, targets, ee_joints, cols)
+        if all(np.linalg.norm(r[6 * k:6 * k + 3]) < eps_pos and
+               np.linalg.norm(r[6 * k + 3:6 * k + 6]) < eps_ori for k in range(n_ee)):
+            break
+        Jw = J * Wr[:, None] * free
+        try:
+            L = np.linalg.cholesky(Jw @ Jw.T + lam * np.eye(len(r)))
+            z = np.linalg.solve(L.T, np.linalg.solve(L, r * Wr))
+        except np.linalg.LinAlgError:
+            z = np.zeros(len(r))
+        x = q.copy()
+        x[cols] = np.clip(q[cols] - Jw.T @ z, lo, hi)
+        e = float(np.sum((stacked_residual_jacobian(robot, x, targets, ee_joints, cols)[0] * Wr) ** 2))
+        if e < err:
+            q, err = x, e
+            lam = max(lam / 3.0, 1e-7)
+        else:
+            lam = min(lam * 4.0, 1e7)
+    return q, err

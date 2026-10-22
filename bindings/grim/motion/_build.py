@@ -89,6 +89,9 @@ class Problem:
     ``runtime_rot_joint`` >= 0 makes that joint's parent rotation a per-call input (the
     reference rotation of a floating base's chart) instead of a baked constant; the build then
     takes it as the first operand, a wxyz ``(4,)`` float32.
+    ``fused_dls_ori_ratio`` (traced, one end-effector) also traces crocket's whole DLS step
+    ``ik_lm_step`` at position weight 1 and this orientation weight, with the URDF's limits
+    baked in (``GRIM_FUSED_DLS``; see kernels/ik/dls_ik.cu).
     """
     ee_joints: tuple[int, ...] = ()
     robot_spheres: np.ndarray | None = None
@@ -98,6 +101,7 @@ class Problem:
     chain_only: bool = False
     traj_collision: TrajCollision | None = None
     runtime_rot_joint: int = -1
+    fused_dls_ori_ratio: float | None = None
 
 
 def _constant(ctype: str, name: str, values) -> str:
@@ -143,7 +147,7 @@ def robot_header(robot: MotionRobot, problem: Problem, traced: bool = False) -> 
 
     out = ["#pragma once\n"]
     if traced:
-        out.append(_traced_source(robot, solved, frozen, ee))
+        out.append(_traced_source(robot, solved, frozen, ee, problem.fused_dls_ori_ratio))
     out.append(
         "namespace grim::robot {\n"
         f"constexpr int n_frames = {robot.n_joints};\n"
@@ -195,8 +199,10 @@ def kinematic_urdf(xml: str) -> str:
     return re.sub(r"<(visual|collision)\b.*?</\1>|<(visual|collision)\b[^>]*/>", "", xml, flags=re.S)
 
 
-def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee: list[int]) -> str:
-    """crocket's straight-line FK, plus the maps between its joint order and ours."""
+def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee: list[int],
+                   fused_dls_ori_ratio: float | None = None) -> str:
+    """crocket's straight-line FK (and with ``fused_dls_ori_ratio`` its DLS step), plus the maps
+    between its joint order and ours."""
     try:
         import crocket
     except ImportError as exc:  # pragma: no cover - environment dependent
@@ -220,7 +226,14 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
         raise ValueError(f"crocket's joints {names} do not match the robot's actuated joints "
                          f"{list(robot.actuated_names)} (continuous/planar/floating joints are "
                          "not supported by the traced build)")
-    source = crocket.generate(model, {}, name="robot", kinematics={
+    algorithms = {}
+    if fused_dls_ori_ratio is not None:
+        if len(ee) != 1:
+            raise ValueError("the fused DLS step traces one end-effector frame")
+        algorithms["ik_lm_step"] = {"frame": robot.joint_names[ee[0]], "pos_weight": 1.0,
+                                    "ori_weight": float(fused_dls_ori_ratio)}
+    source = crocket.generate(model, algorithms, variants=[crocket.Variant("thread")], name="robot",
+                              kinematics={
         "frames": list(robot.joint_names), "end_effector": robot.joint_names[target]})
     src = {a: f"cfg[{solved.index(a)}]" if a in solved else f"frz[{frozen.index(a)}]"
            for a in range(robot.n_act)}
@@ -231,13 +244,19 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
         f"Jt[{row * len(names) + i}];\n"
         for row in range(6) for i, n in enumerate(names)
         if robot.actuated_names.index(n) in solved)
+    unscatter = "".join(f"    cfg[{solved.index(robot.actuated_names.index(n))}] = q[{i}];\n"
+                        for i, n in enumerate(names) if robot.actuated_names.index(n) in solved)
     return (f"{source}\n#define GRIM_TRACED_KINEMATICS 1\n"
             + ("#define GRIM_TRACED_FRAMES_ONLY 1\n" if len(ee) > 1 else "")
+            + ("#define GRIM_FUSED_DLS 1\n" if algorithms else "")
             + "namespace grim::robot {\n"
             "namespace traced = crocket::robots::robot;\n"
             "static __device__ __forceinline__ void gather_q(const float* __restrict__ cfg,\n"
             "    const float* __restrict__ frz, float* __restrict__ q)\n"
             f"{{\n{gather}    (void)frz;\n}}\n"
+            "static __device__ __forceinline__ void scatter_cfg(const float* __restrict__ q,\n"
+            "    float* __restrict__ cfg)\n"
+            f"{{\n{unscatter}}}\n"
             "static __device__ __forceinline__ void scatter_jacobian(const float* __restrict__ Jt,\n"
             "    float* __restrict__ J)\n"
             f"{{\n{scatter}}}\n"
