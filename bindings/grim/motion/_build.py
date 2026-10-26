@@ -355,10 +355,18 @@ def register(so: Path, symbols: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def target(kernel: str, symbols: tuple[str, ...], robot: MotionRobot, problem: Problem,
-           traced: bool = False, extra_flags: tuple[str, ...] = ()) -> tuple[str, ...]:
-    """Build (or load) ``kernel`` for ``robot``/``problem`` and return its FFI target names."""
+           traced: bool = False, extra_flags: tuple[str, ...] = (),
+           crocket_real: str | None = None) -> tuple[str, ...]:
+    """Build (or load) ``kernel`` for ``robot``/``problem`` and return its FFI target names.
+    ``crocket_real`` ("float" / "double") appends the crocket IK geometry (see _crocket_ik)."""
     header = robot_header(robot, problem, traced)
-    n_solve = len(solved_joints(robot, problem))
+    solved = solved_joints(robot, problem)
+    n_solve = len(solved)
+    if crocket_real is not None:
+        from . import _crocket_ik
+        header += _crocket_ik.source(robot, problem, solved,
+                                     [a for a in range(robot.n_act) if a not in solved])
+        extra_flags = (*extra_flags, f"-DGRIM_CK_REAL={crocket_real}")
     if problem.runtime_rot_joint >= 0:
         if traced:
             raise ValueError("a runtime parent rotation needs the baked tables: crocket's "

@@ -92,6 +92,7 @@ class Target:
     upper: tuple[float, ...]
     runtime_rot: bool = False       # takes a per-call parent rotation (see Problem)
     fused_dls_ori_ratio: float | None = None   # dls: crocket's whole step traced (see Problem)
+    backend: str = "grim"           # "grim" (kernels/ik) or "crocket-f32" / "crocket-f64" (kernels/ik_crocket)
 
 
 def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = None,
@@ -111,20 +112,34 @@ def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = No
 
 def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
           world_counts=(0, 0, 0, 0), chain_only: bool = True, traced: bool = False,
-          runtime_rot_joint: int = -1, fused_dls_ori_ratio: float | None = None) -> Target:
+          runtime_rot_joint: int = -1, fused_dls_ori_ratio: float | None = None,
+          backend: str = "grim") -> Target:
     """Compile (or load) ``kernel`` for this robot and problem structure. With
     ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call.
-    ``fused_dls_ori_ratio`` (``dls``, traced, one end-effector) traces crocket's whole step."""
+    ``fused_dls_ori_ratio`` (``dls``, traced, one end-effector) traces crocket's whole step.
+    ``backend="crocket-f32"`` / ``"crocket-f64"`` builds the same solver from
+    ``kernels/ik_crocket`` instead: crocket-traced geometry, float or double throughout, one
+    seed per thread (``tier`` is ignored); see :mod:`grim.motion._crocket_ik`."""
     source, symbol, _, all_joints = KERNELS[kernel]
     if fused_dls_ori_ratio is not None and (kernel != "dls" or not traced):
         raise ValueError("fused_dls_ori_ratio needs kernel='dls' and traced=True")
     prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
                    runtime_rot_joint, fused_dls_ori_ratio)
     flags = ("-DGRIM_SQP_QP_T=float",) if kernel == "sqp_f32" else ()
-    (name,) = _build.target(source, (symbol,), robot, prob, traced, flags)
+    if backend == "grim":
+        (name,) = _build.target(source, (symbol,), robot, prob, traced, flags)
+    elif backend in ("crocket-f32", "crocket-f64"):
+        if kernel == "sqp_f32" or traced or runtime_rot_joint >= 0 or fused_dls_ori_ratio is not None:
+            raise ValueError("a crocket build takes the plain kernel name, no traced=, "
+                             "runtime_rot_joint or fused_dls_ori_ratio")
+        (name,) = _build.target(source.replace("ik/", "ik_crocket/"), (symbol,), robot, prob,
+                                crocket_real="float" if backend == "crocket-f32" else "double")
+    else:
+        raise ValueError(f"unknown backend {backend!r}")
     return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
-                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, fused_dls_ori_ratio)
+                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, fused_dls_ori_ratio,
+                  backend)
 
 
 def run(target: Target, seeds, targets, *, world: World = World(), lower=None, upper=None,
@@ -164,7 +179,7 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
         after_limits.append(jnp.asarray([rng_seed], jnp.int32))
     attrs = {k: (np.int64(v) if isinstance(v, (bool, int, np.integer)) else np.float32(v))
              for k, v in settings.items()}
-    if tiered:
+    if tiered:   # a crocket build binds the same attributes and ignores them
         attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
     return jax.ffi.ffi_call(target.name, tuple(outs))(
         *_rot_operand(target, rot), seeds, *after_seeds, jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7),
