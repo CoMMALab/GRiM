@@ -93,14 +93,14 @@ __device__ __forceinline__ void geometry_value(const real* __restrict__ cfg, con
     tr::ik_geometry_value_thread<real>(q, sd.target, g.r, g.cw, g.cs, 1);
 }
 
-__device__ __forceinline__ real norm3(const real* v) { return sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); }
+__device__ __forceinline__ real nrm3(const real* v) { return sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); }
 __device__ __forceinline__ real clamp(real x, real lo, real hi) { return fmax(lo, fmin(hi, x)); }
 
 /** Every end-effector inside (eps_pos, eps_ori). */
 __device__ __forceinline__ bool converged(const real* r, real eps_pos, real eps_ori)
 {
     for (int e = 0; e < NE; ++e)
-        if (norm3(r + 6 * e) >= eps_pos || norm3(r + 6 * e + 3) >= eps_ori) return false;
+        if (nrm3(r + 6 * e) >= eps_pos || nrm3(r + 6 * e + 3) >= eps_ori) return false;
     return true;
 }
 
@@ -108,7 +108,7 @@ __device__ __forceinline__ bool converged(const real* r, real eps_pos, real eps_
 __device__ __forceinline__ real trust_radius(const real* r)
 {
     real mp = 0, mo = 0;
-    for (int e = 0; e < NE; ++e) { mp = fmax(mp, norm3(r + 6 * e)); mo = fmax(mo, norm3(r + 6 * e + 3)); }
+    for (int e = 0; e < NE; ++e) { mp = fmax(mp, nrm3(r + 6 * e)); mo = fmax(mo, nrm3(r + 6 * e + 3)); }
     if (mp > real(1e-2) || mo > real(0.6))  return real(0.38);
     if (mp > real(1e-3) || mo > real(0.25)) return real(0.22);
     if (mp > real(2e-4) || mo > real(0.08)) return real(0.12);
