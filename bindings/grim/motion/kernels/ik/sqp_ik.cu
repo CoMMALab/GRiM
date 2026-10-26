@@ -7,15 +7,16 @@
  *   - Jacobi column scaling in the QP matrices.
  *   - Box-constrained QP solved by Cholesky (unconstrained Newton step)
  *     then clamped to joint limits, followed by n_inner_iters active-set
- *     refinement steps that fix bound-hitting joints and re-solve.
+ *     refinement steps that fix bound-hitting joints and re-solve; with
+ *     collision rows, by ADMM (OSQP indirect form) instead.
  *   - 5-point line search (early exit on sufficient descent).
  *   - Trust-region step-size schedule.
  *   - All-time best-config tracking.
  *   - Multi-EE support: stacked residuals and Jacobians for all EEs.
  *
  * Algorithmic difference from LS-IK
- *   The LM unconstrained Cholesky solve is replaced by an inner projected
- *   gradient loop that enforces joint limits as hard constraints on the step.
+ *   The LM step is followed by active-set re-solves that enforce joint
+ *   limits as hard constraints on the step.
  *   This means the step p always satisfies lower <= q+p <= upper, rather
  *   than clamping q+p after the fact.
  *
@@ -24,8 +25,8 @@
  *
  * Numerical stability:
  *   - FK and Jacobian in float32.
- *   - Normal-equation matrix H and gradient g in float64.
- *   - Inner projected gradient loop in float32.
+ *   - Normal-equation matrix H and gradient g in float64 (float with GRIM_SQP_QP_T=float).
+ *   - Box projection and active-set masks in float32.
  */
 
 #include "robot.cuh"
@@ -47,8 +48,8 @@ namespace ffi = xla::ffi;
  * Multi-seed SQP-IK with multi-EE support.
  *
  * Each thread independently refines one seed for max_iter outer iterations.
- * Each outer iteration solves a box-constrained QP via n_inner_iters steps
- * of projected gradient descent, then applies a line search.
+ * Each outer iteration solves a box-constrained QP (Newton step plus
+ * n_inner_iters active-set re-solves), then applies a line search.
  *
  * @param seeds         (n_problems, n_seeds, n_act)   initial configurations
  * @param target_Ts     (n_problems, n_ee, 7)          target poses
@@ -59,7 +60,7 @@ namespace ffi = xla::ffi;
  * @param out_feasible  (n_problems, n_seeds) int32     1 if the returned config
  *                                                      satisfies the collision
  *                                                      constraint, else 0
- * @param n_inner_iters int                            projected-gradient steps
+ * @param n_inner_iters int                            active-set re-solves
  * @param pos_weight    scalar                         weight on position residual
  * @param ori_weight    scalar                         weight on orientation residual
  * @param lambda_init   scalar                         initial damping factor
@@ -107,6 +108,13 @@ namespace ffi = xla::ffi;
 #define GRIM_ADMM_ALPHA  1.6f
 
 #define GRIM_SQP_THREAD_TPB 32
+
+// Precision of the QP: H, g and the Cholesky / ADMM solves. Double by default; a build with
+// -DGRIM_SQP_QP_T=float (grim.motion.ik kernel "sqp_f32") runs the whole solver in float.
+#ifndef GRIM_SQP_QP_T
+#define GRIM_SQP_QP_T double
+#endif
+using qp_t = GRIM_SQP_QP_T;
 
 // Tiered: one seed per thread / warp / block. See _tier_kernel.cuh — every cooperative
 // loop is `for (i = rank; i < n; i += size)`, which collapses to the original
@@ -166,14 +174,14 @@ void sqp_ik_kernel(
     // cannot alias). Thread tier: local, so nvcc can promote it.
     constexpr int SLOTS  = GRIM_TIER_SLOTS(TIER, N);
     constexpr int SMEM_N = GRIM_TIER_SMEM_N(TIER, N);
-    __shared__ double sh_A   [SLOTS][SMEM_N * SMEM_N];
-    __shared__ double sh_rhs [SLOTS][SMEM_N];
+    __shared__ qp_t sh_A   [SLOTS][SMEM_N * SMEM_N];
+    __shared__ qp_t sh_rhs [SLOTS][SMEM_N];
     __shared__ int    sh_fail[SLOTS];
     const int slot = GRIM_TIER_SLOT(TIER);
-    double  A_local[(TIER == grim::Tier::Thread) ? N * N : 1];
-    double  rhs_local[(TIER == grim::Tier::Thread) ? N : 1];
-    double* A_g   = (TIER == grim::Tier::Thread) ? A_local   : sh_A[slot];
-    double* rhs_g = (TIER == grim::Tier::Thread) ? rhs_local : sh_rhs[slot];
+    qp_t  A_local[(TIER == grim::Tier::Thread) ? N * N : 1];
+    qp_t  rhs_local[(TIER == grim::Tier::Thread) ? N : 1];
+    qp_t* A_g   = (TIER == grim::Tier::Thread) ? A_local   : sh_A[slot];
+    qp_t* rhs_g = (TIER == grim::Tier::Thread) ? rhs_local : sh_rhs[slot];
 
     // ── Thread-private weight vector ─────────────────────────────────────
     float W[6];
@@ -392,8 +400,8 @@ void sqp_ik_kernel(
                 J[k*n_act+a] /= col_scale[a];
 
         // ── Form H_s = Js^T Js + λI and g_s = Js^T fw (float64) ───────
-        double H_s[MAX_ACT * MAX_ACT];
-        double g_s[MAX_ACT];
+        qp_t H_s[MAX_ACT * MAX_ACT];
+        qp_t g_s[MAX_ACT];
 
         // NOT group-parallel, deliberately. H_s/g_s are THREAD-LOCAL buffers that must
         // survive the destructive solves and be re-read by every active-set refinement
@@ -404,16 +412,16 @@ void sqp_ik_kernel(
         // Only the SOLVE is group-parallel here; its buffer is packed at stride N below.
         for (int i = 0; i < n_act; i++) {
             for (int j = 0; j < n_act; j++) {
-                double acc = 0.0;
+                qp_t acc = 0.0;
                 for (int k = 0; k < 6 * n_ee; k++)
-                    acc += (double)J[k*n_act+i] * (double)J[k*n_act+j];
+                    acc += (qp_t)J[k*n_act+i] * (qp_t)J[k*n_act+j];
                 H_s[i*n_act + j] = acc;
             }
-            double gb = 0.0;
+            qp_t gb = 0.0;
             for (int k = 0; k < 6 * n_ee; k++)
-                gb += (double)J[k*n_act+i] * (double)fw[k];
+                gb += (qp_t)J[k*n_act+i] * (qp_t)fw[k];
             g_s[i] = gb;
-            H_s[i*n_act + i] += (double)lam;
+            H_s[i*n_act + i] += (qp_t)lam;
         }
 
         // ── Collision constraints in the QP ─────────────────────────────
@@ -467,11 +475,11 @@ void sqp_ik_kernel(
                 // `gg` is now in the same scaled space as p_s, which is the space
                 // the hard-enforcement stage projects in.
                 record_constraint(gg, viol);
-                const double w = (double)collision_weight;
+                const qp_t w = (qp_t)collision_weight;
                 for (int i = 0; i < n_act; i++) {
                     for (int j = 0; j < n_act; j++)
-                        H_s[i*n_act + j] += w * (double)gg[i] * (double)gg[j];
-                    g_s[i] -= w * (double)viol * (double)gg[i];
+                        H_s[i*n_act + j] += w * (qp_t)gg[i] * (qp_t)gg[j];
+                    g_s[i] -= w * (qp_t)viol * (qp_t)gg[i];
                 }
             };
 
@@ -520,10 +528,10 @@ void sqp_ik_kernel(
             A_g[a*(int)N + a] = 1.0;
             rhs_g[a] = 0.0;
         }
-        grim::pad_tail_identity<double, N>(rank, size, n_act, A_g, rhs_g);
+        grim::pad_tail_identity<qp_t, N>(rank, size, n_act, A_g, rhs_g);
         group_sync();
 
-        grim::tier_posv<TIER, double, N>(A_g, rhs_g, &sh_fail[slot]);
+        grim::tier_posv<TIER, qp_t, N>(A_g, rhs_g, &sh_fail[slot]);
         group_sync();
 
         float p_s[MAX_ACT];
@@ -595,10 +603,10 @@ void sqp_ik_kernel(
             // `active` is identical on every lane of the group, so the mask each lane
             // applies agrees. Assembled at stride N for GLASS.
             for (int a = rank; a < n_act; a += size) {
-                double adj = 0.0;
+                qp_t adj = 0.0;
                 for (int b = 0; b < n_act; b++)
-                    adj += H_s[a*n_act+b] * (double)p_bounded[b];
-                rhs_g[a] = -(g_s[a] + adj) * (double)(1.0f - active[a]);
+                    adj += H_s[a*n_act+b] * (qp_t)p_bounded[b];
+                rhs_g[a] = -(g_s[a] + adj) * (qp_t)(1.0f - active[a]);
 
                 for (int b = 0; b < n_act; b++) {
                     A_g[a*(int)N + b] = (active[a] > 0.5f || active[b] > 0.5f)
@@ -606,10 +614,10 @@ void sqp_ik_kernel(
                 }
                 if (active[a] > 0.5f) A_g[a*(int)N + a] = 1.0;
             }
-            grim::pad_tail_identity<double, N>(rank, size, n_act, A_g, rhs_g);
+            grim::pad_tail_identity<qp_t, N>(rank, size, n_act, A_g, rhs_g);
             group_sync();
 
-            grim::tier_posv<TIER, double, N>(A_g, rhs_g, &sh_fail[slot]);
+            grim::tier_posv<TIER, qp_t, N>(A_g, rhs_g, &sh_fail[slot]);
             group_sync();
 
             for (int a = 0; a < n_act; a++) {
@@ -645,10 +653,10 @@ void sqp_ik_kernel(
 
             for (int idx = rank; idx < n_act * n_act; idx += size) {
                 const int i = idx / n_act, j = idx % n_act;
-                double m = H_s[i*n_act + j];
+                qp_t m = H_s[i*n_act + j];
                 for (int c = 0; c < n_coll; c++)
-                    m += (double)rho * (double)coll_A[c][i] * (double)coll_A[c][j];
-                if (i == j) m += (double)sigma + (double)rho;
+                    m += (qp_t)rho * (qp_t)coll_A[c][i] * (qp_t)coll_A[c][j];
+                if (i == j) m += (qp_t)sigma + (qp_t)rho;
                 A_g[i*(int)N + j] = m;
             }
             for (int a = rank; a < n_act; a += size) {
@@ -665,7 +673,7 @@ void sqp_ik_kernel(
             }
             group_sync();
 
-            const bool factored = grim::tier_potrf<TIER, double, N>(A_g, &sh_fail[slot]);
+            const bool factored = grim::tier_potrf<TIER, qp_t, N>(A_g, &sh_fail[slot]);
             group_sync();
 
             if (factored) {
@@ -687,17 +695,17 @@ void sqp_ik_kernel(
 
                 for (int it = 0; it < GRIM_ADMM_MAX_ITERS; it++) {
                     for (int a = rank; a < n_act; a += size) {
-                        double v = (double)sigma * (double)x[a] - g_s[a]
-                                 + ((double)rho * (double)zb[a] - (double)yb[a]);
+                        qp_t v = (qp_t)sigma * (qp_t)x[a] - g_s[a]
+                                 + ((qp_t)rho * (qp_t)zb[a] - (qp_t)yb[a]);
                         for (int c = 0; c < n_coll; c++)
-                            v += (double)coll_A[c][a]
-                               * ((double)rho * (double)zc[c] - (double)yc[c]);
+                            v += (qp_t)coll_A[c][a]
+                               * ((qp_t)rho * (qp_t)zc[c] - (qp_t)yc[c]);
                         rhs_g[a] = s_fixed_mask[a] ? 0.0 : v;
                     }
                     for (int a = rank + n_act; a < (int)N; a += size) rhs_g[a] = 0.0;
                     group_sync();
 
-                    grim::tier_potrs<TIER, double, N>(A_g, rhs_g);
+                    grim::tier_potrs<TIER, qp_t, N>(A_g, rhs_g);
                     group_sync();
 
                     for (int a = 0; a < n_act; a++) x[a] = (float)rhs_g[a];
@@ -740,12 +748,12 @@ void sqp_ik_kernel(
 
                         float r_dual = 0.0f, s_dual = 0.0f;
                         for (int a = 0; a < n_act; a++) {
-                            double hx = 0.0;
+                            qp_t hx = 0.0;
                             for (int b = 0; b < n_act; b++)
-                                hx += H_s[a*n_act + b] * (double)x[b];
-                            double aty = (double)yb[a];
+                                hx += H_s[a*n_act + b] * (qp_t)x[b];
+                            qp_t aty = (qp_t)yb[a];
                             for (int c = 0; c < n_coll; c++)
-                                aty += (double)coll_A[c][a] * (double)yc[c];
+                                aty += (qp_t)coll_A[c][a] * (qp_t)yc[c];
                             r_dual = fmaxf(r_dual, (float)fabs(hx + g_s[a] + aty));
                             s_dual = fmaxf(s_dual, (float)fmax(fabs(hx),
                                            fmax(fabs(g_s[a]), fabs(aty))));

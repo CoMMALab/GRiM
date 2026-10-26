@@ -70,6 +70,7 @@ KERNELS = {
     "ls": ("ik/ls_ik", "LsIkFfi", True, False),
     "dls": ("ik/dls_ik", "DlsIkFfi", False, False),
     "sqp": ("ik/sqp_ik", "SqpIkFfi", True, False),
+    "sqp_f32": ("ik/sqp_ik", "SqpIkFfi", True, False),   # the same solver, QP in float
     "hjcd_coarse": ("ik/hjcd_ik", "HjcdIkCoarseFfi", False, False),
     "hjcd_lm": ("ik/hjcd_ik", "HjcdIkLmFfi", True, False),
     # Off-chain joints still receive noise, so a chain-only build is not equivalent.
@@ -119,7 +120,8 @@ def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionMod
         raise ValueError("fused_dls_ori_ratio needs kernel='dls' and traced=True")
     prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
                    runtime_rot_joint, fused_dls_ori_ratio)
-    (name,) = _build.target(source, (symbol,), robot, prob, traced)
+    flags = ("-DGRIM_SQP_QP_T=float",) if kernel == "sqp_f32" else ()
+    (name,) = _build.target(source, (symbol,), robot, prob, traced, flags)
     return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
                   tuple(map(float, robot.upper)), runtime_rot_joint >= 0, fused_dls_ori_ratio)
@@ -153,7 +155,7 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
     outs = [jax.ShapeDtypeStruct((P, S, target.n_q), jnp.float32),
             jax.ShapeDtypeStruct((P, S), jnp.float32)]
     after_seeds, after_limits = [], []
-    if target.kernel == "sqp":
+    if target.kernel in ("sqp", "sqp_f32"):
         outs.append(jax.ShapeDtypeStruct((P, S), jnp.int32))
     elif target.kernel == "hjcd_lm":
         after_seeds.append(jnp.asarray(noise, jnp.float32))
@@ -235,11 +237,12 @@ def sqp_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
            eps_ori: float = 1e-3, collision_weight: float = 1e4,
            collision_margin: float = 0.02, tier: str = "thread", block_threads: int = 64,
-           traced: bool = False, chain_only: bool = True):
+           traced: bool = False, chain_only: bool = True, qp_float32: bool = False):
     """SQP with joint limits and collision as hard constraints (``kernels/ik/sqp_ik.cu``)
     -> ``(q, err, feasible)``; ``feasible`` is 1 where the returned configuration satisfies
-    the collision constraint (always 1 without collision)."""
-    return _solve("sqp", robot, seeds, targets, ee_joints, world=world, collision=collision,
+    the collision constraint (always 1 without collision). ``qp_float32`` builds the QP
+    (normal equations and solves) in float instead of double."""
+    return _solve("sqp_f32" if qp_float32 else "sqp", robot, seeds, targets, ee_joints, world=world, collision=collision,
                   chain_only=chain_only, traced=traced, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads,
                   max_iter=max_iter, n_inner_iters=n_inner_iters, pos_weight=pos_weight,

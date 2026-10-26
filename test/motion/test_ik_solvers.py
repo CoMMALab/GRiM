@@ -39,8 +39,8 @@ def _solve(kind, robot, ees, s, t, iters, **kw):
         out = ik.ls_ik(robot, s, t, ees, max_iter=iters, **W, **kw)
     elif kind in ("dls", "dls_traced"):
         out = ik.dls_ik(robot, s, t, ees, max_iter=iters, traced=kind == "dls_traced", **W, **kw)
-    elif kind == "sqp":
-        out = ik.sqp_ik(robot, s, t, ees, max_iter=iters, **W, **kw)
+    elif kind in ("sqp", "sqp_f32"):
+        out = ik.sqp_ik(robot, s, t, ees, max_iter=iters, qp_float32=kind == "sqp_f32", **W, **kw)
     elif kind == "hjcd":
         out = ik.hjcd_ik_lm(robot, s, t, ees, _hjcd_noise(s, iters), max_iter=iters, **kw)
     elif kind == "hjcd_coarse":
@@ -52,10 +52,10 @@ def _solve(kind, robot, ees, s, t, iters, **kw):
     return tuple(np.asarray(x) for x in out)
 
 
-SOLVERS = ["ls", "dls", "dls_traced", "sqp", "hjcd", "hjcd_coarse", "mppi"]
-TIERED = ["ls", "sqp", "hjcd"]                 # one seed per thread / warp / block
-SLOT_INVARIANT = ["ls", "dls", "dls_traced", "sqp", "hjcd", "hjcd_coarse"]   # mppi keys its noise on the slot
-WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
+SOLVERS = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse", "mppi"]
+TIERED = ["ls", "sqp", "sqp_f32", "hjcd"]                 # one seed per thread / warp / block
+SLOT_INVARIANT = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse"]   # mppi keys its noise on the slot
+WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "sqp_f32": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
 # Minimum solve rate on reachable targets (certificate test); coarse search is phase 1 only.
 # hjcd here is phase 2 alone (no coarse search): on the fr3 set pyroffi's original kernel
 # solved 92.5% and this port 87.5%, the gap being iteration chaos after ~10 steps (the two
@@ -64,7 +64,7 @@ WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "hjcd": Fa
 # fr3 miss has a joint at a limit, where the clamped step without a line search crawls; at 300
 # iterations dls solves fr3 97.5%. dls_traced (crocket's fused step on fr3 / iiwa14, traced
 # kinematics on baxter's multi-EE set) measures the same: 82.5 / 100 / 100.
-SOLVE_RATE = {"ls": 0.95, "dls": 0.8, "dls_traced": 0.8, "sqp": 0.95, "hjcd": 0.85, "mppi": 0.9}
+SOLVE_RATE = {"ls": 0.95, "dls": 0.8, "dls_traced": 0.8, "sqp": 0.95, "sqp_f32": 0.95, "hjcd": 0.85, "mppi": 0.9}
 
 
 def _case(name, which, n_problems=6, n_seeds=8):
