@@ -325,9 +325,10 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
 
 
 def build_canonical(robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
-                    world_counts=(0, 0, 0, 0), runtime_rot_joint: int = -1) -> Target:
+                    world_counts=(0, 0, 0, 0), runtime_rot_joint: int = -1,
+                    backend: str = "grim") -> Target:
     return build("canonical", robot, ee_joints, collision=collision, world_counts=world_counts,
-                 runtime_rot_joint=runtime_rot_joint)
+                 runtime_rot_joint=runtime_rot_joint, backend=backend)
 
 
 def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),

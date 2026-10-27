@@ -93,12 +93,27 @@ def _geometry_header(g: ArmGeometry) -> str:
             f"__device__ __constant__ double kArmGeom[{GEOM_N_SCALARS}] = {{{vals}}};\n}}\n")
 
 
-def build(robot: MotionRobot, ee_joint: int) -> str:
+def build(robot: MotionRobot, ee_joint: int, backend: str = "grim") -> str:
     """Compile (or load) the kernel for the chain ending at joint frame ``ee_joint`` -> FFI
-    target. The geometry is baked in, so it needs the concrete robot (outside jit)."""
+    target. The geometry is baked in, so it needs the concrete robot (outside jit).
+    ``backend="crocket-f32"`` / ``"crocket-f64"`` builds ``kernels/ik_crocket/analytic_ik.cu``:
+    the same solve and scoring with the closed form traced by crocket, geometry folded in."""
     g = arm_geometry(robot, ee_joint)
-    header = _build.robot_header(robot, _build.Problem(ee_joints=(int(ee_joint),)))
-    so = _build.build("ik/analytic_ik", header + _geometry_header(g), 1, robot.n_joints, 1)
+    header = _build.robot_header(robot, _build.Problem(ee_joints=(int(ee_joint),))) + _geometry_header(g)
+    if backend == "grim":
+        so = _build.build("ik/analytic_ik", header, 1, robot.n_joints, 1)
+    elif backend in ("crocket-f32", "crocket-f64"):
+        import crocket
+        from ._crocket_ik import _model
+        geom = tuple(float(x) for x in pack_geometry(g))
+        traced = crocket.generate(_model(robot), {"analytic_ik_candidates": {"geom": geom},
+                                                  "analytic_ik_chain": {"geom": geom}},
+                                  variants=[crocket.Variant("thread")], name="robot")
+        real = "float" if backend == "crocket-f32" else "double"
+        so = _build.build("ik_crocket/analytic_ik", header + traced, 1, robot.n_joints, 1,
+                          (f"-DGRIM_CK_REAL={real}",))
+    else:
+        raise ValueError(f"unknown backend {backend!r}")
     return _build.register(so, ("AnalyticIkFfi",))[0]
 
 
@@ -129,7 +144,7 @@ def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
 def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
                 previous_q=None, spheres_home=None, sphere_joint=None, self_pairs=None,
                 world=None, respect_limits: bool = True, err_tol: float = 1e-4,
-                margin: float = 0.005):
+                margin: float = 0.005, backend: str = "grim"):
     """Best branch per target -> ``(q (B, 7), err (B,), found (B,), clearance (B,))``.
 
     ``targets`` (B, 4, 4) end-effector poses. ``q7_samples`` (S,) redundancy values (default
@@ -143,6 +158,6 @@ def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
     if q7_samples is None:
         g = arm_geometry(robot, ee_joint)
         q7_samples = jnp.linspace(g.lower[6], g.upper[6], 32)
-    return run(build(robot, ee_joint), targets, q7_samples, previous_q,
+    return run(build(robot, ee_joint, backend), targets, q7_samples, previous_q,
                spheres_home=spheres_home, sphere_joint=sphere_joint, self_pairs=self_pairs,
                world=world, respect_limits=respect_limits, err_tol=err_tol, margin=margin)
