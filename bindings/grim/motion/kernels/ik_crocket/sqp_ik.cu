@@ -1,8 +1,9 @@
 /**
  * SQP-IK on crocket-traced geometry: the hand-written sqp_ik.cu (tag pre-crocket-ik) step for step, in `real` throughout.
  *
- * Each iteration builds the Jacobi-scaled QP (H = Js^T Js + lam I plus the Gauss-Newton
- * collision terms, g = Js^T W r), takes the Newton step clamped to the scaled joint box and
+ * Each iteration builds the QP (H = Jw^T Jw plus the Gauss-Newton collision terms, g = Jw^T W r),
+ * Jacobi-scales it as a whole (jacobi_scale; the hand-written kernel scaled by the pose Jacobian
+ * alone) and adds lam I, takes the Newton step clamped to the scaled joint box and
  * projected onto the linearised collision rows (POCS). Without collision rows, n_inner_iters
  * active-set re-solves hold bound joints and re-solve the rest; with them, the QP
  * min 1/2 p'Hp + g'p s.t. box and the (at most GRIM_MAX_COLL_CON most violated) rows is solved
@@ -68,37 +69,31 @@ __global__ void ck_sqp_ik_kernel(
         real fw[M];
         real curr_err = cw_weight * pen;
         for (int k = 0; k < M; ++k) { fw[k] = w.g.r[k] * ((k % 6) < 3 ? wp : wo); curr_err += fw[k] * fw[k]; }
-        real sc[NC];
-        for (int a = 0; a < NC; ++a) {
-            real s2 = 0;
-            for (int k = 0; k < M; ++k) { const real v = w.g.J[k * NC + a] * ((k % 6) < 3 ? wp : wo); s2 += v * v; }
-            sc[a] = sqrt(s2) + real(1e-8);
-        }
-        G.sync();   // every lane has read J for sc before rows are rescaled in place
+        G.sync();   // every lane is done with J before rows are weighted in place
         for (int k = G.rank; k < M; k += G.size) {
             const real wk = (k % 6) < 3 ? wp : wo;
-            for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wk / sc[a];
+            for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wk;
         }
         G.sync();
-        // H = Js^T Js + lam I and g = Js^T W r (w.x), a row per lane.
+        // H = Jw^T Jw and g = Jw^T W r (w.x), a row per lane; scaled once complete.
         for (int i = G.rank; i < NC; i += G.size) {
             real ji[M];
             for (int k = 0; k < M; ++k) ji[k] = w.g.J[k * NC + i];
             for (int j = 0; j < NC; ++j) {
                 real acc = 0;
                 for (int k = 0; k < M; ++k) acc += ji[k] * w.g.J[k * NC + j];
-                w.H[i * NC + j] = acc + (i == j ? lam : real(0));
+                w.H[i * NC + j] = acc;
             }
             real gb = 0;
             for (int k = 0; k < M; ++k) gb += ji[k] * fw[k];
             w.x[i] = gb;
         }
-        // Collision: Gauss-Newton terms into H / g, and the most violated rows (scaled space)
+        // Collision: Gauss-Newton terms into H / g, and the most violated rows (scaled below)
         // grad(d)' p >= margin - d kept, identically on every lane, for the hard stage.
         real coll_A[GRIM_MAX_COLL_CON][NC], coll_b[GRIM_MAX_COLL_CON];
         int n_coll = 0;
         if (want_coll)
-            collision_rounds(G, w, world, want_world, margin, sc, [&](int n) {
+            collision_rounds(G, w, world, want_world, margin, (const real*)nullptr, [&](int n) {
                 for (int s2 = 0; s2 < n; ++s2) {
                     const real viol = w.vbuf[s2];
                     if (!(viol > real(0))) continue;
@@ -120,6 +115,10 @@ __global__ void ck_sqp_ik_kernel(
                 gn_accumulate(G, w, n, w.H, NC, w.x, cw_weight, -cw_weight);
             });
         G.sync();
+        real sc[NC];
+        jacobi_scale(G, w.H, w.x, lam, sc);
+        for (int c = 0; c < n_coll; ++c)
+            for (int a = 0; a < NC; ++a) coll_A[c][a] /= sc[a];
         real gq[NC];
         for (int a = 0; a < NC; ++a) gq[a] = w.x[a];
 

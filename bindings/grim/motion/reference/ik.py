@@ -63,7 +63,8 @@ def ls_ik(robot: MotionRobot, seed, targets, ee_joints, cols, *, lower, upper, f
         fw = r * Wr
         J = J * Wr[:, None]
         curr = float(fw @ fw)
-        scale = np.sqrt((J ** 2).sum(0)) + 1e-8
+        d = (J ** 2).sum(0)
+        scale = np.sqrt(d + 1e-6 * d.max()) + 1e-8   # as the kernel's jacobi_scale
         Js = J / scale
         A = Js.T @ Js + lam * np.eye(len(cols))
         rhs = -Js.T @ fw

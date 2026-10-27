@@ -61,9 +61,7 @@ def _collision_step(robot, q, target, ees, coll, world, lam=5e-3, wp=50.0, wo=10
 
     r, J = stacked_residual_jacobian(robot, q, target, ees, cols)
     fw, J = r * Wr, J * Wr[:, None]
-    sc = np.sqrt((J ** 2).sum(0)) + 1e-8
-    Js = J / sc
-    A, b = Js.T @ Js + lam * np.eye(robot.n_act), -Js.T @ fw
+    A, b = J.T @ J, -J.T @ fw
     d0 = _distances(robot, q, coll, world)
     for c in np.flatnonzero(d0 < m):
         g = np.zeros(robot.n_act)
@@ -71,9 +69,10 @@ def _collision_step(robot, q, target, ees, coll, world, lam=5e-3, wp=50.0, wo=10
             e = np.zeros(robot.n_act)
             e[a] = 1e-6
             g[a] = (_distances(robot, q + e, coll, world)[c] - _distances(robot, q - e, coll, world)[c]) / 2e-6
-        g /= sc
         A += wc * np.outer(g, g)
         b += wc * (m - d0[c]) * g
+    sc = np.sqrt(np.diag(A) + 1e-6 * np.diag(A).max()) + 1e-8   # as the kernels' jacobi_scale
+    A, b = A / np.outer(sc, sc) + lam * np.eye(robot.n_act), b / sc
     cond = np.linalg.cond(A)
     delta = np.linalg.lstsq(A, b, rcond=None)[0] / sc
     R = trust_radius(r)
@@ -86,12 +85,10 @@ def _collision_step(robot, q, target, ees, coll, world, lam=5e-3, wp=50.0, wo=10
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("name,which", [("fr3", 0), ("iiwa14", 1)])
+@pytest.mark.parametrize("name,which", [("fr3", 0), ("iiwa14", 1), ("baxter", 1), ("g1", 1)])
 def test_collision_step_matches_reference(name, which, backend):
-    """A joint that moves collision spheres but no end-effector has column scale 1e-8, which
-    makes the step's system singular (its collision rows are scaled by 1e8): any
-    implementation's step is arbitrary there, the hand-written kernel's included. Those seeds are
-    excluded by the reference's condition number; the robots here have none."""
+    """baxter and g1 have joints that move collision spheres but no end-effector: scaling the
+    assembled system (collision terms included) keeps the step well conditioned on every seed."""
     from grim.motion.ik import ls_ik
     robot = load_robot(name)
     ees = ee_sets(robot)[which]
@@ -104,8 +101,8 @@ def test_collision_step_matches_reference(name, which, backend):
     for p in range(s.shape[0]):
         for k in range(s.shape[1]):
             q1, cond = _collision_step(robot, s[p, k].astype(np.float64), targets[p], ees, coll, world)
-            if cond < 1e7:
-                assert_close_scaled(q[p, k], q1, tol, f"{backend} {name} p={p} s={k}")
+            assert cond < 1e7, f"{name} p={p} s={k}: cond {cond:.1e}"
+            assert_close_scaled(q[p, k], q1, tol, f"{backend} {name} p={p} s={k}")
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

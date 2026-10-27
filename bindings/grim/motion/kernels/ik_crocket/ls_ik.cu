@@ -1,6 +1,7 @@
 /**
  * LS-IK on crocket-traced geometry: the hand-written ls_ik.cu (tag pre-crocket-ik)'s Levenberg-Marquardt, step for step
- * (weighted residual, Jacobi column scaling, Gauss-Newton collision rows, fixed joints, the
+ * (weighted residual, Gauss-Newton collision rows, Jacobi scaling of the assembled system
+ * (jacobi_scale: the hand-written kernel scaled by the pose Jacobian alone), fixed joints, the
  * trust-region radii, the five clamped trial steps, accept below curr * (1 - 1e-4), all-time
  * best tracking), in `real` throughout. One seed per thread, warp or block (`tier`); same FFI
  * signature as LsIkFfi.
@@ -53,37 +54,33 @@ __global__ void ck_ls_ik_kernel(
         real fw[M];
         real curr_err = cw_weight * pen;
         for (int k = 0; k < M; ++k) { fw[k] = w.g.r[k] * ((k % 6) < 3 ? wp : wo); curr_err += fw[k] * fw[k]; }
-        real sc[NC];
-        for (int a = 0; a < NC; ++a) {
-            real s2 = 0;
-            for (int k = 0; k < M; ++k) { const real v = w.g.J[k * NC + a] * ((k % 6) < 3 ? wp : wo); s2 += v * v; }
-            sc[a] = sqrt(s2) + real(1e-8);
-        }
-        G.sync();   // every lane has read J for sc before rows are rescaled in place
-        // Scaled, weighted Jacobian Js = W J / sc in place.
+        G.sync();   // every lane is done with J before rows are weighted in place
+        // Weighted Jacobian Jw = W J in place.
         for (int k = G.rank; k < M; k += G.size) {
             const real wk = (k % 6) < 3 ? wp : wo;
-            for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wk / sc[a];
+            for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wk;
         }
         G.sync();
-        // Rows of A = Js^T Js + lam I and b = -Js^T W r, a row per lane (all rows on one lane at
-        // the thread tier, column i held in registers across the row).
+        // Rows of A = Jw^T Jw and b = -Jw^T W r, a row per lane (all rows on one lane at the
+        // thread tier, column i held in registers across the row); scaled once complete.
         for (int i = G.rank; i < NC; i += G.size) {
             real ji[M];
             for (int k = 0; k < M; ++k) ji[k] = w.g.J[k * NC + i];
             for (int j = 0; j < NC; ++j) {
                 real acc = 0;
                 for (int k = 0; k < M; ++k) acc += ji[k] * w.g.J[k * NC + j];
-                w.A[i * NC + j] = acc + (i == j ? lam : real(0));
+                w.A[i * NC + j] = acc;
             }
             real rb = 0;
             for (int k = 0; k < M; ++k) rb += ji[k] * fw[k];
             w.b[i] = -rb;
         }
         if (want_coll)
-            collision_rounds(G, w, world, want_world, margin, sc,
+            collision_rounds(G, w, world, want_world, margin, (const real*)nullptr,
                              [&](int n) { gn_accumulate(G, w, n, w.A, NC, w.b, cw_weight, cw_weight); });
         G.sync();
+        real sc[NC];
+        jacobi_scale(G, w.A, w.b, lam, sc);
         for (int a = G.rank; a < NC; a += G.size) {
             if (!fixed[a]) continue;
             for (int j = 0; j < NC; ++j) w.A[a * NC + j] = w.A[j * NC + a] = 0;

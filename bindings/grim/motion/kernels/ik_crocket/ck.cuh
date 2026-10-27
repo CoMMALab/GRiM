@@ -724,6 +724,28 @@ __device__ __forceinline__ void gn_accumulate(const Grp<TIER>& G, W& w, int n, r
 }
 
 /**
+ * Jacobi-scale the assembled step system in place, at TIER: sc[a] = sqrt(A[a][a] + 1e-6 max A[b][b])
+ * over every term (pose and collision alike), A <- D^-1 A D^-1 + lam I and b <- D^-1 b. Scaling
+ * from the pose Jacobian alone leaves a joint that moves collision spheres but no end-effector at
+ * sc ~ 0, its collision rows blown up by 1/sc. The floor keeps a roundoff-level column (lam is
+ * relative in scaled space) from taking a full step. sc comes back identical on every lane.
+ */
+template <grim::Tier TIER>
+__device__ __forceinline__ void jacobi_scale(const Grp<TIER>& G, real* __restrict__ A, real* __restrict__ b,
+                                             real lam, real* __restrict__ sc)
+{
+    real dmax = 0;
+    for (int a = 0; a < NC; ++a) dmax = fmax(dmax, A[a * NC + a]);
+    for (int a = 0; a < NC; ++a) sc[a] = sqrt(A[a * NC + a] + real(1e-6) * dmax) + real(1e-8);
+    G.sync();   // every lane has read the diagonal before rows are rescaled in place
+    for (int i = G.rank; i < NC; i += G.size) {
+        for (int j = 0; j < NC; ++j) A[i * NC + j] = A[i * NC + j] / (sc[i] * sc[j]) + (i == j ? lam : real(0));
+        b[i] /= sc[i];
+    }
+    G.sync();
+}
+
+/**
  * Factor w.A (N x N) in place for repeated solves (potrs_tier), at TIER; false if not PD.
  *
  * The block tier factors and solves on its first warp with GLASS's warp routines. GLASS's block
