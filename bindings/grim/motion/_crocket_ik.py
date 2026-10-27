@@ -49,6 +49,12 @@ def _table(ctype: str, name: str, values) -> str:
             f"{{\n    constexpr {ctype} t[{len(vals)}] = {{{', '.join(vals)}}};\n    return t[i];\n}}\n")
 
 
+def _constant(ctype: str, name: str, values) -> str:
+    flat = np.asarray(values).reshape(-1)
+    vals = ([f"{float(v):.17e}" for v in flat] if ctype == "double" else [str(int(v)) for v in flat]) or ["0"]
+    return f"__device__ __constant__ {ctype} {name}[{len(vals)}] = {{{', '.join(vals)}}};\n"
+
+
 def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) -> str:
     """The traced ``ik_geometry`` of ``problem`` and its tables, namespace ``grim::ck``."""
     import crocket
@@ -106,9 +112,12 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
             f"constexpr int NWS = {len(ws)};\n"
             f"constexpr int NSS = {len(ss)};\n"
             + _table("int", "kJointCol", joint_col)
-            + _table("double", "kWsRad", [sph[i, 3] for i in ws_idx])
-            + _table("double", "kSsRad", np.asarray(sc.sph)[:, 3] if len(sc.sph) else [])
-            + _table("int", "kWsChain", ws_chain) + _table("int", "kSsChain", ss_chain)
+            # Read with runtime sphere indices: __constant__, where a constexpr table would be
+            # copied onto the stack at every call.
+            + _constant("double", "kWsRad", [sph[i, 3] for i in ws_idx])
+            + _constant("double", "kSsRad", np.asarray(sc.sph)[:, 3] if len(sc.sph) else [])
+            + _constant("signed char", "kWsChain", ws_chain)
+            + _constant("signed char", "kSsChain", ss_chain)
             + "template <class T>\n"
             "static __device__ __forceinline__ void gather(const T* __restrict__ cfg,\n"
             "    const T* __restrict__ frz, T* __restrict__ q)\n"

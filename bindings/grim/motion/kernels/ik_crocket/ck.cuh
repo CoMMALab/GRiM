@@ -199,7 +199,7 @@ __device__ __forceinline__ real self_pair(const real* cs, int p, int& ia, int& i
     ia = ib = -1;
     for (int a = grim::robot::kSelfLinkStart[li]; a < grim::robot::kSelfLinkStart[li + 1]; ++a)
         for (int b = grim::robot::kSelfLinkStart[lj]; b < grim::robot::kSelfLinkStart[lj + 1]; ++b) {
-            const real d = d_sph_sph(cs + 3 * a, real(kSsRad(a)), cs + 3 * b, real(kSsRad(b)));
+            const real d = d_sph_sph(cs + 3 * a, real(kSsRad[a]), cs + 3 * b, real(kSsRad[b]));
             if (d < best) { best = d; ia = a; ib = b; }
         }
     return best;
@@ -213,7 +213,7 @@ __device__ __forceinline__ real collision_raw(const Geom& g, const World& w, boo
         if (want_world)
             for (int i = 0; i < NWS; ++i)
                 for_each_prim(w, [&](int kind, const float* o) {
-                    const real d = d_prim(g.cw + 3 * i, real(kWsRad(i)), kind, o);
+                    const real d = d_prim(g.cw + 3 * i, real(kWsRad[i]), kind, o);
                     if (d < margin) pen += (d - margin) * (d - margin);
                 });
     }
@@ -240,7 +240,7 @@ __device__ __forceinline__ real min_clearance(const Geom& g, const World& w, rea
     if constexpr (has_world_geom) {
         for (int i = 0; i < NWS; ++i)
             for_each_prim(w, [&](int kind, const float* o) {
-                best = fmin(best, d_prim(g.cw + 3 * i, real(kWsRad(i)), kind, o) - margin);
+                best = fmin(best, d_prim(g.cw + 3 * i, real(kWsRad[i]), kind, o) - margin);
             });
     }
     return best;
@@ -254,7 +254,7 @@ __device__ __forceinline__ void point_grad(const Geom& g, int s, const real* pt,
 {
     #pragma unroll
     for (int j = 0; j < NJ; ++j) {
-        if (!(WORLD ? kWsChain(NJ * s + j) : kSsChain(NJ * s + j)) || kJointCol(j) < 0) continue;
+        if (!(WORLD ? kWsChain[NJ * s + j] : kSsChain[NJ * s + j]) || kJointCol(j) < 0) continue;
         const real* t = g.tw + 6 * j;
         const real vx = t[3] + t[1] * pt[2] - t[2] * pt[1];
         const real vy = t[4] + t[2] * pt[0] - t[0] * pt[2];
@@ -293,7 +293,7 @@ __device__ __forceinline__ void collision_terms(const Geom& g, const World& w, b
         if (!want_world) return;
         for (int i = 0; i < NWS; ++i) {
             const real* c = g.cw + 3 * i;
-            const real rr = real(kWsRad(i));
+            const real rr = real(kWsRad[i]);
             for_each_prim(w, [&](int kind, const float* o) {
                 const real d = d_prim(c, rr, kind, o);
                 if (d >= margin) return;
