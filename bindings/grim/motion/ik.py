@@ -179,7 +179,7 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
         after_limits.append(jnp.asarray([rng_seed], jnp.int32))
     attrs = {k: (np.int64(v) if isinstance(v, (bool, int, np.integer)) else np.float32(v))
              for k, v in settings.items()}
-    if tiered:   # a crocket build binds the same attributes and ignores them
+    if tiered or target.backend != "grim":   # every crocket build takes a tier
         attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
     return jax.ffi.ffi_call(target.name, tuple(outs))(
         *_rot_operand(target, rot), seeds, *after_seeds, jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7),

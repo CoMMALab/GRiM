@@ -2,7 +2,8 @@
  * DLS-IK on crocket-traced geometry: kernels/ik/dls_ik.cu's dual-form Levenberg-Marquardt step
  * d = -Jw^T (Jw Jw^T + lam I)^-1 W r (an M x M solve, M = 6 * n_ee), the clamped trial accepted
  * when the weighted error drops (lam / 3) else rejected (lam * 4), in `real` throughout. No
- * collision terms, as the hand-written kernel. Same FFI signature as DlsIkFfi.
+ * collision terms, as the hand-written kernel. One seed per thread, warp or block (`tier`); the
+ * FFI signature is DlsIkFfi's plus `tier` / `block_threads`.
  */
 
 #include "ik_crocket/ck.cuh"
@@ -12,14 +13,20 @@
 namespace ffi = xla::ffi;
 using namespace grim::ck;
 
+template <grim::Tier TIER>
+using DlsWork = Work<TIER, M, false, /*WITH_GV=*/true>;
+
+template <grim::Tier TIER>
 __global__ void ck_dls_ik_kernel(
-    const float* __restrict__ seeds, const float* __restrict__ target_Ts,
+    int wpb, const float* __restrict__ seeds, const float* __restrict__ target_Ts,
     const float* __restrict__ lower, const float* __restrict__ upper, const int* __restrict__ fixed_mask,
     float* __restrict__ out, float* __restrict__ out_err,
     int n_problems, int n_seeds, int max_iter, real wp, real wo, real lambda_init, real eps_pos, real eps_ori)
 {
-    const int gs = blockIdx.x * blockDim.x + threadIdx.x;
+    const int gs = seed_index<TIER>(wpb);
     if (gs >= n_problems * n_seeds) return;
+    const Grp<TIER> G;
+    CK_WORK(TIER, DlsWork<TIER>, w);
     Seed sd;
     real cfg[NC], lo[NC], hi[NC];
     bool fixed[NC];
@@ -29,42 +36,42 @@ __global__ void ck_dls_ik_kernel(
         lo[a] = lower[src]; hi[a] = upper[src]; fixed[a] = fixed_mask[src] != 0;
     }
 
-    Geom g;
-    geometry(cfg, sd, g);
-    real err = weighted_err(g.r, wp, wo);
-    bool jac_current = true;   // g.J belongs to cfg; false after an accepted step
+    geometry(G, cfg, sd, w);
+    real err = weighted_err(w.g.r, wp, wo);
+    bool jac_current = true;   // w.g.J belongs to cfg; false after an accepted step
     real lam = lambda_init;
 
     for (int iter = 0; iter < max_iter; ++iter) {
-        if (!jac_current) { geometry(cfg, sd, g); jac_current = true; }
-        if (converged(g.r, eps_pos, eps_ori)) break;
+        if (!jac_current) { geometry(G, cfg, sd, w); jac_current = true; }
+        if (converged(w.g.r, eps_pos, eps_ori)) break;
 
-        real Jw[M * NC], z[M], A[M * M];
-        for (int k = 0; k < M; ++k) {
-            const real w = (k % 6) < 3 ? wp : wo;
-            z[k] = g.r[k] * w;
-            for (int a = 0; a < NC; ++a) Jw[k * NC + a] = fixed[a] ? real(0) : g.J[k * NC + a] * w;
-        }
-        for (int i = 0; i < M; ++i)
+        // A = Jw Jw^T + lam I (M x M), a row per lane; Jw = W J with fixed columns zeroed.
+        real wk[M];
+        for (int k = 0; k < M; ++k) wk[k] = (k % 6) < 3 ? wp : wo;
+        G.sync();
+        for (int i = G.rank; i < M; i += G.size) {
+            real ji[NC];
+            for (int a = 0; a < NC; ++a) ji[a] = fixed[a] ? real(0) : w.g.J[i * NC + a] * wk[i];
             for (int k = 0; k < M; ++k) {
                 real acc = i == k ? lam : real(0);
-                for (int a = 0; a < NC; ++a) acc += Jw[i * NC + a] * Jw[k * NC + a];
-                A[i * M + k] = acc;
+                for (int a = 0; a < NC; ++a) acc += ji[a] * (fixed[a] ? real(0) : w.g.J[k * NC + a] * wk[k]);
+                w.A[i * M + k] = acc;
             }
-        posv<M>(A, z);
+            w.b[i] = w.g.r[i] * wk[i];
+        }
+        posv_tier<TIER, M>(G, w);
 
         real trial[NC];
         for (int a = 0; a < NC; ++a) {
             real d = 0;
-            for (int k = 0; k < M; ++k) d -= Jw[k * NC + a] * z[k];
+            if (!fixed[a])
+                for (int k = 0; k < M; ++k) d -= w.g.J[k * NC + a] * wk[k] * w.b[k];
             trial[a] = clamp(cfg[a] + d, lo[a], hi[a]);
         }
-        Geom gt;
-        geometry_value(trial, sd, gt);
-        const real e_trial = weighted_err(gt.r, wp, wo);
+        geometry_value(G, trial, sd, w);
+        const real e_trial = weighted_err(w.gv.r, wp, wo);
         if (e_trial < err) {
             for (int a = 0; a < NC; ++a) cfg[a] = trial[a];
-            for (int k = 0; k < M; ++k) g.r[k] = gt.r[k];
             err = e_trial;
             jac_current = false;
             lam = fmax(lam / real(3), real(1e-7));
@@ -72,8 +79,10 @@ __global__ void ck_dls_ik_kernel(
             lam = fmin(lam * real(4), real(1e7));
         }
     }
-    store(cfg, sd, out, gs);
-    out_err[gs] = (float)err;
+    if (G.leader()) {
+        store(cfg, sd, out, gs);
+        out_err[gs] = (float)err;
+    }
 }
 
 static ffi::Error CkDlsIkImpl(
@@ -84,9 +93,10 @@ static ffi::Error CkDlsIkImpl(
     ffi::Buffer<ffi::DataType::F32> lower, ffi::Buffer<ffi::DataType::F32> upper,
     ffi::Buffer<ffi::DataType::S32> fixed_mask,
     int64_t max_iter, float pos_weight, float ori_weight, float lambda_init, float eps_pos,
-    float eps_ori, int64_t enable_collision,
+    float eps_ori, int64_t enable_collision, int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    (void)block_threads;   // the block tier runs BLOCK_THREADS lanes (crocket's block variant)
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     if (seeds.dimensions()[2] != grim::robot::n_q || target_Ts.dimensions()[1] != grim::robot::n_ee)
@@ -96,7 +106,7 @@ static ffi::Error CkDlsIkImpl(
         return ffi::Error(ffi::ErrorCode::kInvalidArgument, "dls_ik has no collision terms; use ls_ik or sqp_ik");
     const int n = n_problems * n_seeds;
     if (n == 0) return ffi::Error::Success();
-    ck_dls_ik_kernel<<<(n + THREADS - 1) / THREADS, THREADS, 0, stream>>>(
+    CK_LAUNCH(ck_dls_ik_kernel, DlsWork, tier, n, stream,
         seeds.typed_data(), target_Ts.typed_data(), lower.typed_data(), upper.typed_data(),
         fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(), n_problems, n_seeds,
         static_cast<int>(max_iter), pos_weight, ori_weight, lambda_init, eps_pos, eps_ori);
@@ -125,5 +135,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<float>("eps_pos")
         .Attr<float>("eps_ori")
         .Attr<int64_t>("enable_collision")
+        .Attr<int64_t>("tier")
+        .Attr<int64_t>("block_threads")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
         .Ret<ffi::Buffer<ffi::DataType::F32>>());
