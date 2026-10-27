@@ -5,8 +5,10 @@ cell) vs crocket-traced in float and in double (kernels/ik_crocket, ``backend="c
 Same inputs, settings and launcher for every backend. Per (robot, scenario, kernel, batch):
 
 * time: amortized ms per call (K back-to-back jitted calls, one sync), median of REPS runs, K
-  chosen so a run lasts about MIN_RUN_S;
-* success: the fraction of problems whose best seed (lowest reported error) reaches the target
+  chosen so a run lasts about MIN_RUN_S; every tier of every crocket build (thread / warp / block,
+  one seed per thread / warp / 64-thread block), and every tier GRiM's kernel supports. A (backend,
+  tier) whose extrapolated call at the next batch exceeds MAX_CALL_S is recorded as skipped;
+* success (graded on the first SCORE_MAX problems): the fraction of problems whose best seed (lowest reported error) reaches the target
   within 1 mm / 0.01 rad by the float64 oracle, inside the joint limits, and (collision
   scenario) collision-free by the oracle's distances.
 
@@ -39,10 +41,13 @@ from grim.motion.reference import collision as C  # noqa: E402
 from grim.motion.reference import kinematics as K  # noqa: E402
 
 BACKENDS = ("grim", "crocket-f32", "crocket-f64")
-BATCHES = (1, 128, 1024)
+BATCHES = (1, 128, 1024, 4096, 16384)
 SEEDS = 8
 REPS = 5
 MIN_RUN_S = 0.25
+MAX_CALL_S = 20.0      # skip a (backend, tier) whose extrapolated call at the next batch exceeds this
+SCORE_MAX = 1024       # problems graded by the oracle (the first ones of the batch)
+TIERS = ("thread", "warp", "block")
 POS_TOL, ORI_TOL = 1e-3, 1e-2
 W = dict(pos_weight=50.0, ori_weight=10.0, lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3)
 COLL = dict(collision_weight=1e4, collision_margin=0.02)
@@ -76,7 +81,7 @@ def amortized_ms(call) -> float:
     one = time.perf_counter() - t
     k = max(1, min(200, int(MIN_RUN_S / max(one, 1e-5))))
     runs = []
-    for _ in range(REPS):
+    for _ in range(REPS if one < 2.0 else 2):
         t = time.perf_counter()
         for _ in range(k):
             out = call()
@@ -105,6 +110,7 @@ def collision_free(robot, q, coll, world) -> bool:
 
 
 def score(robot, q, e, targets, ees, coll=None, world=None) -> dict:
+    q, e, targets = q[:SCORE_MAX], e[:SCORE_MAX], targets[:SCORE_MAX]
     best = q[np.arange(len(q)), e.argmin(1)]
     pos, ori, ok = [], [], []
     for p in range(len(best)):
@@ -141,56 +147,55 @@ def bench_solvers(robot, name, rows, scenario, which):
                 print(f"  {kernel} {backend}: BUILD FAILED {exc}"[:300], flush=True)
                 continue
             build_s = time.perf_counter() - t0
-            tiers = ik.TIERS if (backend == "grim" and ik.KERNELS[kernel][2]) else ("thread",)
-            for B in BATCHES:
-                s, t = s_all[:B], targets[:B]
-                kw = settings(kernel, s)
-                best = None
-                for tier in tiers:
-                    extra = {"tier": tier, "block_threads": 64} if ik.KERNELS[kernel][2] else {}
-                    f = jax.jit(lambda s, t, tier=tier, extra=extra: ik.run(T, s, t, world=world, **kw, **extra)[:2])
-                    out = jax.block_until_ready(f(s, t))
-                    if best is not None:   # skip a tier that is clearly slower on one warm call
-                        t1 = time.perf_counter()
-                        jax.block_until_ready(f(s, t))
-                        if 1e3 * (time.perf_counter() - t1) > 3 * best[0]:
-                            continue
+            tiers = TIERS if (backend != "grim" or ik.KERNELS[kernel][2]) else ("thread",)
+            for tier in tiers:
+                last = None   # (batch, ms) of this tier's previous batch
+                for B in BATCHES:
+                    base_row = {"robot": name, "n_q": robot.n_act, "n_ee": len(ees), "scenario": scenario,
+                                "kernel": kernel, "backend": backend, "tier": tier, "batch": B, "seeds": SEEDS,
+                                "build_s": build_s}
+                    if last is not None and last[1] * B / last[0] / 1e3 > MAX_CALL_S:
+                        rows.append({**base_row, "skipped": f"est {last[1] * B / last[0] / 1e3:.0f} s/call"})
+                        print(f"  {scenario:9s} {kernel:11s} {backend:12s} {tier:6s} B={B:5d}   skipped (est)", flush=True)
+                        continue
+                    s, t = s_all[:B], targets[:B]
+                    kw = settings(kernel, s)
+                    extra = {"tier": tier, "block_threads": 64} if tier != "thread" or backend != "grim" else {}
+                    f = jax.jit(lambda s, t, extra=extra: ik.run(T, s, t, world=world, **kw, **extra)[:2])
+                    q, e = jax.block_until_ready(f(s, t))
                     ms = amortized_ms(lambda: f(s, t))
-                    if best is None or ms < best[0]:
-                        best = (ms, out, tier)
-                ms, (q, e), tier = best
-                row = {"robot": name, "n_q": robot.n_act, "n_ee": len(ees), "scenario": scenario,
-                       "kernel": kernel, "backend": backend, "batch": B, "seeds": SEEDS, "ms": ms,
-                       "tier": tier, "build_s": build_s,
-                       **score(robot, np.asarray(q), np.asarray(e), t, ees, coll, world)}
-                rows.append(row)
-                print(f"  {scenario:9s} {kernel:11s} {backend:12s} B={B:5d} {ms:9.3f} ms ({tier:6s}) "
-                      f"success {row['success']:.3f}", flush=True)
+                    last = (B, ms)
+                    row = {**base_row, "ms": ms, **score(robot, np.asarray(q), np.asarray(e), t, ees, coll, world)}
+                    rows.append(row)
+                    print(f"  {scenario:9s} {kernel:11s} {backend:12s} {tier:6s} B={B:5d} {ms:10.3f} ms "
+                          f"success {row['success']:.3f}", flush=True)
 
 
 def bench_canonical(robot, name, rows):
     ees = ee_sets(robot)[0]
     for scenario in ("pose", "collision"):
         coll, world = collision_case(robot) if scenario == "collision" else (None, ik.World())
-        P = 8192
+        P = 16384
         targets, q = reachable_targets(robot, ees, P, seed=13)
         q_ref = np.clip(q + np.random.default_rng(3).normal(scale=0.3, size=q.shape), robot.lower, robot.upper)
         for backend in BACKENDS:
             T = ik.build_canonical(robot, ees, collision=coll, world_counts=world.counts(), backend=backend)
-            for B in (1, 1024, 8192):
-                f = jax.jit(lambda a, b, c: ik.run_canonical(T, a, b, c, world=world, max_iters=200))
-                args = (q[:B], q_ref[:B], targets[:B])
-                qs, _ = jax.block_until_ready(f(*args))
-                ms = amortized_ms(lambda: f(*args))
-                qs = np.asarray(qs)
-                n = min(B, 256)
-                res = [np.linalg.norm(np.concatenate([K.pose_residual(K.frame_poses(robot, qs[p])[x], targets[p, k])
-                                                      for k, x in enumerate(ees)])) for p in range(n)]
-                rows.append({"robot": name, "n_q": robot.n_act, "n_ee": len(ees), "scenario": scenario,
-                             "kernel": "canonical", "backend": backend, "batch": B, "seeds": 1, "ms": ms,
-                             "tier": "thread", "success": float(np.mean(np.array(res) < 1e-3)),
-                             "residual_max": float(np.max(res))})
-                print(f"  {scenario:9s} canonical   {backend:12s} B={B:5d} {ms:9.3f} ms  max|r| {max(res):.1e}", flush=True)
+            for tier in (("thread",) if backend == "grim" else TIERS):
+                for B in (1, 1024, 16384):
+                    kwt = {} if backend == "grim" else {"tier": tier}
+                    f = jax.jit(lambda a, b, c, kwt=kwt: ik.run_canonical(T, a, b, c, world=world, max_iters=200, **kwt))
+                    args = (q[:B], q_ref[:B], targets[:B])
+                    qs, _ = jax.block_until_ready(f(*args))
+                    ms = amortized_ms(lambda: f(*args))
+                    qs = np.asarray(qs)
+                    n = min(B, 256)
+                    res = [np.linalg.norm(np.concatenate([K.pose_residual(K.frame_poses(robot, qs[p])[x], targets[p, k])
+                                                          for k, x in enumerate(ees)])) for p in range(n)]
+                    rows.append({"robot": name, "n_q": robot.n_act, "n_ee": len(ees), "scenario": scenario,
+                                 "kernel": "canonical", "backend": backend, "tier": tier, "batch": B, "seeds": 1,
+                                 "ms": ms, "success": float(np.mean(np.array(res) < 1e-3)),
+                                 "residual_max": float(np.max(res))})
+                    print(f"  {scenario:9s} canonical   {backend:12s} {tier:6s} B={B:5d} {ms:10.3f} ms  max|r| {max(res):.1e}", flush=True)
 
 
 def bench_analytic(rows):
@@ -199,7 +204,7 @@ def bench_analytic(rows):
     robot = load_robot("fr3")
     ee = robot.joint_index("fr3_joint7")
     g = A.arm_geometry(robot, ee)
-    qs = np.random.default_rng(0).uniform(robot.lower, robot.upper, size=(1024, robot.n_act))
+    qs = np.random.default_rng(0).uniform(robot.lower, robot.upper, size=(max(BATCHES), robot.n_act))
     poses = np.stack([K.frame_poses(robot, q)[ee] for q in qs])
     targets = np.stack([_matrix(p) for p in poses]).astype(np.float32)
     q7 = np.linspace(g.lower[6], g.upper[6], 64).astype(np.float32)
@@ -212,15 +217,17 @@ def bench_analytic(rows):
                                                           self_pairs=pairs, world=world))):
         for backend in BACKENDS:
             target = A.build(robot, ee, backend)
-            for B in BATCHES:
-                f = jax.jit(lambda t: A.run(target, t, q7, **kw))
-                out = jax.block_until_ready(f(targets[:B]))
-                ms = amortized_ms(lambda: f(targets[:B]))
-                found = np.asarray(out[2])
-                rows.append({"robot": "fr3", "n_q": 7, "n_ee": 1, "scenario": scenario, "kernel": "analytic",
-                             "backend": backend, "batch": B, "seeds": 64, "ms": ms, "tier": "block",
-                             "success": float(found.mean())})
-                print(f"  {scenario:9s} analytic    {backend:12s} B={B:5d} {ms:9.3f} ms  found {found.mean():.3f}", flush=True)
+            for tier in (("block",) if backend == "grim" else TIERS):
+                for B in BATCHES:
+                    tkw = {} if backend == "grim" else {"tier": tier}
+                    f = jax.jit(lambda t, tkw=tkw: A.run(target, t, q7, **kw, **tkw))
+                    out = jax.block_until_ready(f(targets[:B]))
+                    ms = amortized_ms(lambda: f(targets[:B]))
+                    found = np.asarray(out[2])
+                    rows.append({"robot": "fr3", "n_q": 7, "n_ee": 1, "scenario": scenario, "kernel": "analytic",
+                                 "backend": backend, "tier": tier, "batch": B, "seeds": 64, "ms": ms,
+                                 "success": float(found.mean())})
+                    print(f"  {scenario:9s} analytic    {backend:12s} {tier:6s} B={B:5d} {ms:10.3f} ms  found {found.mean():.3f}", flush=True)
 
 
 def main():

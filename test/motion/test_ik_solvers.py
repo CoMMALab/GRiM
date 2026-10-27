@@ -61,7 +61,7 @@ _PORTED = ["ls", "dls", "sqp", "hjcd", "hjcd_coarse", "mppi"]
 CROCKET = [pytest.param(f"{k}@{b}", marks=pytest.mark.skipif(not crocket_available(), reason="crocket not installed"))
            for k in _PORTED for b in ("crocket-f32", "crocket-f64")]
 SOLVERS = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse", "mppi"] + CROCKET
-TIERED = ["ls", "sqp", "sqp_f32", "hjcd"]                 # one seed per thread / warp / block
+TIERED = ["ls", "sqp", "sqp_f32", "hjcd"] + CROCKET     # one seed per thread / warp / block
 SLOT_INVARIANT = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse"] + [
     c for c in CROCKET if not c.values[0].startswith("mppi")]   # mppi keys its noise on the slot
 WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "sqp_f32": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
@@ -123,11 +123,15 @@ def test_tiers_agree_to_roundoff(kind, name, which):
     thread / warp / block potrf), so one step agrees to float32 round-off; later iterates
     drift chaotically near convergence, which the certificate test covers."""
     robot, ees, s, t = _case(name, which)
+    # A crocket-f32 build's tiers also differ in nvcc's FMA contraction of the traced geometry
+    # (crocket keeps its tiers bit-identical only under -fmad=false), which one solve amplifies:
+    # measured 2.0e-4 (DLS, g1's 24-row dual system), <= 5e-6 elsewhere. Double builds hold 1e-6.
+    rtol_q = 3e-4 if kind.endswith("@crocket-f32") else 1e-6
     want = _solve(kind, robot, ees, s, t, 1, tier="thread")
     for tier in ("warp", "block"):
         got = _solve(kind, robot, ees, s, t, 1, tier=tier)
-        assert_close_scaled(got[0], want[0], 1e-6, f"{kind} {name} {tier} q")
-        assert_close_scaled(got[1], want[1], 1e-5, f"{kind} {name} {tier} err")
+        assert_close_scaled(got[0], want[0], rtol_q, f"{kind} {name} {tier} q")
+        assert_close_scaled(got[1], want[1], max(1e-5, rtol_q), f"{kind} {name} {tier} err")
 
 
 @pytest.mark.parametrize("kind", SLOT_INVARIANT)

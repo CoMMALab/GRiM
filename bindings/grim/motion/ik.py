@@ -225,7 +225,8 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
 def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=None,
            fixed_mask=None, max_iter: int = 60, pos_weight: float = 50.0,
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
-           eps_ori: float = 1e-3, traced: bool = False, chain_only: bool = True, backend: str = "grim"):
+           eps_ori: float = 1e-3, traced: bool = False, chain_only: bool = True, backend: str = "grim",
+           tier: str = "thread", block_threads: int = 64):
     """Damped least squares, LM in its dual form (``kernels/ik/dls_ik.cu``) -> ``(q, err)``.
 
     The step ``-J^T (J J^T + lam I)^-1 r`` is LS-IK's direction without column scaling, solved
@@ -241,7 +242,7 @@ def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
         and fixed_mask is None
     t = build("dls", robot, ee_joints, chain_only=chain_only, traced=traced,
               fused_dls_ori_ratio=ori_weight / pos_weight if fused else None, backend=backend)
-    return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, max_iter=max_iter, pos_weight=pos_weight,
+    return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, max_iter=max_iter, pos_weight=pos_weight,
                   ori_weight=ori_weight, lambda_init=lambda_init, eps_pos=eps_pos,
                   eps_ori=eps_ori)
 
@@ -270,12 +271,13 @@ def hjcd_ik_coarse(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None,
                    fixed_mask=None, world: World = World(),
                    collision: CollisionModel | None = None, k_max: int = 20,
                    collision_weight: float = 1e4, collision_margin: float = 0.02,
-                   traced: bool = False, chain_only: bool = True, backend: str = "grim"):
+                   traced: bool = False, chain_only: bool = True, backend: str = "grim",
+                   tier: str = "thread", block_threads: int = 64):
     """HJCD phase 1: greedy coordinate descent, one thread per seed
     (``kernels/ik/hjcd_ik.cu``) -> ``(q, err)``."""
     return _solve("hjcd_coarse", robot, seeds, targets, ee_joints, world=world, backend=backend,
                   collision=collision, chain_only=chain_only, traced=traced, lower=lower,
-                  upper=upper, fixed_mask=fixed_mask, k_max=k_max,
+                  upper=upper, fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, k_max=k_max,
                   collision_weight=collision_weight, collision_margin=collision_margin)
 
 
@@ -311,13 +313,13 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
             sigma: float = 0.1, mppi_temperature: float = 0.05, pos_weight: float = 50.0,
             ori_weight: float = 10.0, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
             collision_weight: float = 1e4, collision_margin: float = 0.02,
-            traced: bool = False, backend: str = "grim"):
+            traced: bool = False, backend: str = "grim", tier: str = "thread", block_threads: int = 64):
     """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik/mppi_ik.cu``)
     -> ``(q, err)``. The noise stream is keyed on (rng_seed, problem, seed slot), so a
     solve is deterministic but a seed's result depends on its slot."""
     return _solve("mppi", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
                   chain_only=False, traced=traced, lower=lower, upper=upper,
-                  fixed_mask=fixed_mask, rng_seed=rng_seed, n_particles=n_particles,
+                  fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, rng_seed=rng_seed, n_particles=n_particles,
                   n_mppi_iters=n_mppi_iters, n_lbfgs_iters=n_lbfgs_iters, m_lbfgs=m_lbfgs,
                   sigma=sigma, mppi_temperature=mppi_temperature, pos_weight=pos_weight,
                   ori_weight=ori_weight, eps_pos=eps_pos, eps_ori=eps_ori,
