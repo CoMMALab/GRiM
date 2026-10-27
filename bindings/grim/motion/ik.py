@@ -195,9 +195,9 @@ def _rot_operand(target: Target, rot) -> tuple:
 
 
 def _solve(kernel, robot, seeds, targets, ee_joints, *, world, collision, chain_only, traced,
-           **kw):
+           backend="grim", **kw):
     t = build(kernel, robot, ee_joints, collision=collision, world_counts=world.counts(),
-              chain_only=chain_only, traced=traced)
+              chain_only=chain_only, traced=traced, backend=backend)
     return run(t, seeds, targets, world=world, **kw)
 
 
@@ -207,14 +207,14 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
           lambda_init: float = 5e-3, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
           collision_weight: float = 1e4, collision_margin: float = 0.02,
           tier: str = "thread", block_threads: int = 64, traced: bool = False,
-          chain_only: bool = True):
+          chain_only: bool = True, backend: str = "grim"):
     """Levenberg-Marquardt from every seed (``kernels/ik/ls_ik.cu``) -> ``(q, err)``.
 
     World collision applies when ``collision`` has robot spheres and ``world`` obstacles;
     self-collision when ``collision.self_collision`` has pairs. Both enter the step (as
     Gauss-Newton rows) and the merit, weighted by ``collision_weight``.
     """
-    return _solve("ls", robot, seeds, targets, ee_joints, world=world, collision=collision,
+    return _solve("ls", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
                   chain_only=chain_only, traced=traced, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads,
                   max_iter=max_iter, pos_weight=pos_weight, ori_weight=ori_weight,
@@ -225,7 +225,7 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
 def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=None,
            fixed_mask=None, max_iter: int = 60, pos_weight: float = 50.0,
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
-           eps_ori: float = 1e-3, traced: bool = False, chain_only: bool = True):
+           eps_ori: float = 1e-3, traced: bool = False, chain_only: bool = True, backend: str = "grim"):
     """Damped least squares, LM in its dual form (``kernels/ik/dls_ik.cu``) -> ``(q, err)``.
 
     The step ``-J^T (J J^T + lam I)^-1 r`` is LS-IK's direction without column scaling, solved
@@ -240,7 +240,7 @@ def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
     fused = traced and len(ee_joints) == 1 and lower is None and upper is None \
         and fixed_mask is None
     t = build("dls", robot, ee_joints, chain_only=chain_only, traced=traced,
-              fused_dls_ori_ratio=ori_weight / pos_weight if fused else None)
+              fused_dls_ori_ratio=ori_weight / pos_weight if fused else None, backend=backend)
     return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, max_iter=max_iter, pos_weight=pos_weight,
                   ori_weight=ori_weight, lambda_init=lambda_init, eps_pos=eps_pos,
                   eps_ori=eps_ori)
@@ -252,12 +252,12 @@ def sqp_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
            eps_ori: float = 1e-3, collision_weight: float = 1e4,
            collision_margin: float = 0.02, tier: str = "thread", block_threads: int = 64,
-           traced: bool = False, chain_only: bool = True, qp_float32: bool = False):
+           traced: bool = False, chain_only: bool = True, qp_float32: bool = False, backend: str = "grim"):
     """SQP with joint limits and collision as hard constraints (``kernels/ik/sqp_ik.cu``)
     -> ``(q, err, feasible)``; ``feasible`` is 1 where the returned configuration satisfies
     the collision constraint (always 1 without collision). ``qp_float32`` builds the QP
     (normal equations and solves) in float instead of double."""
-    return _solve("sqp_f32" if qp_float32 else "sqp", robot, seeds, targets, ee_joints, world=world, collision=collision,
+    return _solve("sqp_f32" if qp_float32 else "sqp", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
                   chain_only=chain_only, traced=traced, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads,
                   max_iter=max_iter, n_inner_iters=n_inner_iters, pos_weight=pos_weight,
@@ -270,10 +270,10 @@ def hjcd_ik_coarse(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None,
                    fixed_mask=None, world: World = World(),
                    collision: CollisionModel | None = None, k_max: int = 20,
                    collision_weight: float = 1e4, collision_margin: float = 0.02,
-                   traced: bool = False, chain_only: bool = True):
+                   traced: bool = False, chain_only: bool = True, backend: str = "grim"):
     """HJCD phase 1: greedy coordinate descent, one thread per seed
     (``kernels/ik/hjcd_ik.cu``) -> ``(q, err)``."""
-    return _solve("hjcd_coarse", robot, seeds, targets, ee_joints, world=world,
+    return _solve("hjcd_coarse", robot, seeds, targets, ee_joints, world=world, backend=backend,
                   collision=collision, chain_only=chain_only, traced=traced, lower=lower,
                   upper=upper, fixed_mask=fixed_mask, k_max=k_max,
                   collision_weight=collision_weight, collision_margin=collision_margin)
@@ -287,7 +287,7 @@ def hjcd_ik_lm(robot: MotionRobot, seeds, targets, ee_joints, noise, *, lower=No
                eps_pos: float = 1e-4, eps_ori: float = 1e-3, early_stop: bool = False,
                collision_weight: float = 1e4, collision_margin: float = 0.02,
                tier: str = "thread", block_threads: int = 64, traced: bool = False,
-               chain_only: bool = True):
+               chain_only: bool = True, backend: str = "grim"):
     """HJCD phase 2: Levenberg-Marquardt with a joint-limit prior and stall kicks
     (``kernels/ik/hjcd_ik.cu``) -> ``(q, err, stopped)``.
 
@@ -295,7 +295,7 @@ def hjcd_ik_lm(robot: MotionRobot, seeds, targets, ee_joints, noise, *, lower=No
     deterministic. ``early_stop`` stops a problem's seeds once one has converged: faster,
     but then only each problem's best seed is meaningful (the rest depend on scheduling).
     """
-    return _solve("hjcd_lm", robot, seeds, targets, ee_joints, world=world, collision=collision,
+    return _solve("hjcd_lm", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
                   chain_only=chain_only, traced=traced, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, noise=noise,
                   max_iter=max_iter, stall_patience=stall_patience, early_stop=early_stop,
@@ -311,11 +311,11 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
             sigma: float = 0.1, mppi_temperature: float = 0.05, pos_weight: float = 50.0,
             ori_weight: float = 10.0, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
             collision_weight: float = 1e4, collision_margin: float = 0.02,
-            traced: bool = False):
+            traced: bool = False, backend: str = "grim"):
     """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik/mppi_ik.cu``)
     -> ``(q, err)``. The noise stream is keyed on (rng_seed, problem, seed slot), so a
     solve is deterministic but a seed's result depends on its slot."""
-    return _solve("mppi", robot, seeds, targets, ee_joints, world=world, collision=collision,
+    return _solve("mppi", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
                   chain_only=False, traced=traced, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, rng_seed=rng_seed, n_particles=n_particles,
                   n_mppi_iters=n_mppi_iters, n_lbfgs_iters=n_lbfgs_iters, m_lbfgs=m_lbfgs,

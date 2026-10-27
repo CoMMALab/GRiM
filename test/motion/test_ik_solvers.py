@@ -17,7 +17,7 @@ import pytest
 
 from grim.motion.reference import ik as ref
 
-from .conftest import assert_close_scaled, ee_sets, load_robot, requires_gpu
+from .conftest import assert_close_scaled, crocket_available, ee_sets, load_robot, requires_gpu
 from .ik_cases import pose_errors, reachable_targets, seeds
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
@@ -34,7 +34,11 @@ def _hjcd_noise(s, iters):
 
 
 def _solve(kind, robot, ees, s, t, iters, **kw):
+    """``kind`` is a solver, optionally ``@crocket-f32`` / ``@crocket-f64`` (kernels/ik_crocket)."""
     from grim.motion import ik
+    kind, _, backend = kind.partition("@")
+    if backend:
+        kw["backend"] = backend
     if kind == "ls":
         out = ik.ls_ik(robot, s, t, ees, max_iter=iters, **W, **kw)
     elif kind in ("dls", "dls_traced"):
@@ -52,9 +56,14 @@ def _solve(kind, robot, ees, s, t, iters, **kw):
     return tuple(np.asarray(x) for x in out)
 
 
-SOLVERS = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse", "mppi"]
+# Every solver also as its crocket build, float and double (kernels/ik_crocket, one seed per thread).
+_PORTED = ["ls", "dls", "sqp", "hjcd", "hjcd_coarse", "mppi"]
+CROCKET = [pytest.param(f"{k}@{b}", marks=pytest.mark.skipif(not crocket_available(), reason="crocket not installed"))
+           for k in _PORTED for b in ("crocket-f32", "crocket-f64")]
+SOLVERS = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse", "mppi"] + CROCKET
 TIERED = ["ls", "sqp", "sqp_f32", "hjcd"]                 # one seed per thread / warp / block
-SLOT_INVARIANT = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse"]   # mppi keys its noise on the slot
+SLOT_INVARIANT = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse"] + [
+    c for c in CROCKET if not c.values[0].startswith("mppi")]   # mppi keys its noise on the slot
 WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "sqp_f32": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
 # Minimum solve rate on reachable targets (certificate test); coarse search is phase 1 only.
 # hjcd here is phase 2 alone (no coarse search): on the fr3 set pyroffi's original kernel
@@ -65,6 +74,7 @@ WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "sqp_f32":
 # iterations dls solves fr3 97.5%. dls_traced (crocket's fused step on fr3 / iiwa14, traced
 # kinematics on baxter's multi-EE set) measures the same: 82.5 / 100 / 100.
 SOLVE_RATE = {"ls": 0.95, "dls": 0.8, "dls_traced": 0.8, "sqp": 0.95, "sqp_f32": 0.95, "hjcd": 0.85, "mppi": 0.9}
+RATED = list(SOLVE_RATE) + [c for c in CROCKET if c.values[0].split("@")[0] in SOLVE_RATE]
 
 
 def _case(name, which, n_problems=6, n_seeds=8):
@@ -77,7 +87,7 @@ def _case(name, which, n_problems=6, n_seeds=8):
 def _merit(kind, robot, ees, q, target):
     """The oracle's value of the error a solver reports (weighted or plain squared)."""
     from grim.motion.kinematics import solved_columns
-    w = W if WEIGHTED[kind] else dict(pos_weight=1.0, ori_weight=1.0)
+    w = W if WEIGHTED[kind.split("@")[0]] else dict(pos_weight=1.0, ori_weight=1.0)
     _, e = ref.ls_ik(robot, q, target, ees, solved_columns(robot, ees, True),
                      lower=robot.lower, upper=robot.upper, fixed_mask=np.zeros(robot.n_act),
                      max_iter=0, lambda_init=1e-3, eps_pos=0, eps_ori=0, **w)
@@ -144,7 +154,7 @@ def test_deterministic(kind, name, which):
         assert np.array_equal(x, y)
 
 
-@pytest.mark.parametrize("kind", list(SOLVE_RATE))
+@pytest.mark.parametrize("kind", RATED)
 @pytest.mark.parametrize("name,which", [("fr3", 0), ("iiwa14", 0), ("baxter", 1)])
 def test_reachable_targets_are_solved(kind, name, which):
     robot, ees, s, t = _case(name, which, n_problems=40, n_seeds=16)
@@ -154,7 +164,7 @@ def test_reachable_targets_are_solved(kind, name, which):
     best = q[np.arange(len(q)), e.argmin(1)]
     ok = [all(np.array(pose_errors(robot, best[p], t[p], ees)) < (1e-3, 1e-2))
           for p in range(len(q))]
-    assert np.mean(ok) >= SOLVE_RATE[kind], f"{kind} {name}: solved {np.mean(ok):.0%}"
+    assert np.mean(ok) >= SOLVE_RATE[kind.split("@")[0]], f"{kind} {name}: solved {np.mean(ok):.0%}"
     for p in range(len(q)):   # the reported error is the oracle's, not self-graded
         assert_close_scaled(e[p].min(), _merit(kind, robot, ees, best[p], t[p]), 1e-3,
                             f"{kind} {name} p={p} reported error")
