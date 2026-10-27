@@ -24,6 +24,8 @@ import numpy as np
 
 from .robot import MotionRobot
 
+BLOCK_THREADS = 64   # lanes per seed at the block tier (crocket's block variant is built for it)
+
 
 def _model(robot: MotionRobot):
     import crocket
@@ -87,8 +89,11 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
     frames = tuple(robot.joint_names[e] for e in problem.ee_joints)
     cols = tuple(col_of[a] for a in solved)
     opts = {"frames": frames, "cols": cols, "wspheres": ws, "sspheres": ss}
+    # Thread, warp and block (BLOCK_THREADS lanes) from the same trace: the kernels compile at
+    # every tier and call the variant of theirs.
     traced = crocket.generate(model, {"ik_geometry": opts, "ik_geometry_value": opts},
-                              variants=[crocket.Variant("thread")], name="robot")
+                              variants=[crocket.Variant("thread"), crocket.Variant("warp", units=32),
+                                        crocket.Variant("block", units=BLOCK_THREADS)], name="robot")
 
     nj = len(model.joints)
     joint_col = [solved.index(robot.actuated_names.index(model.joint_names[j.q_index]))
@@ -111,6 +116,7 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
             f"constexpr int NJ = {nj};\n"
             f"constexpr int NWS = {len(ws)};\n"
             f"constexpr int NSS = {len(ss)};\n"
+            f"constexpr int BLOCK_THREADS = {BLOCK_THREADS};\n"
             + _table("int", "kJointCol", joint_col)
             # Read with runtime sphere indices: __constant__, where a constexpr table would be
             # copied onto the stack at every call.

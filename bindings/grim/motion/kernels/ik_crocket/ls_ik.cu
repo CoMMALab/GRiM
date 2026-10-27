@@ -2,7 +2,8 @@
  * LS-IK on crocket-traced geometry: kernels/ik/ls_ik.cu's Levenberg-Marquardt, step for step
  * (weighted residual, Jacobi column scaling, Gauss-Newton collision rows, fixed joints, the
  * trust-region radii, the five clamped trial steps, accept below curr * (1 - 1e-4), all-time
- * best tracking), in `real` throughout. One seed per thread; same FFI signature as LsIkFfi.
+ * best tracking), in `real` throughout. One seed per thread, warp or block (`tier`); same FFI
+ * signature as LsIkFfi.
  */
 
 #include "ik_crocket/ck.cuh"
@@ -12,15 +13,21 @@
 namespace ffi = xla::ffi;
 using namespace grim::ck;
 
+template <grim::Tier TIER>
+using LsWork = Work<TIER>;
+
+template <grim::Tier TIER>
 __global__ void ck_ls_ik_kernel(
-    const float* __restrict__ seeds, const float* __restrict__ target_Ts, World world,
+    int wpb, const float* __restrict__ seeds, const float* __restrict__ target_Ts, World world,
     const float* __restrict__ lower, const float* __restrict__ upper, const int* __restrict__ fixed_mask,
     float* __restrict__ out, float* __restrict__ out_err,
     int n_problems, int n_seeds, int max_iter, int enable_collision,
     real wp, real wo, real lambda_init, real eps_pos, real eps_ori, real cw_weight, real margin)
 {
-    const int gs = blockIdx.x * blockDim.x + threadIdx.x;
-    if (gs >= n_problems * n_seeds) return;
+    const int gs = seed_index<TIER>(wpb);
+    if (gs >= n_problems * n_seeds) return;   // group-uniform
+    const Grp<TIER> G;
+    CK_WORK(TIER, LsWork<TIER>, w);
     Seed sd;
     real cfg[NC], best_cfg[NC], lo[NC], hi[NC];
     bool fixed[NC];
@@ -33,80 +40,77 @@ __global__ void ck_ls_ik_kernel(
     const bool want_world = enable_collision && NWS > 0;
     const bool want_coll = want_world || has_self;
 
-    Geom g;
-    geometry(cfg, sd, g);
-    real best_err = weighted_err(g.r, wp, wo);
-    if (want_coll) best_err += cw_weight * collision_raw(g, world, want_world, margin);
+    geometry(G, cfg, sd, w);
+    real best_err = weighted_err(w.g.r, wp, wo);
+    if (want_coll) best_err += cw_weight * collision_raw_coop(G, w, w.g, world, want_world, margin);
     real lam = lambda_init;
 
     for (int iter = 0; iter < max_iter; ++iter) {
-        geometry(cfg, sd, g);
-        if (converged(g.r, eps_pos, eps_ori) &&
-            (!want_coll || cw_weight * collision_raw(g, world, want_world, margin) <= real(1e-12)))
-            break;
+        geometry(G, cfg, sd, w);
+        const real pen = want_coll ? collision_raw_coop(G, w, w.g, world, want_world, margin) : real(0);
+        if (converged(w.g.r, eps_pos, eps_ori) && (!want_coll || cw_weight * pen <= real(1e-12))) break;
 
         real fw[M];
-        for (int k = 0; k < M; ++k) {
-            const real w = (k % 6) < 3 ? wp : wo;
-            fw[k] = g.r[k] * w;
-            for (int a = 0; a < NC; ++a) g.J[k * NC + a] *= w;
-        }
-        real curr_err = 0;
-        for (int k = 0; k < M; ++k) curr_err += fw[k] * fw[k];
-        if (want_coll) curr_err += cw_weight * collision_raw(g, world, want_world, margin);
-
+        real curr_err = cw_weight * pen;
+        for (int k = 0; k < M; ++k) { fw[k] = w.g.r[k] * ((k % 6) < 3 ? wp : wo); curr_err += fw[k] * fw[k]; }
         real sc[NC];
         for (int a = 0; a < NC; ++a) {
-            real s = 0;
-            for (int k = 0; k < M; ++k) s += g.J[k * NC + a] * g.J[k * NC + a];
-            sc[a] = sqrt(s) + real(1e-8);
+            real s2 = 0;
+            for (int k = 0; k < M; ++k) { const real v = w.g.J[k * NC + a] * ((k % 6) < 3 ? wp : wo); s2 += v * v; }
+            sc[a] = sqrt(s2) + real(1e-8);
         }
-        for (int k = 0; k < M; ++k)
-            for (int a = 0; a < NC; ++a) g.J[k * NC + a] /= sc[a];
-
-        real A[NC * NC], b[NC];
-        for (int i = 0; i < NC; ++i) {
+        // Scaled, weighted Jacobian Js = W J / sc in place.
+        for (int k = G.rank; k < M; k += G.size) {
+            const real wk = (k % 6) < 3 ? wp : wo;
+            for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wk / sc[a];
+        }
+        G.sync();
+        // Rows of A = Js^T Js + lam I and b = -Js^T W r, a row per lane (all rows on one lane at
+        // the thread tier, column i held in registers across the row).
+        for (int i = G.rank; i < NC; i += G.size) {
+            real ji[M];
+            for (int k = 0; k < M; ++k) ji[k] = w.g.J[k * NC + i];
             for (int j = 0; j < NC; ++j) {
                 real acc = 0;
-                for (int k = 0; k < M; ++k) acc += g.J[k * NC + i] * g.J[k * NC + j];
-                A[i * NC + j] = acc + (i == j ? lam : real(0));
+                for (int k = 0; k < M; ++k) acc += ji[k] * w.g.J[k * NC + j];
+                w.A[i * NC + j] = acc + (i == j ? lam : real(0));
             }
             real rb = 0;
-            for (int k = 0; k < M; ++k) rb += g.J[k * NC + i] * fw[k];
-            b[i] = -rb;
+            for (int k = 0; k < M; ++k) rb += ji[k] * fw[k];
+            w.b[i] = -rb;
         }
         if (want_coll)
-            collision_terms(g, world, want_world, margin, [&](real* gg, real viol) {
-                for (int a = 0; a < NC; ++a) gg[a] /= sc[a];
-                for (int i = 0; i < NC; ++i) {
-                    for (int j = 0; j < NC; ++j) A[i * NC + j] += cw_weight * gg[i] * gg[j];
-                    b[i] += cw_weight * viol * gg[i];
-                }
-            });
-        for (int a = 0; a < NC; ++a) {
+            collision_rounds(G, w, world, want_world, margin, sc,
+                             [&](int n) { gn_accumulate(G, w, n, w.A, NC, w.b, cw_weight); });
+        G.sync();
+        for (int a = G.rank; a < NC; a += G.size) {
             if (!fixed[a]) continue;
-            for (int j = 0; j < NC; ++j) A[a * NC + j] = A[j * NC + a] = 0;
-            A[a * NC + a] = 1;
-            b[a] = 0;
+            for (int j = 0; j < NC; ++j) w.A[a * NC + j] = w.A[j * NC + a] = 0;
+            w.A[a * NC + a] = 1;
+            w.b[a] = 0;
         }
-        posv<NC>(A, b);
+        posv_tier<TIER, NC>(G, w);
 
         real delta[NC];
-        for (int a = 0; a < NC; ++a) delta[a] = b[a] / sc[a];
-        clip_to_radius(delta, trust_radius(g.r));
+        for (int a = 0; a < NC; ++a) delta[a] = w.b[a] / sc[a];
+        clip_to_radius(delta, trust_radius(w.g.r));
 
+        // The five trials, one per lane (all of them on the one lane at the thread tier).
         const real alphas[5] = {1, 0.5, 0.25, 0.1, 0.025};
-        real best_a_err = real(1e30);
-        int best_a = 0;
-        for (int ai = 0; ai < 5; ++ai) {
+        for (int ai = G.rank; ai < 5; ai += G.size) {
             real trial[NC];
             for (int a = 0; a < NC; ++a) trial[a] = clamp(cfg[a] + alphas[ai] * delta[a], lo[a], hi[a]);
-            Geom gt;
-            geometry_value(trial, sd, gt);
+            GeomV gt;
+            grim::ck::geometry_value(trial, sd, gt);
             real e = weighted_err(gt.r, wp, wo);
             if (want_coll) e += cw_weight * collision_raw(gt, world, want_world, margin);
-            if (e < best_a_err) { best_a_err = e; best_a = ai; }
+            w.err[ai] = e;
         }
+        G.sync();
+        real best_a_err = real(1e30);
+        int best_a = 0;
+        for (int ai = 0; ai < 5; ++ai)
+            if (w.err[ai] < best_a_err) { best_a_err = w.err[ai]; best_a = ai; }
         real trial[NC];
         for (int a = 0; a < NC; ++a) trial[a] = clamp(cfg[a] + alphas[best_a] * delta[a], lo[a], hi[a]);
         if (best_a_err < curr_err * real(1 - 1e-4)) {
@@ -120,8 +124,10 @@ __global__ void ck_ls_ik_kernel(
             for (int a = 0; a < NC; ++a) best_cfg[a] = trial[a];
         }
     }
-    store(best_cfg, sd, out, gs);
-    out_err[gs] = (float)best_err;
+    if (G.leader()) {
+        store(best_cfg, sd, out, gs);
+        out_err[gs] = (float)best_err;
+    }
 }
 
 static ffi::Error CkLsIkImpl(
@@ -136,7 +142,7 @@ static ffi::Error CkLsIkImpl(
     int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
-    (void)tier; (void)block_threads;
+    (void)block_threads;   // the block tier runs BLOCK_THREADS lanes (crocket's block variant)
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("ls_ik (crocket)", seeds.dimensions()[2], target_Ts.dimensions()[1]);
@@ -144,7 +150,7 @@ static ffi::Error CkLsIkImpl(
     if (n == 0) return ffi::Error::Success();
     const World world{world_spheres.typed_data(), world_capsules.typed_data(),
                       world_boxes.typed_data(), world_halfspaces.typed_data()};
-    ck_ls_ik_kernel<<<(n + THREADS - 1) / THREADS, THREADS, 0, stream>>>(
+    CK_LAUNCH(ck_ls_ik_kernel, LsWork, tier, n, stream,
         seeds.typed_data(), target_Ts.typed_data(), world, lower.typed_data(), upper.typed_data(),
         fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(), n_problems, n_seeds,
         static_cast<int>(max_iter), static_cast<int>(enable_collision), pos_weight, ori_weight,
