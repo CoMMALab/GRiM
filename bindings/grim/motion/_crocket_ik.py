@@ -25,7 +25,7 @@ import numpy as np
 
 from .robot import MotionRobot
 
-BLOCK_THREADS = 64   # lanes per seed at the block tier (crocket's block variant is built for it)
+BLOCK_THREADS = 64   # default lanes per seed at the block tier (crocket's block variant is built for it)
 
 
 def _model(robot: MotionRobot):
@@ -82,8 +82,10 @@ def _wxyz(R) -> np.ndarray:
     return q if q[0] >= 0 else -q
 
 
-def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) -> str:
-    """The traced ``ik_geometry`` of ``problem`` and its tables, namespace ``grim::ck``."""
+def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int],
+           block_threads: int = BLOCK_THREADS) -> str:
+    """The traced ``ik_geometry`` of ``problem`` and its tables, namespace ``grim::ck``; the block
+    tier runs ``block_threads`` lanes per seed."""
     import crocket
     from ._build import SelfCollision
     model = _model(robot)
@@ -128,11 +130,11 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
         Rc = (jt.E[0] + jt.E[1] if jt.kind == "revolute" else jt.E[0]).T
         rot_pre = _wxyz(Rc @ _matrix(robot.parent_tf[problem.runtime_rot_joint, :4]).T)
         opts["rot_joint"] = jc
-    # Thread, warp and block (BLOCK_THREADS lanes) from the same trace: the kernels compile at
+    # Thread, warp and block (block_threads lanes) from the same trace: the kernels compile at
     # every tier and call the variant of theirs.
     traced = crocket.generate(model, {"ik_geometry": opts, "ik_geometry_value": opts},
                               variants=[crocket.Variant("thread"), crocket.Variant("warp", units=32),
-                                        crocket.Variant("block", units=BLOCK_THREADS)], name="robot")
+                                        crocket.Variant("block", units=block_threads)], name="robot")
 
     nj = len(model.joints)
     joint_col = [solved.index(robot.actuated_names.index(model.joint_names[j.q_index]))
@@ -155,7 +157,7 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
             f"constexpr int NJ = {nj};\n"
             f"constexpr int NWS = {len(ws)};\n"
             f"constexpr int NSS = {len(ss)};\n"
-            f"constexpr int BLOCK_THREADS = {BLOCK_THREADS};\n"
+            f"constexpr int BLOCK_THREADS = {block_threads};\n"
             f"constexpr int NROT = {len(rot_pre)};\n"   # 4 with a runtime parent rotation
             + _table("double", "kRotPre", rot_pre)
             + _table("int", "kJointCol", joint_col)

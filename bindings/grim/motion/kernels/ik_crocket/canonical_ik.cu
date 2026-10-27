@@ -178,7 +178,7 @@ static ffi::Error CkCanonicalIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_q, ffi::Result<ffi::Buffer<ffi::DataType::S32>> out_iters)
 {
     GRIM_ROT_UPLOAD(stream);
-    (void)block_threads;
+    GRIM_CK_CHECK_BLOCK_THREADS("canonical_ik (crocket)", block_threads);
     static_assert(grim::robot::n_frozen == 0, "canonical IK solves every joint");
     const int n_problems = static_cast<int>(cfgs.dimensions()[0]);
     GRIM_CK_CHECK_WORLD("canonical_ik (crocket)", cfgs.dimensions()[1],
@@ -190,9 +190,7 @@ static ffi::Error CkCanonicalIkImpl(
         cfgs.typed_data(), cfg_refs.typed_data(), target_Ts.typed_data(), world, n_problems,
         static_cast<int>(max_iters), step, tol, damping, collision_margin,
         out_q->typed_data(), out_iters->typed_data());
-    const cudaError_t err = cudaGetLastError();
-    return err == cudaSuccess ? ffi::Error::Success()
-                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err));
+    GRIM_CK_LAUNCH_STATUS("canonical_ik (crocket)", tier);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

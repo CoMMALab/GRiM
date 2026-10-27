@@ -243,11 +243,18 @@ static ffi::Error CkMppiIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
     GRIM_ROT_UPLOAD(stream);
-    (void)block_threads;
+    GRIM_CK_CHECK_BLOCK_THREADS("mppi_ik (crocket)", block_threads);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("mppi_ik (crocket)", seeds.dimensions()[2],
                         target_Ts.dimensions()[target_Ts.dimensions().size() - 2]);
+    if (n_particles > CK_MAX_EVAL)   // the kernel holds a seed's particle costs in CK_MAX_EVAL slots
+        return ffi::Error(ffi::ErrorCode::kInvalidArgument,
+                          "mppi_ik (crocket): n_particles=" + std::to_string(n_particles) +
+                          " exceeds the kernel's cap of " + std::to_string(CK_MAX_EVAL) +
+                          " particles per seed (CK_MAX_EVAL in kernels/ik_crocket/ck.cuh); "
+                          "pass n_particles <= " + std::to_string(CK_MAX_EVAL) +
+                          ", or use more seeds for a wider search");
     const int n = n_problems * n_seeds;
     if (n == 0) return ffi::Error::Success();
     const World world{world_spheres.typed_data(), world_capsules.typed_data(),
@@ -258,9 +265,7 @@ static ffi::Error CkMppiIkImpl(
         n_problems, n_seeds, static_cast<int>(n_particles), static_cast<int>(n_mppi_iters),
         static_cast<int>(n_lbfgs_iters), static_cast<int>(m_lbfgs), static_cast<int>(enable_collision),
         collision_weight, collision_margin, sigma, mppi_temperature, pos_weight, ori_weight, eps_pos, eps_ori);
-    const cudaError_t err = cudaGetLastError();
-    return err == cudaSuccess ? ffi::Error::Success()
-                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err));
+    GRIM_CK_LAUNCH_STATUS("mppi_ik (crocket)", tier);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

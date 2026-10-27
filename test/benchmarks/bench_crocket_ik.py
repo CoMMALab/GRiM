@@ -167,7 +167,7 @@ def bench_solvers(robot, name, rows, scenario, which, skip=frozenset(), only=Non
                         continue
                     s, t = s_all[:B], targets[:B]
                     kw = settings(kernel, s)
-                    extra = {"tier": tier, "block_threads": 64}
+                    extra = {"tier": tier}
                     f = jax.jit(lambda s, t, extra=extra: ik.run(T, s, t, world=world, **kw, **extra)[:2])
                     q, e = jax.block_until_ready(f(s, t))
                     ms = amortized_ms(lambda: f(s, t))

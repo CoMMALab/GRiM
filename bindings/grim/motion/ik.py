@@ -20,7 +20,8 @@ robot (residual, Jacobian, collision-sphere centres, joint twists) from crocket'
 ``"crocket-f32"`` (default) or ``"crocket-f64"``, float or double end to end.
 
 ``tier`` picks how many threads own one seed: ``"thread"`` (one; the fastest at large batch on
-every robot measured), ``"warp"`` (32) or ``"block"`` (``_crocket_ik.BLOCK_THREADS``).
+every robot measured), ``"warp"`` (32) or ``"block"`` (``block_threads``, at least 32, fixed when
+the kernel is built: crocket generates its block variant for that many lanes).
 """
 
 from __future__ import annotations
@@ -96,6 +97,7 @@ class Target:
     upper: tuple[float, ...]
     runtime_rot: bool = False       # takes a per-call parent rotation (see Problem)
     backend: str = "crocket-f32"    # "crocket-f32" / "crocket-f64": the kernel's scalar type
+    block_threads: int = 64         # lanes per seed at the block tier
 
 
 def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = None,
@@ -115,24 +117,32 @@ def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = No
 
 def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
           world_counts=(0, 0, 0, 0), chain_only: bool = True, runtime_rot_joint: int = -1,
-          backend: str = "crocket-f32") -> Target:
+          backend: str = "crocket-f32", block_threads: int = 64, debug_skew_ns: int = 0) -> Target:
     """Compile (or load) ``kernel`` for this robot and problem structure. With
     ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call; it must
-    be a movable joint (crocket folds fixed joints into the movable joints below them)."""
+    be a movable joint (crocket folds fixed joints into the movable joints below them).
+    ``block_threads`` is the block tier's lanes per seed. ``debug_skew_ns`` > 0 is for tests: the
+    cooperative tiers' upper lanes then sleep that long after every barrier, so a missing barrier
+    races on every run."""
     source, symbol, all_joints = KERNELS[kernel]
     if backend not in BACKENDS:
         raise ValueError(f"unknown backend {backend!r}: one of {sorted(BACKENDS)}")
+    if not 32 <= block_threads <= 1024:
+        raise ValueError(f"block_threads={block_threads}: the block tier needs 32..1024 lanes "
+                         "per seed (its dense solves run on the first full warp)")
     prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
                    runtime_rot_joint)
-    (name,) = _build.target(source, (symbol,), robot, prob, crocket_real=BACKENDS[backend])
+    (name,) = _build.target(source, (symbol,), robot, prob, crocket_real=BACKENDS[backend],
+                            crocket_block_threads=block_threads,
+                            extra_flags=(f"-DGRIM_CK_SKEW_NS={debug_skew_ns}",) if debug_skew_ns else ())
     return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
-                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, backend)
+                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, backend, block_threads)
 
 
 def run(target: Target, seeds, targets, *, world: World = World(), lower=None, upper=None,
         fixed_mask=None, enable_collision: bool | None = None, tier: str = "thread",
-        block_threads: int = 64, noise=None, rng_seed: int = 0, rot=None, **settings):
+        noise=None, rng_seed: int = 0, rot=None, **settings):
     """Launch a built IK kernel. ``settings`` are the kernel's solver settings (see the named
     functions); ``noise`` is hjcd_lm's stall-kick noise, ``rng_seed`` mppi's seed and ``rot``
     the wxyz parent rotation of a ``runtime_rot_joint`` build."""
@@ -158,7 +168,7 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
         after_limits.append(jnp.asarray([rng_seed], jnp.int32))
     attrs = {k: (np.int64(v) if isinstance(v, (bool, int, np.integer)) else np.float32(v))
              for k, v in settings.items()}
-    attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
+    attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(target.block_threads))
     return jax.ffi.ffi_call(target.name, tuple(outs))(
         *_rot_operand(target, rot), seeds, *after_seeds, jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7),
         *world.arrays(), lo, hi, fm, *after_limits, **attrs,
@@ -173,9 +183,9 @@ def _rot_operand(target: Target, rot) -> tuple:
 
 
 def _solve(kernel, robot, seeds, targets, ee_joints, *, world, collision, chain_only,
-           backend="crocket-f32", **kw):
+           backend="crocket-f32", block_threads=64, **kw):
     t = build(kernel, robot, ee_joints, collision=collision, world_counts=world.counts(),
-              chain_only=chain_only, backend=backend)
+              chain_only=chain_only, backend=backend, block_threads=block_threads)
     return run(t, seeds, targets, world=world, **kw)
 
 
@@ -211,8 +221,9 @@ def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
     as a 6 n_ee system; plain LM accept/reject, no line search or trust radius. No collision.
     Faster than :func:`ls_ik` at a slightly lower solve rate.
     """
-    t = build("dls", robot, ee_joints, chain_only=chain_only, backend=backend)
-    return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, max_iter=max_iter, pos_weight=pos_weight,
+    t = build("dls", robot, ee_joints, chain_only=chain_only, backend=backend,
+              block_threads=block_threads)
+    return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, tier=tier, max_iter=max_iter, pos_weight=pos_weight,
                   ori_weight=ori_weight, lambda_init=lambda_init, eps_pos=eps_pos,
                   eps_ori=eps_ori)
 
@@ -285,7 +296,8 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
             backend: str = "crocket-f32", tier: str = "thread", block_threads: int = 64):
     """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik_crocket/mppi_ik.cu``)
     -> ``(q, err)``. The noise stream is keyed on (rng_seed, problem, seed slot), so a
-    solve is deterministic but a seed's result depends on its slot."""
+    solve is deterministic but a seed's result depends on its slot. ``n_particles`` is at most 32
+    per seed (the kernel's ``CK_MAX_EVAL``); more raises."""
     return _solve("mppi", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
                   chain_only=False, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, rng_seed=rng_seed, n_particles=n_particles,
@@ -297,19 +309,19 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
 
 def build_canonical(robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
                     world_counts=(0, 0, 0, 0), runtime_rot_joint: int = -1,
-                    backend: str = "crocket-f32") -> Target:
+                    backend: str = "crocket-f32", block_threads: int = 64) -> Target:
     return build("canonical", robot, ee_joints, collision=collision, world_counts=world_counts,
-                 runtime_rot_joint=runtime_rot_joint, backend=backend)
+                 runtime_rot_joint=runtime_rot_joint, backend=backend, block_threads=block_threads)
 
 
 def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),
                   max_iters: int = 200, step: float = 0.1, tol: float = 1e-5,
                   damping: float = 1e-6, collision_margin: float = 0.0, rot=None,
                   tier: str = "thread"):
-    """``tier``: one problem per thread, warp or block."""
+    """``tier``: one problem per thread, warp or block (``target.block_threads`` lanes)."""
     q = jnp.asarray(q, jnp.float32)
     P = q.shape[0]
-    extra = dict(tier=np.int64(TIERS[tier]), block_threads=np.int64(64))
+    extra = dict(tier=np.int64(TIERS[tier]), block_threads=np.int64(target.block_threads))
     return jax.ffi.ffi_call(target.name, (jax.ShapeDtypeStruct((P, target.n_q), jnp.float32),
                                           jax.ShapeDtypeStruct((P,), jnp.int32)))(
         *_rot_operand(target, rot), q, jnp.asarray(q_ref, jnp.float32),

@@ -4,6 +4,8 @@
 * Thread-count invariance (Principle 2): the block tier is bit-identical at 32, 64, 128 and a
   random non-multiple-of-32 block size.
 * Tier agreement: thread, warp and block tiers agree to round-off after one iteration.
+* Barriers: a cooperative tier's result does not change when its upper lanes leave every barrier
+  late (``debug_skew_ns``), so no phase reads a shared buffer another lane is still rewriting.
 * Batch invariance: a problem's answer does not depend on its slot or the batch size.
 * Certificates: on reachable targets the oracle confirms the returned pose error, the
   joint limits, and the solver's reported error.
@@ -18,7 +20,7 @@ import pytest
 from grim.motion.reference import ik as ref
 
 from .conftest import assert_close_scaled, ee_sets, load_robot, requires_gpu
-from .ik_cases import pose_errors, reachable_targets, seeds
+from .ik_cases import collision_case, pose_errors, reachable_targets, seeds
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
 
@@ -127,6 +129,43 @@ def test_tiers_agree_to_roundoff(kind, name, which):
         got = _solve(kind, robot, ees, s, t, 1, tier=tier)
         assert_close_scaled(got[0], want[0], rtol_q, f"{kind} {name} {tier} q")
         assert_close_scaled(got[1], want[1], max(1e-5, rtol_q), f"{kind} {name} {tier} err")
+
+
+def _run_built(kind, robot, ees, s, t, iters, tier, **build_kw):
+    """One ls / sqp / hjcd(-LM) solve with collision (``collision_case``) through ik.build +
+    ik.run (build options the named solvers do not take)."""
+    from grim.motion import ik
+    kind, _, backend = kind.partition("@")
+    kernel = "hjcd_lm" if kind == "hjcd" else kind
+    coll, world = collision_case(robot)
+    target = ik.build(kernel, robot, ees, collision=coll, world_counts=world.counts(),
+                      backend=backend, **build_kw)
+    kw = dict(max_iter=iters, lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3,
+              collision_weight=1e4, collision_margin=0.02)
+    if kind == "hjcd":
+        kw.update(noise=_hjcd_noise(s, iters), stall_patience=6, limit_prior_weight=1e-4,
+                  kick_scale=0.02, early_stop=False)
+    else:
+        kw.update(W)
+    if kind == "sqp":
+        kw["n_inner_iters"] = 10
+    return tuple(np.asarray(x) for x in ik.run(target, s, t, world=world, tier=tier, **kw))
+
+
+@pytest.mark.parametrize("kind", [f"{k}@{b}" for k in ("ls", "sqp", "hjcd")
+                                  for b in ("crocket-f32", "crocket-f64")])
+@pytest.mark.parametrize("name,which", [("fr3", 0), ("baxter", 1)])
+@pytest.mark.parametrize("tier", ["warp", "block"])
+def test_barriers_hold_under_lane_skew(kind, name, which, tier):
+    """Every lane reads the seed's whole Jacobian for the column scales before lanes rescale
+    their rows of it in place. Without a barrier between the two, lanes that leave the previous
+    barrier late read rows already rescaled, and the collision rows those lanes own (constraints
+    past the first 16 / 32) enter the system divided by the wrong scales."""
+    robot, ees, s, t = _case(name, which)
+    want = _run_built(kind, robot, ees, s, t, 5, tier)
+    got = _run_built(kind, robot, ees, s, t, 5, tier, debug_skew_ns=20000)
+    for a, b in zip(got, want):
+        assert np.array_equal(a, b), f"{kind} {name} {tier}: lane skew changes the result"
 
 
 @pytest.mark.parametrize("kind", SLOT_INVARIANT)

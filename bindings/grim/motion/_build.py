@@ -345,16 +345,18 @@ def register(so: Path, symbols: tuple[str, ...]) -> tuple[str, ...]:
 
 def target(kernel: str, symbols: tuple[str, ...], robot: MotionRobot, problem: Problem,
            traced: bool = False, extra_flags: tuple[str, ...] = (),
-           crocket_real: str | None = None) -> tuple[str, ...]:
+           crocket_real: str | None = None, crocket_block_threads: int = 64) -> tuple[str, ...]:
     """Build (or load) ``kernel`` for ``robot``/``problem`` and return its FFI target names.
-    ``crocket_real`` ("float" / "double") appends the crocket IK geometry (see _crocket_ik)."""
+    ``crocket_real`` ("float" / "double") appends the crocket IK geometry (see _crocket_ik), its
+    block tier ``crocket_block_threads`` lanes per seed."""
     header = robot_header(robot, problem, traced)
     solved = solved_joints(robot, problem)
     n_solve = len(solved)
     if crocket_real is not None:
         from . import _crocket_ik
         header += _crocket_ik.source(robot, problem, solved,
-                                     [a for a in range(robot.n_act) if a not in solved])
+                                     [a for a in range(robot.n_act) if a not in solved],
+                                     crocket_block_threads)
         extra_flags = (*extra_flags, f"-DGRIM_CK_REAL={crocket_real}")
     if problem.runtime_rot_joint >= 0:
         if traced:

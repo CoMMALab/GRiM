@@ -151,6 +151,7 @@ __global__ void ck_hjcd_lm_kernel(
             for (int k = 0; k < M; ++k) { const real v = w.g.J[k * NC + a] * wt[k]; s2 += v * v; }
             sc[a] = sqrt(s2) + real(1e-8);
         }
+        G.sync();   // every lane has read J for sc before rows are rescaled in place
         for (int k = G.rank; k < M; k += G.size)
             for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wt[k] / sc[a];
         G.sync();
@@ -250,7 +251,7 @@ static ffi::Error CkHjcdCoarseImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
     GRIM_ROT_UPLOAD(stream);
-    (void)block_threads;
+    GRIM_CK_CHECK_BLOCK_THREADS("hjcd_ik (crocket)", block_threads);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("hjcd_ik (crocket)", seeds.dimensions()[2],
@@ -263,9 +264,7 @@ static ffi::Error CkHjcdCoarseImpl(
         seeds.typed_data(), target_Ts.typed_data(), world, lower.typed_data(), upper.typed_data(),
         fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(), n_problems, n_seeds,
         static_cast<int>(k_max), static_cast<int>(enable_collision), collision_weight, collision_margin);
-    const cudaError_t err = cudaGetLastError();
-    return err == cudaSuccess ? ffi::Error::Success()
-                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err));
+    GRIM_CK_LAUNCH_STATUS("hjcd_ik (crocket)", tier);
 }
 
 static ffi::Error CkHjcdLmImpl(
@@ -285,7 +284,7 @@ static ffi::Error CkHjcdLmImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> stop_flag)
 {
     GRIM_ROT_UPLOAD(stream);
-    (void)block_threads;
+    GRIM_CK_CHECK_BLOCK_THREADS("hjcd_ik (crocket)", block_threads);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("hjcd_ik (crocket)", seeds.dimensions()[2],
@@ -302,9 +301,7 @@ static ffi::Error CkHjcdLmImpl(
         static_cast<int>(early_stop), lambda_init, limit_prior_weight, kick_scale, eps_pos, eps_ori,
         static_cast<int>(stall_patience), static_cast<int>(enable_collision), collision_weight,
         collision_margin);
-    const cudaError_t err = cudaGetLastError();
-    return err == cudaSuccess ? ffi::Error::Success()
-                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err));
+    GRIM_CK_LAUNCH_STATUS("hjcd_ik (crocket)", tier);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

@@ -8,3 +8,4 @@
 [submodule "external/crocket"]
 	path = external/crocket
 	url = https://github.com/CoMMALab/crocket.git
+	branch = benchmarks

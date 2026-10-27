@@ -98,7 +98,7 @@ static ffi::Error CkDlsIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
     GRIM_ROT_UPLOAD(stream);
-    (void)block_threads;   // the block tier runs BLOCK_THREADS lanes (crocket's block variant)
+    GRIM_CK_CHECK_BLOCK_THREADS("dls_ik (crocket)", block_threads);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     if (seeds.dimensions()[2] != grim::robot::n_q || target_Ts.dimensions()[1] != grim::robot::n_ee)
@@ -112,9 +112,7 @@ static ffi::Error CkDlsIkImpl(
         seeds.typed_data(), target_Ts.typed_data(), lower.typed_data(), upper.typed_data(),
         fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(), n_problems, n_seeds,
         static_cast<int>(max_iter), pos_weight, ori_weight, lambda_init, eps_pos, eps_ori);
-    const cudaError_t err = cudaGetLastError();
-    return err == cudaSuccess ? ffi::Error::Success()
-                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err));
+    GRIM_CK_LAUNCH_STATUS("dls_ik (crocket)", tier);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

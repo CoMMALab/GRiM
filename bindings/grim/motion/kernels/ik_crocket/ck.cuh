@@ -24,6 +24,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <type_traits>
 
 #ifndef GRIM_CK_REAL
@@ -400,6 +401,12 @@ struct Grp {
     {
         if constexpr (TIER == grim::Tier::Warp) __syncwarp();
         if constexpr (TIER == grim::Tier::Block) __syncthreads();
+#ifdef GRIM_CK_SKEW_NS
+        // Test builds (ik.build(debug_skew_ns=...)): the upper lanes leave every barrier late, so
+        // a phase missing its barrier reads what the lower lanes already rewrote, every run.
+        if constexpr (TIER != grim::Tier::Thread)
+            if (rank >= (TIER == grim::Tier::Warp ? 16 : 32)) __nanosleep(GRIM_CK_SKEW_NS);
+#endif
     }
     __device__ bool leader() const { return rank == 0; }
 };
@@ -522,6 +529,8 @@ __device__ __forceinline__ void geometry_value(const Grp<TIER>& G, const real* _
     G.sync();
 }
 
+__host__ __device__ constexpr int pow2_floor(int n) { return n < 2 ? 1 : 2 * pow2_floor(n / 2); }
+
 /** Sum of each lane's `v`, identical on every lane (fixed-order tree, then a broadcast). */
 template <grim::Tier TIER, class W>
 __device__ __forceinline__ real reduce_sum(const Grp<TIER>& G, W& w, real v)
@@ -532,9 +541,14 @@ __device__ __forceinline__ real reduce_sum(const Grp<TIER>& G, W& w, real v)
         for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffffu, v, o);
         return __shfl_sync(0xffffffffu, v, 0);
     } else {
+        constexpr int P2 = pow2_floor(BLOCK_THREADS);
         w.red[G.rank] = v;
         G.sync();
-        for (int o = BLOCK_THREADS / 2; o > 0; o >>= 1) {
+        if constexpr (P2 < BLOCK_THREADS) {   // fold the lanes past the power of two in first
+            if (G.rank < BLOCK_THREADS - P2) w.red[G.rank] += w.red[G.rank + P2];
+            G.sync();
+        }
+        for (int o = P2 / 2; o > 0; o >>= 1) {
             if (G.rank < o) w.red[G.rank] += w.red[G.rank + o];
             G.sync();
         }
@@ -712,10 +726,13 @@ __device__ __forceinline__ void gn_accumulate(const Grp<TIER>& G, W& w, int n, r
 /**
  * Factor w.A (N x N) in place for repeated solves (potrs_tier), at TIER; false if not PD.
  *
- * The block tier factors and solves on its first warp with GLASS's warp routines: GLASS's block
- * potrf + potrs pair, used this way (one factor, many solves), returns wrong solutions -- stock
- * GRiM's block-tier SQP-with-collision diverges from its own thread tier on 52 of 64 fr3 seeds
- * after one step, where the warp routines agree with the thread tier to round-off.
+ * The block tier factors and solves on its first warp with GLASS's warp routines. GLASS's block
+ * trsv (so block potrs) is wrong at >1 thread when its x reaches it through a `__restrict__`
+ * pointer, as here: nvcc serves the re-reads of x that other threads wrote (the pivot rank 0
+ * resolved, the unknowns whose owner changes each step) from registers across __syncthreads.
+ * Block-tier SQP-with-collision then diverged from the thread tier on 54 of 64 fr3 seeds after
+ * one step; the warp routines agree to round-off. Go back to grim::tier_potrf<TIER> /
+ * tier_potrs<TIER> once GLASS's block trsv is fixed upstream.
  */
 template <grim::Tier TIER, int N, class W>
 __device__ __forceinline__ bool potrf_tier(const Grp<TIER>& G, W& w)
@@ -761,6 +778,26 @@ __device__ __forceinline__ void posv_tier(const Grp<TIER>& G, W& w)
 }
 
 }  // namespace grim::ck
+
+// The block tier's lanes per seed are fixed by the build (crocket's block variant is generated
+// for them): the launch must ask for the same.
+#define GRIM_CK_CHECK_BLOCK_THREADS(name, block_threads)                                      \
+    if ((block_threads) != grim::ck::BLOCK_THREADS)                                            \
+        return ffi::Error(ffi::ErrorCode::kInvalidArgument,                                     \
+                          name ": block_threads does not match this build's (pass it to build)")
+
+// The shared FFI epilogue: the launch's CUDA status, naming block_threads when the block tier's
+// kernel needs more registers than a block of that many lanes has.
+#define GRIM_CK_LAUNCH_STATUS(name, tier)                                                     \
+    const cudaError_t err = cudaGetLastError();                                                \
+    if (err == cudaErrorLaunchOutOfResources && (tier) == 2)                                   \
+        return ffi::Error(ffi::ErrorCode::kInvalidArgument,                                     \
+                          std::string(name) + ": block_threads=" +                             \
+                          std::to_string(grim::ck::BLOCK_THREADS) + " lanes per seed need more " \
+                          "registers than a block has for this kernel; build with a smaller " \
+                          "block_threads");                                                    \
+    return err == cudaSuccess ? ffi::Error::Success()                                          \
+                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err))
 
 // The shared FFI preamble: the launch must match the build's robot and obstacle counts.
 #define GRIM_CK_CHECK_WORLD(name, seeds_dim2, ee_dim)                                         \

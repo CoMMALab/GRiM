@@ -59,6 +59,7 @@ __global__ void ck_ls_ik_kernel(
             for (int k = 0; k < M; ++k) { const real v = w.g.J[k * NC + a] * ((k % 6) < 3 ? wp : wo); s2 += v * v; }
             sc[a] = sqrt(s2) + real(1e-8);
         }
+        G.sync();   // every lane has read J for sc before rows are rescaled in place
         // Scaled, weighted Jacobian Js = W J / sc in place.
         for (int k = G.rank; k < M; k += G.size) {
             const real wk = (k % 6) < 3 ? wp : wo;
@@ -144,7 +145,7 @@ static ffi::Error CkLsIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
     GRIM_ROT_UPLOAD(stream);
-    (void)block_threads;   // the block tier runs BLOCK_THREADS lanes (crocket's block variant)
+    GRIM_CK_CHECK_BLOCK_THREADS("ls_ik (crocket)", block_threads);
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("ls_ik (crocket)", seeds.dimensions()[2], target_Ts.dimensions()[1]);
@@ -157,9 +158,7 @@ static ffi::Error CkLsIkImpl(
         fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(), n_problems, n_seeds,
         static_cast<int>(max_iter), static_cast<int>(enable_collision), pos_weight, ori_weight,
         lambda_init, eps_pos, eps_ori, collision_weight, collision_margin);
-    const cudaError_t err = cudaGetLastError();
-    return err == cudaSuccess ? ffi::Error::Success()
-                              : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(err));
+    GRIM_CK_LAUNCH_STATUS("ls_ik (crocket)", tier);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
