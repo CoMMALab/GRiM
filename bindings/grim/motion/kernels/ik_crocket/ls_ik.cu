@@ -81,7 +81,7 @@ __global__ void ck_ls_ik_kernel(
         }
         if (want_coll)
             collision_rounds(G, w, world, want_world, margin, sc,
-                             [&](int n) { gn_accumulate(G, w, n, w.A, NC, w.b, cw_weight); });
+                             [&](int n) { gn_accumulate(G, w, n, w.A, NC, w.b, cw_weight, cw_weight); });
         G.sync();
         for (int a = G.rank; a < NC; a += G.size) {
             if (!fixed[a]) continue;

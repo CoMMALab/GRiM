@@ -651,14 +651,14 @@ __device__ __forceinline__ void collision_rounds(const Grp<TIER>& G, W& w, const
 }
 
 /**
- * Add a collision round's Gauss-Newton terms, A += cw g g^T and b += cw viol g over its live
+ * Add a collision round's Gauss-Newton terms, A += cw g g^T and b += cwb viol g over its live
  * slots (w.gbuf / w.vbuf), A being NC x NC with leading dimension lda. The thread tier's round is
  * one row: a direct rank-1 update. The cooperative tiers split A's entries over lanes and sum the
  * slots in order.
  */
 template <grim::Tier TIER, class W>
 __device__ __forceinline__ void gn_accumulate(const Grp<TIER>& G, W& w, int n, real* __restrict__ A, int lda,
-                                              real* __restrict__ b, real cw)
+                                              real* __restrict__ b, real cw, real cwb)
 {
     if constexpr (TIER == grim::Tier::Thread) {
         (void)G; (void)n;
@@ -670,7 +670,7 @@ __device__ __forceinline__ void gn_accumulate(const Grp<TIER>& G, W& w, int n, r
         for (int i = 0; i < NC; ++i) {
             const real gi = cw * g[i];
             for (int j = 0; j < NC; ++j) A[i * lda + j] += gi * g[j];
-            if (b != nullptr) b[i] += v * gi;
+            if (b != nullptr) b[i] += cwb * v * g[i];
         }
     } else {
         for (int i = G.rank; i < NC; i += G.size) {   // a row per lane
@@ -684,10 +684,46 @@ __device__ __forceinline__ void gn_accumulate(const Grp<TIER>& G, W& w, int n, r
                 real acc = 0;
                 for (int s = 0; s < n; ++s)
                     if (w.vbuf[s] > real(0)) acc += w.vbuf[s] * w.gbuf[s * NC + i];
-                b[i] += cw * acc;
+                b[i] += cwb * acc;
             }
         }
     }
+}
+
+/**
+ * Factor w.A (N x N) in place for repeated solves (potrs_tier), at TIER; false if not PD.
+ *
+ * The block tier factors and solves on its first warp with GLASS's warp routines: GLASS's block
+ * potrf + potrs pair, used this way (one factor, many solves), returns wrong solutions -- stock
+ * GRiM's block-tier SQP-with-collision diverges from its own thread tier on 52 of 64 fr3 seeds
+ * after one step, where the warp routines agree with the thread tier to round-off.
+ */
+template <grim::Tier TIER, int N, class W>
+__device__ __forceinline__ bool potrf_tier(const Grp<TIER>& G, W& w)
+{
+    G.sync();
+    if constexpr (TIER == grim::Tier::Thread) {
+        int fail = 0;
+        glass::thread::potrf<real, (uint32_t)N, /*CHECK=*/true>(w.A, &fail);
+        return fail == 0;
+    } else {
+        if (G.leader()) w.flag = 0;
+        G.sync();
+        if (TIER == grim::Tier::Warp || threadIdx.x < 32)
+            grim::tier_potrf<grim::Tier::Warp, real, (uint32_t)N>(w.A, &w.flag);
+        G.sync();
+        return w.flag == 0;
+    }
+}
+
+/** Solve w.A x = w.b in place from potrf_tier's factor, at TIER. */
+template <grim::Tier TIER, int N, class W>
+__device__ __forceinline__ void potrs_tier(const Grp<TIER>& G, W& w)
+{
+    G.sync();
+    if constexpr (TIER == grim::Tier::Thread) glass::thread::potrs<real, (uint32_t)N>(w.A, w.b);
+    else if (TIER == grim::Tier::Warp || threadIdx.x < 32) grim::tier_potrs<grim::Tier::Warp, real, (uint32_t)N>(w.A, w.b);
+    G.sync();
 }
 
 /** SPD solve of the N x N system w.A x = w.b in place, at TIER (w.b zeroed if not PD). */
