@@ -119,8 +119,9 @@ def build(robot: MotionRobot, ee_joint: int, backend: str = "grim") -> str:
 
 def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
         sphere_joint=None, self_pairs=None, world=None, respect_limits: bool = True,
-        err_tol: float = 1e-4, margin: float = 0.005):
-    """Launch a :func:`build` target; arguments and results as :func:`analytic_ik`."""
+        err_tol: float = 1e-4, margin: float = 0.005, tier: str | None = None):
+    """Launch a :func:`build` target; arguments and results as :func:`analytic_ik`. ``tier``
+    (crocket builds only, required there): "thread" / "warp" / "block"."""
     from .ik import World
     targets = jnp.asarray(targets, jnp.float32).reshape(-1, 4, 4)
     B = targets.shape[0]
@@ -138,13 +139,15 @@ def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
         jnp.asarray(np.zeros((0, 2)) if self_pairs is None else self_pairs, jnp.int32).reshape(-1, 2),
         *world.arrays(), respect_limits=np.int64(respect_limits),
         use_prev=np.int64(previous_q is not None), err_tol=np.float32(err_tol),
-        margin=np.float32(margin))
+        margin=np.float32(margin),
+        # crocket builds: one target per thread / warp / block ("tier"); hand-written: none
+        **({} if tier is None else {"tier": np.int64({"thread": 0, "warp": 1, "block": 2}[tier])}))
 
 
 def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
                 previous_q=None, spheres_home=None, sphere_joint=None, self_pairs=None,
                 world=None, respect_limits: bool = True, err_tol: float = 1e-4,
-                margin: float = 0.005, backend: str = "grim"):
+                margin: float = 0.005, backend: str = "grim", tier: str = "block"):
     """Best branch per target -> ``(q (B, 7), err (B,), found (B,), clearance (B,))``.
 
     ``targets`` (B, 4, 4) end-effector poses. ``q7_samples`` (S,) redundancy values (default
@@ -160,4 +163,5 @@ def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
         q7_samples = jnp.linspace(g.lower[6], g.upper[6], 32)
     return run(build(robot, ee_joint, backend), targets, q7_samples, previous_q,
                spheres_home=spheres_home, sphere_joint=sphere_joint, self_pairs=self_pairs,
-               world=world, respect_limits=respect_limits, err_tol=err_tol, margin=margin)
+               world=world, respect_limits=respect_limits, err_tol=err_tol, margin=margin,
+               tier=None if backend == "grim" else tier)

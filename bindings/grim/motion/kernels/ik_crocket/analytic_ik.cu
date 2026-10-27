@@ -5,10 +5,10 @@
  * q7 value and their pose errors; `analytic_ik_chain`: the screw products that place the
  * home-frame collision spheres). In `real` (GRIM_CK_REAL) throughout.
  *
- * One block per target; threads stride over the q7 samples, each scoring its eight branches
- * exactly as the hand-written kernel does (finite, error below err_tol, inside the limits,
- * clearance above margin, closest to prev_cfg when given), then a shared-memory argmin picks
- * the block's winner. Same FFI signature as AnalyticIkFfi.
+ * One target per thread, warp or block (`tier`); lanes stride over the q7 samples, each scoring
+ * its eight branches exactly as the hand-written kernel does (finite, error below err_tol, inside
+ * the limits, clearance above margin, closest to prev_cfg when given), then the group's argmin
+ * picks the winner. The FFI signature is AnalyticIkFfi's plus `tier`.
  */
 
 #include "grim_robot_gen.cuh"
@@ -27,7 +27,9 @@ using real = GRIM_CK_REAL;
 namespace tr = crocket::robots::robot;
 
 #define N_JOINT 7
-#define CK_AN_THREADS 32
+#define CK_AN_WARPS 4      // targets per block at the warp tier
+#define CK_AN_BLOCK 64     // lanes per target at the block tier
+#define CK_AN_SLOTS 128    // shared reduction slots per block: max(CK_AN_WARPS * 32, CK_AN_BLOCK)
 
 __device__ __forceinline__ real ck_d_sphere(const real* c, real rr, const float* o)
 {
@@ -63,6 +65,9 @@ __device__ __forceinline__ real ck_d_halfspace(const real* c, real rr, const flo
     return (c[0] - o[3]) * o[0] + (c[1] - o[4]) * o[1] + (c[2] - o[5]) * o[2] - rr;
 }
 
+// TIER 0: one target per thread (the thread scans every q7 sample); 1: one per warp; 2: one per
+// block of CK_AN_BLOCK threads. Lanes stride over the q7 samples, then the group's argmin.
+template <int TIER>
 __global__ void ck_analytic_ik_kernel(
     const float* __restrict__ targets, const float* __restrict__ q7_samples,
     const float* __restrict__ prev_cfg, const float* __restrict__ spheres_home,
@@ -74,14 +79,19 @@ __global__ void ck_analytic_ik_kernel(
     float* __restrict__ q_out, float* __restrict__ err_out, int* __restrict__ found_out,
     float* __restrict__ clear_out)
 {
-    __shared__ real s_score[CK_AN_THREADS];
-    __shared__ int s_idx[CK_AN_THREADS];
-    __shared__ float s_clear[CK_AN_THREADS];
-    __shared__ real s_best[CK_AN_THREADS * N_JOINT];
-    __shared__ real s_err[CK_AN_THREADS];
+    __shared__ real s_score[CK_AN_SLOTS];
+    __shared__ int s_idx[CK_AN_SLOTS];
+    __shared__ float s_clear[CK_AN_SLOTS];
+    __shared__ real s_best[CK_AN_SLOTS * N_JOINT];
+    __shared__ real s_err[CK_AN_SLOTS];
 
-    const int b = blockIdx.x;
-    if (b >= batch) return;
+    const int L = TIER == 0 ? 1 : TIER == 1 ? 32 : CK_AN_BLOCK;
+    const int rank = TIER == 0 ? 0 : TIER == 1 ? (int)(threadIdx.x & 31u) : (int)threadIdx.x;
+    const int base = TIER == 1 ? (int)(threadIdx.x >> 5) * 32 : 0;   // this group's reduction slots
+    const int b = TIER == 0 ? (int)(blockIdx.x * blockDim.x + threadIdx.x)
+                : TIER == 1 ? (int)(blockIdx.x * CK_AN_WARPS + (threadIdx.x >> 5)) : (int)blockIdx.x;
+    if (b >= batch) return;   // group-uniform
+    auto gsync = [&]() { if (TIER == 1) __syncwarp(); if (TIER == 2) __syncthreads(); };
     real T[16];
     for (int i = 0; i < 16; ++i) T[i] = targets[b * 16 + i];
     auto lim_lo = [](int i) { return real(grim::robot::kArmGeom[81 + i]); };
@@ -91,7 +101,7 @@ __global__ void ck_analytic_ik_kernel(
     float best_clear = 1e30f;
     real best_q[N_JOINT] = {0, 0, 0, 0, 0, 0, 0};
 
-    for (int is = threadIdx.x; is < n_q7; is += blockDim.x) {
+    for (int is = rank; is < n_q7; is += L) {
         const real q7 = q7_samples[is];
         real Q[8 * N_JOINT], E[8];
         tr::analytic_ik_candidates_thread<real>(T, &q7, Q, E, 1);
@@ -161,31 +171,37 @@ __global__ void ck_analytic_ik_kernel(
         }
     }
 
-    s_score[threadIdx.x] = best_score;
-    s_idx[threadIdx.x] = threadIdx.x;
-    s_clear[threadIdx.x] = best_clear;
-    s_err[threadIdx.x] = best_err;
-    for (int i = 0; i < N_JOINT; ++i) s_best[threadIdx.x * N_JOINT + i] = best_q[i];
-    __syncthreads();
-    for (unsigned int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.x < stride && s_score[threadIdx.x + stride] < s_score[threadIdx.x]) {
-            s_score[threadIdx.x] = s_score[threadIdx.x + stride];
-            s_idx[threadIdx.x] = s_idx[threadIdx.x + stride];
-        }
-        __syncthreads();
-    }
-    if (threadIdx.x == 0) {
-        const int win = s_idx[0];
+    auto write = [&](const real* q, real e, float clr) {
         bool lim = true;
         for (int i = 0; i < N_JOINT; ++i) {
-            const real qi = s_best[win * N_JOINT + i];
-            q_out[b * N_JOINT + i] = (float)qi;
-            if (respect_limits) lim = lim && qi >= lim_lo(i) - real(1e-6) && qi <= lim_hi(i) + real(1e-6);
+            q_out[b * N_JOINT + i] = (float)q[i];
+            if (respect_limits) lim = lim && q[i] >= lim_lo(i) - real(1e-6) && q[i] <= lim_hi(i) + real(1e-6);
         }
-        const real e = s_err[win];
         err_out[b] = (float)e;
         found_out[b] = (e < real(err_tol) && lim) ? 1 : 0;
-        clear_out[b] = s_clear[win];
+        clear_out[b] = clr;
+    };
+    if constexpr (TIER == 0) {
+        write(best_q, best_err, best_clear);
+    } else {
+        const int me = base + rank;
+        s_score[me] = best_score;
+        s_idx[me] = rank;
+        s_clear[me] = best_clear;
+        s_err[me] = best_err;
+        for (int i = 0; i < N_JOINT; ++i) s_best[me * N_JOINT + i] = best_q[i];
+        gsync();
+        for (int stride = L / 2; stride > 0; stride >>= 1) {   // lowest lane wins a tie
+            if (rank < stride && s_score[me + stride] < s_score[me]) {
+                s_score[me] = s_score[me + stride];
+                s_idx[me] = s_idx[me + stride];
+            }
+            gsync();
+        }
+        if (rank == 0) {
+            const int win = base + s_idx[base];
+            write(s_best + win * N_JOINT, s_err[win], s_clear[win]);
+        }
     }
 }
 
@@ -196,7 +212,7 @@ static ffi::Error CkAnalyticIkImpl(
     ffi::Buffer<ffi::DataType::S32> sphere_joint, ffi::Buffer<ffi::DataType::S32> self_pairs,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
     ffi::Buffer<ffi::DataType::F32> world_boxes, ffi::Buffer<ffi::DataType::F32> world_halfspaces,
-    int64_t respect_limits, int64_t use_prev, float err_tol, float margin,
+    int64_t respect_limits, int64_t use_prev, float err_tol, float margin, int64_t tier,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> q_out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> err_out,
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> found_out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> clear_out)
 {
@@ -205,16 +221,20 @@ static ffi::Error CkAnalyticIkImpl(
         return ffi::Error(ffi::ErrorCode::kInvalidArgument, "analytic_ik (crocket): targets must be [B, 4, 4]");
     const int batch = static_cast<int>(tdims[0]);
     if (batch == 0) return ffi::Error::Success();
-    ck_analytic_ik_kernel<<<batch, CK_AN_THREADS, 0, stream>>>(
-        targets.typed_data(), q7_samples.typed_data(), prev_cfg.typed_data(), spheres_home.typed_data(),
-        sphere_joint.typed_data(), self_pairs.typed_data(), world_spheres.typed_data(),
-        world_capsules.typed_data(), world_boxes.typed_data(), world_halfspaces.typed_data(),
-        static_cast<int>(spheres_home.dimensions()[0]), static_cast<int>(self_pairs.dimensions()[0]),
-        static_cast<int>(world_spheres.dimensions()[0]), static_cast<int>(world_capsules.dimensions()[0]),
-        static_cast<int>(world_boxes.dimensions()[0]), static_cast<int>(world_halfspaces.dimensions()[0]),
-        static_cast<int>(q7_samples.dimensions()[0]), batch, static_cast<int>(respect_limits),
-        static_cast<int>(use_prev), err_tol, margin, q_out->typed_data(), err_out->typed_data(),
-        found_out->typed_data(), clear_out->typed_data());
+#define CK_AN_ARGS                                                                                  \
+        targets.typed_data(), q7_samples.typed_data(), prev_cfg.typed_data(), spheres_home.typed_data(),    \
+        sphere_joint.typed_data(), self_pairs.typed_data(), world_spheres.typed_data(),                     \
+        world_capsules.typed_data(), world_boxes.typed_data(), world_halfspaces.typed_data(),               \
+        static_cast<int>(spheres_home.dimensions()[0]), static_cast<int>(self_pairs.dimensions()[0]),       \
+        static_cast<int>(world_spheres.dimensions()[0]), static_cast<int>(world_capsules.dimensions()[0]),  \
+        static_cast<int>(world_boxes.dimensions()[0]), static_cast<int>(world_halfspaces.dimensions()[0]),  \
+        static_cast<int>(q7_samples.dimensions()[0]), batch, static_cast<int>(respect_limits),              \
+        static_cast<int>(use_prev), err_tol, margin, q_out->typed_data(), err_out->typed_data(),            \
+        found_out->typed_data(), clear_out->typed_data()
+    if (tier == 1)      ck_analytic_ik_kernel<1><<<(batch + CK_AN_WARPS - 1) / CK_AN_WARPS, CK_AN_WARPS * 32, 0, stream>>>(CK_AN_ARGS);
+    else if (tier == 2) ck_analytic_ik_kernel<2><<<batch, CK_AN_BLOCK, 0, stream>>>(CK_AN_ARGS);
+    else                ck_analytic_ik_kernel<0><<<(batch + 31) / 32, 32, 0, stream>>>(CK_AN_ARGS);
+#undef CK_AN_ARGS
     const cudaError_t e = cudaGetLastError();
     return e == cudaSuccess ? ffi::Error::Success()
                             : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(e));
@@ -238,6 +258,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("use_prev")
         .Attr<float>("err_tol")
         .Attr<float>("margin")
+        .Attr<int64_t>("tier")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
         .Ret<ffi::Buffer<ffi::DataType::S32>>()
