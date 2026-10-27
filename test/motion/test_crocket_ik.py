@@ -1,11 +1,11 @@
-"""The crocket IK builds (``backend="crocket-f32"`` / ``"crocket-f64"``, kernels/ik_crocket)
-against the float64 oracle, where test_ik_solvers.py and test_ls_ik.py do not already cover them:
+"""The IK kernels (kernels/ik_crocket, ``backend="crocket-f32"`` / ``"crocket-f64"``) against
+the float64 oracle, where test_ik_solvers.py, test_ls_ik.py and test_dls_ik.py do not already
+cover them:
 
-* DLS iterations against the transcription in grim.motion.reference.ik;
 * one LS / SQP step WITH collision against a float64 transcription of the Gauss-Newton collision
   terms (gradients by central differences of the oracle's own distances), on the seeds whose
   system is well conditioned (see ``_collision_step``);
-* canonical IK's KKT certificate and analytic IK's FK certificate, as for the hand-written kernels.
+* canonical IK's KKT certificate and analytic IK's FK certificate.
 
 Every build is a test subject: these run per robot and per end-effector set.
 """
@@ -16,41 +16,16 @@ import numpy as np
 import pytest
 
 from grim.motion.reference import collision as C
-from grim.motion.reference import ik as ref
 from grim.motion.reference import kinematics as K
 
-from .conftest import assert_close_scaled, crocket_available, ee_sets, load_robot, requires_gpu
+from .conftest import assert_close_scaled, ee_sets, load_robot, requires_gpu
 from .ik_cases import collision_case, reachable_targets, seeds
 
-pytestmark = [requires_gpu, pytest.mark.cuda_equivalence,
-              pytest.mark.skipif(not crocket_available(), reason="crocket not installed")]
+pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
 
 BACKENDS = ["crocket-f32", "crocket-f64"]
 SETTINGS = dict(pos_weight=50.0, ori_weight=10.0, lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3)
 COLL = dict(collision_weight=1e4, collision_margin=0.02)
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("name,which", [("fr3", 0), ("iiwa14", 0), ("baxter", 1), ("g1", 1)])
-@pytest.mark.parametrize("iters", [0, 1, 2])
-def test_dls_iterations_match_reference(name, which, iters, backend):
-    from grim.motion.ik import dls_ik
-    from grim.motion.kinematics import solved_columns
-    robot = load_robot(name)
-    ees = ee_sets(robot)[which]
-    targets, _ = reachable_targets(robot, ees, 3)
-    s = seeds(robot, 3, 4)
-    q, e = (np.asarray(x) for x in dls_ik(robot, s, targets, ees, max_iter=iters, backend=backend,
-                                          **SETTINGS))
-    cols = solved_columns(robot, ees, chain_only=True)
-    tol = 1e-4 if backend == "crocket-f32" else 1e-6
-    for p in range(s.shape[0]):
-        for k in range(s.shape[1]):
-            q_ref, e_ref = ref.dls_ik(robot, s[p, k], targets[p], ees, cols, lower=robot.lower,
-                                      upper=robot.upper, fixed_mask=np.zeros(robot.n_act),
-                                      max_iter=iters, **SETTINGS)
-            assert_close_scaled(q[p, k], q_ref, tol, f"{backend} {name} p={p} s={k} q")
-            assert_close_scaled(e[p, k], e_ref, 10 * tol, f"{backend} {name} p={p} s={k} err")
 
 
 def _distances(robot, q, coll, world):

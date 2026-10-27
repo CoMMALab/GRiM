@@ -1,5 +1,5 @@
 /**
- * SQP-IK on crocket-traced geometry: kernels/ik/sqp_ik.cu step for step, in `real` throughout.
+ * SQP-IK on crocket-traced geometry: the hand-written sqp_ik.cu (tag pre-crocket-ik) step for step, in `real` throughout.
  *
  * Each iteration builds the Jacobi-scaled QP (H = Js^T Js + lam I plus the Gauss-Newton
  * collision terms, g = Js^T W r), takes the Newton step clamped to the scaled joint box and
@@ -310,6 +310,7 @@ __global__ void ck_sqp_ik_kernel(
 
 static ffi::Error CkSqpIkImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds, ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
     ffi::Buffer<ffi::DataType::F32> world_boxes, ffi::Buffer<ffi::DataType::F32> world_halfspaces,
@@ -321,6 +322,7 @@ static ffi::Error CkSqpIkImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err,
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> out_feasible)
 {
+    GRIM_ROT_UPLOAD(stream);
     (void)block_threads;   // the block tier runs BLOCK_THREADS lanes (crocket's block variant)
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
@@ -344,6 +346,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     SqpIkFfi, CkSqpIkImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // target_Ts
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_spheres

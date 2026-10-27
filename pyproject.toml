@@ -39,7 +39,7 @@ include = ["grim*"]
 
 [tool.setuptools.package-data]
 grim = ["py.typed"]
-"grim.motion" = ["kernels/*.cuh", "kernels/*.cu", "kernels/*/*.cu"]
+"grim.motion" = ["kernels/*.cuh", "kernels/*.cu", "kernels/*/*.cu", "kernels/*/*.cuh"]
 
 [tool.pytest.ini_options]
 norecursedirs = ["*.egg", ".*", "build", "dist", "external", "scratchpad"]

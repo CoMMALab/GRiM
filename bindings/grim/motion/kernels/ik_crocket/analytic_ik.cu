@@ -1,5 +1,5 @@
 /**
- * Analytic IK on crocket-traced closed form: kernels/ik/analytic_ik.cu's subproblem
+ * Analytic IK on crocket-traced closed form: the hand-written analytic_ik.cu (tag pre-crocket-ik)'s subproblem
  * decomposition of the spherical-shoulder / intersecting-5-6 / offset-7 family, traced by
  * crocket with the arm geometry folded in (`analytic_ik_candidates`: all eight branches of one
  * q7 value and their pose errors; `analytic_ik_chain`: the screw products that place the

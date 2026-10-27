@@ -1,5 +1,5 @@
 """Closed-form IK for the 7-DOF "spherical shoulder, intersecting axes 5-6, offset axis 7"
-family (Franka Panda / FR3), built per robot (``kernels/ik/analytic_ik.cu``).
+family (Franka Panda / FR3), built per robot (``kernels/ik_crocket/analytic_ik.cu``).
 
 The kernel sweeps the redundancy parameter q7 and, for each value, solves the remaining six
 joints with Paden-Kahan subproblems (8 branches). :func:`arm_geometry` reads the home-pose
@@ -93,35 +93,32 @@ def _geometry_header(g: ArmGeometry) -> str:
             f"__device__ __constant__ double kArmGeom[{GEOM_N_SCALARS}] = {{{vals}}};\n}}\n")
 
 
-def build(robot: MotionRobot, ee_joint: int, backend: str = "grim") -> str:
+def build(robot: MotionRobot, ee_joint: int, backend: str = "crocket-f32") -> str:
     """Compile (or load) the kernel for the chain ending at joint frame ``ee_joint`` -> FFI
-    target. The geometry is baked in, so it needs the concrete robot (outside jit).
-    ``backend="crocket-f32"`` / ``"crocket-f64"`` builds ``kernels/ik_crocket/analytic_ik.cu``:
-    the same solve and scoring with the closed form traced by crocket, geometry folded in."""
+    target. The geometry is baked in, so it needs the concrete robot (outside jit). The closed
+    form is traced by crocket with the geometry folded in; ``backend`` is ``"crocket-f32"`` or
+    ``"crocket-f64"``, the scalar type."""
+    import crocket
+    from ._crocket_ik import _model
+    from .ik import BACKENDS
+    if backend not in BACKENDS:
+        raise ValueError(f"unknown backend {backend!r}: one of {sorted(BACKENDS)}")
     g = arm_geometry(robot, ee_joint)
     header = _build.robot_header(robot, _build.Problem(ee_joints=(int(ee_joint),))) + _geometry_header(g)
-    if backend == "grim":
-        so = _build.build("ik/analytic_ik", header, 1, robot.n_joints, 1)
-    elif backend in ("crocket-f32", "crocket-f64"):
-        import crocket
-        from ._crocket_ik import _model
-        geom = tuple(float(x) for x in pack_geometry(g))
-        traced = crocket.generate(_model(robot), {"analytic_ik_candidates": {"geom": geom},
-                                                  "analytic_ik_chain": {"geom": geom}},
-                                  variants=[crocket.Variant("thread")], name="robot")
-        real = "float" if backend == "crocket-f32" else "double"
-        so = _build.build("ik_crocket/analytic_ik", header + traced, 1, robot.n_joints, 1,
-                          (f"-DGRIM_CK_REAL={real}",))
-    else:
-        raise ValueError(f"unknown backend {backend!r}")
+    geom = tuple(float(x) for x in pack_geometry(g))
+    traced = crocket.generate(_model(robot), {"analytic_ik_candidates": {"geom": geom},
+                                              "analytic_ik_chain": {"geom": geom}},
+                              variants=[crocket.Variant("thread")], name="robot")
+    so = _build.build("ik_crocket/analytic_ik", header + traced, 1, robot.n_joints, 1,
+                      (f"-DGRIM_CK_REAL={BACKENDS[backend]}",))
     return _build.register(so, ("AnalyticIkFfi",))[0]
 
 
 def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
         sphere_joint=None, self_pairs=None, world=None, respect_limits: bool = True,
-        err_tol: float = 1e-4, margin: float = 0.005, tier: str | None = None):
-    """Launch a :func:`build` target; arguments and results as :func:`analytic_ik`. ``tier``
-    (crocket builds only, required there): "thread" / "warp" / "block"."""
+        err_tol: float = 1e-4, margin: float = 0.005, tier: str = "block"):
+    """Launch a :func:`build` target; arguments and results as :func:`analytic_ik`. ``tier``:
+    "thread" / "warp" / "block" (the fastest at every batch measured)."""
     from .ik import World
     targets = jnp.asarray(targets, jnp.float32).reshape(-1, 4, 4)
     B = targets.shape[0]
@@ -140,14 +137,13 @@ def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
         *world.arrays(), respect_limits=np.int64(respect_limits),
         use_prev=np.int64(previous_q is not None), err_tol=np.float32(err_tol),
         margin=np.float32(margin),
-        # crocket builds: one target per thread / warp / block ("tier"); hand-written: none
-        **({} if tier is None else {"tier": np.int64({"thread": 0, "warp": 1, "block": 2}[tier])}))
+        tier=np.int64({"thread": 0, "warp": 1, "block": 2}[tier]))
 
 
 def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
                 previous_q=None, spheres_home=None, sphere_joint=None, self_pairs=None,
                 world=None, respect_limits: bool = True, err_tol: float = 1e-4,
-                margin: float = 0.005, backend: str = "grim", tier: str = "block"):
+                margin: float = 0.005, backend: str = "crocket-f32", tier: str = "block"):
     """Best branch per target -> ``(q (B, 7), err (B,), found (B,), clearance (B,))``.
 
     ``targets`` (B, 4, 4) end-effector poses. ``q7_samples`` (S,) redundancy values (default
@@ -164,4 +160,4 @@ def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
     return run(build(robot, ee_joint, backend), targets, q7_samples, previous_q,
                spheres_home=spheres_home, sphere_joint=sphere_joint, self_pairs=self_pairs,
                world=world, respect_limits=respect_limits, err_tol=err_tol, margin=margin,
-               tier=None if backend == "grim" else tier)
+               tier=tier)

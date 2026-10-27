@@ -17,7 +17,7 @@ import pytest
 
 from grim.motion.reference import ik as ref
 
-from .conftest import assert_close_scaled, crocket_available, ee_sets, load_robot, requires_gpu
+from .conftest import assert_close_scaled, ee_sets, load_robot, requires_gpu
 from .ik_cases import pose_errors, reachable_targets, seeds
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
@@ -34,17 +34,16 @@ def _hjcd_noise(s, iters):
 
 
 def _solve(kind, robot, ees, s, t, iters, **kw):
-    """``kind`` is a solver, optionally ``@crocket-f32`` / ``@crocket-f64`` (kernels/ik_crocket)."""
+    """``kind`` is ``solver@backend``, the backend ``crocket-f32`` or ``crocket-f64``."""
     from grim.motion import ik
     kind, _, backend = kind.partition("@")
-    if backend:
-        kw["backend"] = backend
+    kw["backend"] = backend
     if kind == "ls":
         out = ik.ls_ik(robot, s, t, ees, max_iter=iters, **W, **kw)
-    elif kind in ("dls", "dls_traced"):
-        out = ik.dls_ik(robot, s, t, ees, max_iter=iters, traced=kind == "dls_traced", **W, **kw)
-    elif kind in ("sqp", "sqp_f32"):
-        out = ik.sqp_ik(robot, s, t, ees, max_iter=iters, qp_float32=kind == "sqp_f32", **W, **kw)
+    elif kind == "dls":
+        out = ik.dls_ik(robot, s, t, ees, max_iter=iters, **W, **kw)
+    elif kind == "sqp":
+        out = ik.sqp_ik(robot, s, t, ees, max_iter=iters, **W, **kw)
     elif kind == "hjcd":
         out = ik.hjcd_ik_lm(robot, s, t, ees, _hjcd_noise(s, iters), max_iter=iters, **kw)
     elif kind == "hjcd_coarse":
@@ -56,25 +55,21 @@ def _solve(kind, robot, ees, s, t, iters, **kw):
     return tuple(np.asarray(x) for x in out)
 
 
-# Every solver also as its crocket build, float and double (kernels/ik_crocket, one seed per thread).
-_PORTED = ["ls", "dls", "sqp", "hjcd", "hjcd_coarse", "mppi"]
-CROCKET = [pytest.param(f"{k}@{b}", marks=pytest.mark.skipif(not crocket_available(), reason="crocket not installed"))
-           for k in _PORTED for b in ("crocket-f32", "crocket-f64")]
-SOLVERS = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse", "mppi"] + CROCKET
-TIERED = ["ls", "sqp", "sqp_f32", "hjcd"] + CROCKET     # one seed per thread / warp / block
-SLOT_INVARIANT = ["ls", "dls", "dls_traced", "sqp", "sqp_f32", "hjcd", "hjcd_coarse"] + [
-    c for c in CROCKET if not c.values[0].startswith("mppi")]   # mppi keys its noise on the slot
-WEIGHTED = {"ls": True, "dls": True, "dls_traced": True, "sqp": True, "sqp_f32": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
+# Every solver, float and double (kernels/ik_crocket).
+_SOLVERS = ["ls", "dls", "sqp", "hjcd", "hjcd_coarse", "mppi"]
+SOLVERS = [f"{k}@{b}" for k in _SOLVERS for b in ("crocket-f32", "crocket-f64")]
+TIERED = SOLVERS     # one seed per thread / warp / block
+SLOT_INVARIANT = [k for k in SOLVERS if not k.startswith("mppi")]   # mppi keys its noise on the slot
+WEIGHTED = {"ls": True, "dls": True, "sqp": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
 # Minimum solve rate on reachable targets (certificate test); coarse search is phase 1 only.
 # hjcd here is phase 2 alone (no coarse search): on the fr3 set pyroffi's original kernel
-# solved 92.5% and this port 87.5%, the gap being iteration chaos after ~10 steps (the two
-# agree to 1e-5 through 10 iterations; see docs/source/user_guide/concepts/motion.rst).
+# solved 92.5% and the hand-written port 87.5%, the gap being iteration chaos after ~10 steps
+# (the two agree to 1e-5 through 10 iterations; see docs/source/user_guide/concepts/motion.rst).
 # dls at this 100-iteration budget: fr3 82.5%, iiwa14 and baxter 100% (ls: 95 / 100 / 100). Every
 # fr3 miss has a joint at a limit, where the clamped step without a line search crawls; at 300
-# iterations dls solves fr3 97.5%. dls_traced (crocket's fused step on fr3 / iiwa14, traced
-# kinematics on baxter's multi-EE set) measures the same: 82.5 / 100 / 100.
-SOLVE_RATE = {"ls": 0.95, "dls": 0.8, "dls_traced": 0.8, "sqp": 0.95, "sqp_f32": 0.95, "hjcd": 0.85, "mppi": 0.9}
-RATED = list(SOLVE_RATE) + [c for c in CROCKET if c.values[0].split("@")[0] in SOLVE_RATE]
+# iterations dls solves fr3 97.5%.
+SOLVE_RATE = {"ls": 0.95, "dls": 0.8, "sqp": 0.95, "hjcd": 0.85, "mppi": 0.9}
+RATED = [k for k in SOLVERS if k.split("@")[0] in SOLVE_RATE]
 
 
 def _case(name, which, n_problems=6, n_seeds=8):

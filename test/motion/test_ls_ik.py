@@ -9,7 +9,7 @@ import pytest
 
 from grim.motion.reference import ik as ref
 
-from .conftest import assert_close_scaled, crocket_available, ee_sets, load_robot, requires_gpu
+from .conftest import assert_close_scaled, ee_sets, load_robot, requires_gpu
 from .ik_cases import reachable_targets, seeds
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
@@ -18,11 +18,9 @@ SETTINGS = dict(pos_weight=50.0, ori_weight=10.0, lambda_init=5e-3, eps_pos=1e-4
 CASES = [("fr3", 0), ("iiwa14", 0), ("baxter", 1), ("g1", 1)]       # (robot, ee set)
 
 
-_CK = pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
-# (backend, rtol): crocket's double build agrees with the float64 transcription far tighter;
-# 1e-6 leaves room for the float32 seeds and targets the launcher passes.
-BACKENDS = [("grim", 1e-4), pytest.param("crocket-f32", 1e-4, marks=_CK),
-            pytest.param("crocket-f64", 1e-6, marks=_CK)]
+# (backend, rtol): the double build agrees with the float64 transcription far tighter; 1e-6
+# leaves room for the float32 seeds and targets the launcher passes.
+BACKENDS = [("crocket-f32", 1e-4), ("crocket-f64", 1e-6)]
 
 
 def _solve(robot, ees, seeds_, targets, **kw):

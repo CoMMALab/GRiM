@@ -1,5 +1,5 @@
 /**
- * DLS-IK on crocket-traced geometry: kernels/ik/dls_ik.cu's dual-form Levenberg-Marquardt step
+ * DLS-IK on crocket-traced geometry: the hand-written dls_ik.cu (tag pre-crocket-ik)'s dual-form Levenberg-Marquardt step
  * d = -Jw^T (Jw Jw^T + lam I)^-1 W r (an M x M solve, M = 6 * n_ee), the clamped trial accepted
  * when the weighted error drops (lam / 3) else rejected (lam * 4), in `real` throughout. No
  * collision terms, as the hand-written kernel. One seed per thread, warp or block (`tier`); the
@@ -87,6 +87,7 @@ __global__ void ck_dls_ik_kernel(
 
 static ffi::Error CkDlsIkImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds, ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
     ffi::Buffer<ffi::DataType::F32> world_boxes, ffi::Buffer<ffi::DataType::F32> world_halfspaces,
@@ -96,6 +97,7 @@ static ffi::Error CkDlsIkImpl(
     float eps_ori, int64_t enable_collision, int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    GRIM_ROT_UPLOAD(stream);
     (void)block_threads;   // the block tier runs BLOCK_THREADS lanes (crocket's block variant)
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
@@ -119,6 +121,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     DlsIkFfi, CkDlsIkImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // target_Ts
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_spheres

@@ -17,8 +17,10 @@ pytestmark = [requires_gpu, pytest.mark.cuda_equivalence,
 
 
 def _pin(robot):
-    # Mimic joints follow their source in both models.
-    model = pin.buildModelFromXML(robot.urdf_xml, mimic=bool((robot.mimic_act_idx != -1).any()))
+    # Mimic joints follow their source in both models. A continuous joint is a revolute one
+    # without limits; Pinocchio would give it nq = 2 (cos, sin), so it is read as revolute.
+    xml = robot.urdf_xml.replace('type="continuous"', 'type="revolute"')
+    model = pin.buildModelFromXML(xml, mimic=bool((robot.mimic_act_idx != -1).any()))
     idx_q = [model.idx_qs[model.getJointId(n)] for n in robot.actuated_names]
     idx_v = [model.idx_vs[model.getJointId(n)] for n in robot.actuated_names]
     return model, model.createData(), np.array(idx_q), np.array(idx_v)
@@ -34,7 +36,7 @@ def _states(robot, n=12, seed=0):
 
 
 @pytest.mark.parametrize("tier", ["thread", "block"])
-@pytest.mark.parametrize("name", ["iiwa14", "rizon4", "fr3"])
+@pytest.mark.parametrize("name", ["iiwa14", "rizon4", "fr3", "gen3"])   # gen3: continuous joints
 def test_traced_dynamics_match_pinocchio(name, tier):
     from grim.motion.dynamics import TracedDynamics
     robot = load_robot(name)
@@ -61,8 +63,3 @@ def test_traced_dynamics_match_pinocchio(name, tier):
         qdd_out = np.asarray(dyn.forward_dynamics(q, qd, tau, tier, via_crba=via_crba))
         assert_close_scaled(qdd_out, qdd, 1e-3, f"{name} {tier} fd crba={via_crba}")
 
-
-def test_continuous_joints_are_refused():
-    from grim.motion.dynamics import TracedDynamics
-    with pytest.raises(ValueError, match="continuous"):
-        TracedDynamics(load_robot("gen3"))

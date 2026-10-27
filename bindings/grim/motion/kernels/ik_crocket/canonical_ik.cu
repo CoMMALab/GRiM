@@ -1,5 +1,5 @@
 /**
- * Canonical IK on crocket-traced geometry: kernels/ik/canonical_ik.cu's damped Gauss-Newton on
+ * Canonical IK on crocket-traced geometry: the hand-written canonical_ik.cu (tag pre-crocket-ik)'s damped Gauss-Newton on
  * argmin 1/2 |q - q_ref|^2 s.t. r(q) = 0, in `real`:
  *
  *     dq = -J^+ r + step * (I - J^+ J)(q_ref - q),   J^+ = J^T (J J^T + damping I)^-1,
@@ -61,6 +61,7 @@ __global__ void ck_canonical_ik_kernel(
         qref[a] = cfg_refs[(size_t)p * NC + a];
     }
     for (int i = 0; i < 7 * NE; ++i) sd.target[i] = target_Ts[(size_t)p * 7 * NE + i];
+    load_rot(sd);
 
     constexpr bool guard = has_self || has_world_geom;
     // The clearance of w.gv, computed on the leader and shared.
@@ -167,6 +168,7 @@ __global__ void ck_canonical_ik_kernel(
 
 static ffi::Error CkCanonicalIkImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> cfgs, ffi::Buffer<ffi::DataType::F32> cfg_refs,
     ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
@@ -175,6 +177,7 @@ static ffi::Error CkCanonicalIkImpl(
     int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_q, ffi::Result<ffi::Buffer<ffi::DataType::S32>> out_iters)
 {
+    GRIM_ROT_UPLOAD(stream);
     (void)block_threads;
     static_assert(grim::robot::n_frozen == 0, "canonical IK solves every joint");
     const int n_problems = static_cast<int>(cfgs.dimensions()[0]);
@@ -196,6 +199,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     CanonicalIkFfi, CkCanonicalIkImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // cfgs
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // cfg_refs
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // target_Ts

@@ -1,5 +1,5 @@
 /**
- * HJCD-IK on crocket-traced geometry: kernels/ik/hjcd_ik.cu's two phases, in `real` throughout.
+ * HJCD-IK on crocket-traced geometry: the hand-written hjcd_ik.cu (tag pre-crocket-ik)'s two phases, in `real` throughout.
  *
  *   Coarse: greedy coordinate descent, the joint with the largest predicted reduction of the
  *           adaptively weighted error per step (orientation off while position >= 1 mm).
@@ -239,6 +239,7 @@ __global__ void ck_hjcd_lm_kernel(
 
 static ffi::Error CkHjcdCoarseImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds, ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
     ffi::Buffer<ffi::DataType::F32> world_boxes, ffi::Buffer<ffi::DataType::F32> world_halfspaces,
@@ -248,6 +249,7 @@ static ffi::Error CkHjcdCoarseImpl(
     int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    GRIM_ROT_UPLOAD(stream);
     (void)block_threads;
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
@@ -268,6 +270,7 @@ static ffi::Error CkHjcdCoarseImpl(
 
 static ffi::Error CkHjcdLmImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds, ffi::Buffer<ffi::DataType::F32> noise,
     ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
@@ -281,6 +284,7 @@ static ffi::Error CkHjcdLmImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err,
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> stop_flag)
 {
+    GRIM_ROT_UPLOAD(stream);
     (void)block_threads;
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
@@ -307,6 +311,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     HjcdIkCoarseFfi, CkHjcdCoarseImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // target_Ts
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // world_spheres
@@ -329,6 +334,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     HjcdIkLmFfi, CkHjcdLmImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // noise
         .Arg<ffi::Buffer<ffi::DataType::F32>>()  // target_Ts

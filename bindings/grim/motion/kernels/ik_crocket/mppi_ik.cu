@@ -1,5 +1,5 @@
 /**
- * MPPI + L-BFGS IK on crocket-traced geometry: kernels/ik/mppi_ik.cu step for step, in `real`
+ * MPPI + L-BFGS IK on crocket-traced geometry: the hand-written mppi_ik.cu (tag pre-crocket-ik) step for step, in `real`
  * except the noise, which is drawn by the same float xorshift / Box-Muller stream (keyed on
  * rng_seed, problem and seed slot) so both precisions and the hand-written kernel see the same
  * particles. MPPI with RNG replay, then (unless MPPI already converged) L-BFGS with the
@@ -230,6 +230,7 @@ __global__ void ck_mppi_ik_kernel(
 
 static ffi::Error CkMppiIkImpl(
     cudaStream_t stream,
+    GRIM_ROT_PARAM
     ffi::Buffer<ffi::DataType::F32> seeds, ffi::Buffer<ffi::DataType::F32> target_Ts,
     ffi::Buffer<ffi::DataType::F32> world_spheres, ffi::Buffer<ffi::DataType::F32> world_capsules,
     ffi::Buffer<ffi::DataType::F32> world_boxes, ffi::Buffer<ffi::DataType::F32> world_halfspaces,
@@ -241,6 +242,7 @@ static ffi::Error CkMppiIkImpl(
     int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    GRIM_ROT_UPLOAD(stream);
     (void)block_threads;
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
@@ -265,6 +267,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     MppiIkFfi, CkMppiIkImpl,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        GRIM_ROT_BIND
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // seeds
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // target_Ts
         .Arg<ffi::Buffer<ffi::DataType::F32>>()   // world_spheres

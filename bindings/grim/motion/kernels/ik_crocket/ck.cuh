@@ -67,7 +67,25 @@ struct GeomV {
 struct Seed {
     real frz[NF];
     real target[7 * NE];
+    real rot[NROT > 0 ? NROT : 1];   // crocket's per-call parent rotation (runtime_rot_joint builds)
 };
+
+/** sd.rot = kRotPre * the launch's rotation (GRIM_ROT_UPLOAD wrote it into kParentTf), as
+ *  crocket's rot_joint wants it: see _crocket_ik.source. */
+__device__ __forceinline__ void load_rot(Seed& sd)
+{
+#ifdef GRIM_RUNTIME_ROT_JOINT
+    const float* g = grim::robot::kParentTf + GRIM_RUNTIME_ROT_JOINT * 7;
+    const real a0 = kRotPre(0), a1 = kRotPre(1), a2 = kRotPre(2), a3 = kRotPre(3);
+    const real b0 = g[0], b1 = g[1], b2 = g[2], b3 = g[3];
+    sd.rot[0] = a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3;
+    sd.rot[1] = a0 * b1 + a1 * b0 + a2 * b3 - a3 * b2;
+    sd.rot[2] = a0 * b2 - a1 * b3 + a2 * b0 + a3 * b1;
+    sd.rot[3] = a0 * b3 + a1 * b2 - a2 * b1 + a3 * b0;
+#else
+    (void)sd;
+#endif
+}
 
 __device__ __forceinline__ void load_seed(const float* __restrict__ seeds, const float* __restrict__ targets,
                                           int gs, int problem, real* __restrict__ cfg, Seed& sd)
@@ -76,6 +94,7 @@ __device__ __forceinline__ void load_seed(const float* __restrict__ seeds, const
     for (int i = 0; i < NC; ++i) cfg[i] = row[grim::robot::solved_idx(i)];
     for (int k = 0; k < grim::robot::n_frozen; ++k) sd.frz[k] = row[grim::robot::frozen_idx(k)];
     for (int i = 0; i < 7 * NE; ++i) sd.target[i] = targets[(size_t)problem * 7 * NE + i];
+    load_rot(sd);
 }
 
 __device__ __forceinline__ void store(const real* __restrict__ cfg, const Seed& sd,
@@ -91,7 +110,7 @@ __device__ __forceinline__ void geometry(const real* __restrict__ cfg, const See
 {
     real q[NQ];
     gather<real>(cfg, sd.frz, q);
-    tr::ik_geometry_thread<real>(q, sd.target, g.r, g.J, g.cw, g.cs, g.tw, 1);
+    tr::ik_geometry_thread<real>(q, sd.target, sd.rot, g.r, g.J, g.cw, g.cs, g.tw, 1);
 }
 
 /** Residual and sphere centres at `cfg` (no Jacobian): a trial's merit. One lane, any tier. */
@@ -100,7 +119,7 @@ __device__ __forceinline__ void geometry_value(const real* __restrict__ cfg, con
 {
     real q[NQ];
     gather<real>(cfg, sd.frz, q);
-    tr::ik_geometry_value_thread<real>(q, sd.target, g.r, g.cw, g.cs, 1);
+    tr::ik_geometry_value_thread<real>(q, sd.target, sd.rot, g.r, g.cw, g.cs, 1);
 }
 
 __device__ __forceinline__ real nrm3(const real* v) { return sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); }
@@ -484,9 +503,9 @@ __device__ __forceinline__ void geometry(const Grp<TIER>& G, const real* __restr
     G.sync();   // every lane is done reading the previous w.g / scratch
     real q[NQ];
     gather<real>(cfg, sd.frz, q);
-    if constexpr (TIER == grim::Tier::Thread) tr::ik_geometry_thread<real>(q, sd.target, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, 1);
-    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_warp<real>(q, sd.target, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, 1);
-    else tr::ik_geometry_block<real>(q, sd.target, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, 1);
+    if constexpr (TIER == grim::Tier::Thread) tr::ik_geometry_thread<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, 1);
+    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_warp<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, 1);
+    else tr::ik_geometry_block<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, 1);
     G.sync();
 }
 
@@ -497,9 +516,9 @@ __device__ __forceinline__ void geometry_value(const Grp<TIER>& G, const real* _
     G.sync();
     real q[NQ];
     gather<real>(cfg, sd.frz, q);
-    if constexpr (TIER == grim::Tier::Thread) tr::ik_geometry_value_thread<real>(q, sd.target, w.gv.r, w.gv.cw, w.gv.cs, 1);
-    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_value_warp<real>(q, sd.target, w.gv.r, w.gv.cw, w.gv.cs, w.scr, 1);
-    else tr::ik_geometry_value_block<real>(q, sd.target, w.gv.r, w.gv.cw, w.gv.cs, w.scr, 1);
+    if constexpr (TIER == grim::Tier::Thread) tr::ik_geometry_value_thread<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, 1);
+    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_value_warp<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, w.scr, 1);
+    else tr::ik_geometry_value_block<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, w.scr, 1);
     G.sync();
 }
 

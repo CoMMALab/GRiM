@@ -14,9 +14,13 @@ A solve is two steps, which callers working under ``jax.jit`` use separately:
 
 The named functions (:func:`ls_ik`, :func:`sqp_ik`, ...) do both.
 
-``tier`` picks how many threads own one seed: ``"thread"`` (one; best at large batch),
-``"warp"`` or ``"block"`` (cooperative; best at small batch / high DOF). ``block_threads``
-is the block tier's block size.
+Every kernel is ``kernels/ik_crocket``: the solver loop in CUDA, everything it reads about the
+robot (residual, Jacobian, collision-sphere centres, joint twists) from crocket's traced
+``ik_geometry`` (see :mod:`grim.motion._crocket_ik`). ``backend`` picks the scalar type,
+``"crocket-f32"`` (default) or ``"crocket-f64"``, float or double end to end.
+
+``tier`` picks how many threads own one seed: ``"thread"`` (one; the fastest at large batch on
+every robot measured), ``"warp"`` (32) or ``"block"`` (``_crocket_ik.BLOCK_THREADS``).
 """
 
 from __future__ import annotations
@@ -65,18 +69,18 @@ class CollisionModel:
     self_collision: SelfCollision | None = None
 
 
-# kernel -> (source, FFI symbol, tiered, solves every joint)
+# kernel -> (source, FFI symbol, solves every joint)
 KERNELS = {
-    "ls": ("ik/ls_ik", "LsIkFfi", True, False),
-    "dls": ("ik/dls_ik", "DlsIkFfi", False, False),
-    "sqp": ("ik/sqp_ik", "SqpIkFfi", True, False),
-    "sqp_f32": ("ik/sqp_ik", "SqpIkFfi", True, False),   # the same solver, QP in float
-    "hjcd_coarse": ("ik/hjcd_ik", "HjcdIkCoarseFfi", False, False),
-    "hjcd_lm": ("ik/hjcd_ik", "HjcdIkLmFfi", True, False),
+    "ls": ("ik_crocket/ls_ik", "LsIkFfi", False),
+    "dls": ("ik_crocket/dls_ik", "DlsIkFfi", False),
+    "sqp": ("ik_crocket/sqp_ik", "SqpIkFfi", False),
+    "hjcd_coarse": ("ik_crocket/hjcd_ik", "HjcdIkCoarseFfi", False),
+    "hjcd_lm": ("ik_crocket/hjcd_ik", "HjcdIkLmFfi", False),
     # Off-chain joints still receive noise, so a chain-only build is not equivalent.
-    "mppi": ("ik/mppi_ik", "MppiIkFfi", False, True),
-    "canonical": ("ik/canonical_ik", "CanonicalIkFfi", False, True),
+    "mppi": ("ik_crocket/mppi_ik", "MppiIkFfi", True),
+    "canonical": ("ik_crocket/canonical_ik", "CanonicalIkFfi", True),
 }
+BACKENDS = {"crocket-f32": "float", "crocket-f64": "double"}
 
 
 @dataclass(frozen=True)
@@ -91,13 +95,12 @@ class Target:
     lower: tuple[float, ...]
     upper: tuple[float, ...]
     runtime_rot: bool = False       # takes a per-call parent rotation (see Problem)
-    fused_dls_ori_ratio: float | None = None   # dls: crocket's whole step traced (see Problem)
-    backend: str = "grim"           # "grim" (kernels/ik) or "crocket-f32" / "crocket-f64" (kernels/ik_crocket)
+    backend: str = "crocket-f32"    # "crocket-f32" / "crocket-f64": the kernel's scalar type
 
 
 def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = None,
             world_counts=(0, 0, 0, 0), chain_only: bool = True,
-            runtime_rot_joint: int = -1, fused_dls_ori_ratio: float | None = None) -> _build.Problem:
+            runtime_rot_joint: int = -1) -> _build.Problem:
     c = collision or CollisionModel()
     has_spheres = c.robot_spheres is not None and len(c.robot_spheres) > 0
     sc = c.self_collision
@@ -107,39 +110,24 @@ def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = No
         robot_sphere_joint=np.asarray(c.robot_sphere_joint, np.int32) if has_spheres else None,
         self_collision=sc if sc is not None and len(sc.pair_i) > 0 else None,
         world_counts=tuple(int(n) for n in world_counts), chain_only=chain_only,
-        runtime_rot_joint=int(runtime_rot_joint), fused_dls_ori_ratio=fused_dls_ori_ratio)
+        runtime_rot_joint=int(runtime_rot_joint))
 
 
 def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
-          world_counts=(0, 0, 0, 0), chain_only: bool = True, traced: bool = False,
-          runtime_rot_joint: int = -1, fused_dls_ori_ratio: float | None = None,
-          backend: str = "grim") -> Target:
+          world_counts=(0, 0, 0, 0), chain_only: bool = True, runtime_rot_joint: int = -1,
+          backend: str = "crocket-f32") -> Target:
     """Compile (or load) ``kernel`` for this robot and problem structure. With
-    ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call.
-    ``fused_dls_ori_ratio`` (``dls``, traced, one end-effector) traces crocket's whole step.
-    ``backend="crocket-f32"`` / ``"crocket-f64"`` builds the same solver from
-    ``kernels/ik_crocket`` instead: crocket-traced geometry, float or double throughout, one
-    seed per thread (``tier`` is ignored); see :mod:`grim.motion._crocket_ik`."""
-    source, symbol, _, all_joints = KERNELS[kernel]
-    if fused_dls_ori_ratio is not None and (kernel != "dls" or not traced):
-        raise ValueError("fused_dls_ori_ratio needs kernel='dls' and traced=True")
+    ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call; it must
+    be a movable joint (crocket folds fixed joints into the movable joints below them)."""
+    source, symbol, all_joints = KERNELS[kernel]
+    if backend not in BACKENDS:
+        raise ValueError(f"unknown backend {backend!r}: one of {sorted(BACKENDS)}")
     prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
-                   runtime_rot_joint, fused_dls_ori_ratio)
-    flags = ("-DGRIM_SQP_QP_T=float",) if kernel == "sqp_f32" else ()
-    if backend == "grim":
-        (name,) = _build.target(source, (symbol,), robot, prob, traced, flags)
-    elif backend in ("crocket-f32", "crocket-f64"):
-        if kernel == "sqp_f32" or traced or runtime_rot_joint >= 0 or fused_dls_ori_ratio is not None:
-            raise ValueError("a crocket build takes the plain kernel name, no traced=, "
-                             "runtime_rot_joint or fused_dls_ori_ratio")
-        (name,) = _build.target(source.replace("ik/", "ik_crocket/"), (symbol,), robot, prob,
-                                crocket_real="float" if backend == "crocket-f32" else "double")
-    else:
-        raise ValueError(f"unknown backend {backend!r}")
+                   runtime_rot_joint)
+    (name,) = _build.target(source, (symbol,), robot, prob, crocket_real=BACKENDS[backend])
     return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
-                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, fused_dls_ori_ratio,
-                  backend)
+                  tuple(map(float, robot.upper)), runtime_rot_joint >= 0, backend)
 
 
 def run(target: Target, seeds, targets, *, world: World = World(), lower=None, upper=None,
@@ -148,15 +136,6 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
     """Launch a built IK kernel. ``settings`` are the kernel's solver settings (see the named
     functions); ``noise`` is hjcd_lm's stall-kick noise, ``rng_seed`` mppi's seed and ``rot``
     the wxyz parent rotation of a ``runtime_rot_joint`` build."""
-    _, _, tiered, _ = KERNELS[target.kernel]
-    if target.fused_dls_ori_ratio is not None:
-        if lower is not None or upper is not None or fixed_mask is not None:
-            raise ValueError("a fused DLS build bakes the URDF limits and frees every joint: "
-                             "pass no lower / upper / fixed_mask, or build with traced=False")
-        ratio = settings["ori_weight"] / settings["pos_weight"]
-        if not np.isclose(ratio, target.fused_dls_ori_ratio, rtol=1e-6):
-            raise ValueError(f"this fused DLS build bakes ori_weight / pos_weight = "
-                             f"{target.fused_dls_ori_ratio}; the call has {ratio}")
     if world.counts() != target.world_counts:
         raise ValueError(f"world has obstacle counts {world.counts()}; the target was built "
                          f"for {target.world_counts}")
@@ -170,7 +149,7 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
     outs = [jax.ShapeDtypeStruct((P, S, target.n_q), jnp.float32),
             jax.ShapeDtypeStruct((P, S), jnp.float32)]
     after_seeds, after_limits = [], []
-    if target.kernel in ("sqp", "sqp_f32"):
+    if target.kernel == "sqp":
         outs.append(jax.ShapeDtypeStruct((P, S), jnp.int32))
     elif target.kernel == "hjcd_lm":
         after_seeds.append(jnp.asarray(noise, jnp.float32))
@@ -179,8 +158,7 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
         after_limits.append(jnp.asarray([rng_seed], jnp.int32))
     attrs = {k: (np.int64(v) if isinstance(v, (bool, int, np.integer)) else np.float32(v))
              for k, v in settings.items()}
-    if tiered or target.backend != "grim":   # every crocket build takes a tier
-        attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
+    attrs.update(tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
     return jax.ffi.ffi_call(target.name, tuple(outs))(
         *_rot_operand(target, rot), seeds, *after_seeds, jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7),
         *world.arrays(), lo, hi, fm, *after_limits, **attrs,
@@ -194,10 +172,10 @@ def _rot_operand(target: Target, rot) -> tuple:
     return (jnp.asarray(rot, jnp.float32).reshape(4),) if target.runtime_rot else ()
 
 
-def _solve(kernel, robot, seeds, targets, ee_joints, *, world, collision, chain_only, traced,
-           backend="grim", **kw):
+def _solve(kernel, robot, seeds, targets, ee_joints, *, world, collision, chain_only,
+           backend="crocket-f32", **kw):
     t = build(kernel, robot, ee_joints, collision=collision, world_counts=world.counts(),
-              chain_only=chain_only, traced=traced, backend=backend)
+              chain_only=chain_only, backend=backend)
     return run(t, seeds, targets, world=world, **kw)
 
 
@@ -206,16 +184,16 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
           max_iter: int = 60, pos_weight: float = 50.0, ori_weight: float = 10.0,
           lambda_init: float = 5e-3, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
           collision_weight: float = 1e4, collision_margin: float = 0.02,
-          tier: str = "thread", block_threads: int = 64, traced: bool = False,
-          chain_only: bool = True, backend: str = "grim"):
-    """Levenberg-Marquardt from every seed (``kernels/ik/ls_ik.cu``) -> ``(q, err)``.
+          tier: str = "thread", block_threads: int = 64,
+          chain_only: bool = True, backend: str = "crocket-f32"):
+    """Levenberg-Marquardt from every seed (``kernels/ik_crocket/ls_ik.cu``) -> ``(q, err)``.
 
     World collision applies when ``collision`` has robot spheres and ``world`` obstacles;
     self-collision when ``collision.self_collision`` has pairs. Both enter the step (as
     Gauss-Newton rows) and the merit, weighted by ``collision_weight``.
     """
     return _solve("ls", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
-                  chain_only=chain_only, traced=traced, lower=lower, upper=upper,
+                  chain_only=chain_only, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads,
                   max_iter=max_iter, pos_weight=pos_weight, ori_weight=ori_weight,
                   lambda_init=lambda_init, eps_pos=eps_pos, eps_ori=eps_ori,
@@ -225,23 +203,15 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
 def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=None,
            fixed_mask=None, max_iter: int = 60, pos_weight: float = 50.0,
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
-           eps_ori: float = 1e-3, traced: bool = False, chain_only: bool = True, backend: str = "grim",
+           eps_ori: float = 1e-3, chain_only: bool = True, backend: str = "crocket-f32",
            tier: str = "thread", block_threads: int = 64):
-    """Damped least squares, LM in its dual form (``kernels/ik/dls_ik.cu``) -> ``(q, err)``.
+    """Damped least squares, LM in its dual form (``kernels/ik_crocket/dls_ik.cu``) -> ``(q, err)``.
 
     The step ``-J^T (J J^T + lam I)^-1 r`` is LS-IK's direction without column scaling, solved
-    as a 6 n_ee system in float32; plain LM accept/reject, no line search or trust radius. One
-    seed per thread, no collision. Faster than :func:`ls_ik` at a slightly lower solve rate.
-
-    ``traced=True`` with one end-effector and no ``lower`` / ``upper`` / ``fixed_mask`` runs
-    crocket's whole traced step (``ik_lm_step``: FK, Jacobian, solve and limit projection in
-    straight-line code; URDF limits and the weight ratio baked into the build). Otherwise
-    ``traced=True`` traces the kinematics only.
+    as a 6 n_ee system; plain LM accept/reject, no line search or trust radius. No collision.
+    Faster than :func:`ls_ik` at a slightly lower solve rate.
     """
-    fused = traced and len(ee_joints) == 1 and lower is None and upper is None \
-        and fixed_mask is None
-    t = build("dls", robot, ee_joints, chain_only=chain_only, traced=traced,
-              fused_dls_ori_ratio=ori_weight / pos_weight if fused else None, backend=backend)
+    t = build("dls", robot, ee_joints, chain_only=chain_only, backend=backend)
     return run(t, seeds, targets, lower=lower, upper=upper, fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, max_iter=max_iter, pos_weight=pos_weight,
                   ori_weight=ori_weight, lambda_init=lambda_init, eps_pos=eps_pos,
                   eps_ori=eps_ori)
@@ -253,13 +223,12 @@ def sqp_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
            eps_ori: float = 1e-3, collision_weight: float = 1e4,
            collision_margin: float = 0.02, tier: str = "thread", block_threads: int = 64,
-           traced: bool = False, chain_only: bool = True, qp_float32: bool = False, backend: str = "grim"):
-    """SQP with joint limits and collision as hard constraints (``kernels/ik/sqp_ik.cu``)
+           chain_only: bool = True, backend: str = "crocket-f32"):
+    """SQP with joint limits and collision as hard constraints (``kernels/ik_crocket/sqp_ik.cu``)
     -> ``(q, err, feasible)``; ``feasible`` is 1 where the returned configuration satisfies
-    the collision constraint (always 1 without collision). ``qp_float32`` builds the QP
-    (normal equations and solves) in float instead of double."""
-    return _solve("sqp_f32" if qp_float32 else "sqp", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
-                  chain_only=chain_only, traced=traced, lower=lower, upper=upper,
+    the collision constraint (always 1 without collision)."""
+    return _solve("sqp", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
+                  chain_only=chain_only, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads,
                   max_iter=max_iter, n_inner_iters=n_inner_iters, pos_weight=pos_weight,
                   ori_weight=ori_weight, lambda_init=lambda_init, eps_pos=eps_pos,
@@ -271,12 +240,12 @@ def hjcd_ik_coarse(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None,
                    fixed_mask=None, world: World = World(),
                    collision: CollisionModel | None = None, k_max: int = 20,
                    collision_weight: float = 1e4, collision_margin: float = 0.02,
-                   traced: bool = False, chain_only: bool = True, backend: str = "grim",
+                   chain_only: bool = True, backend: str = "crocket-f32",
                    tier: str = "thread", block_threads: int = 64):
     """HJCD phase 1: greedy coordinate descent, one thread per seed
-    (``kernels/ik/hjcd_ik.cu``) -> ``(q, err)``."""
+    (``kernels/ik_crocket/hjcd_ik.cu``) -> ``(q, err)``."""
     return _solve("hjcd_coarse", robot, seeds, targets, ee_joints, world=world, backend=backend,
-                  collision=collision, chain_only=chain_only, traced=traced, lower=lower,
+                  collision=collision, chain_only=chain_only, lower=lower,
                   upper=upper, fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, k_max=k_max,
                   collision_weight=collision_weight, collision_margin=collision_margin)
 
@@ -288,17 +257,17 @@ def hjcd_ik_lm(robot: MotionRobot, seeds, targets, ee_joints, noise, *, lower=No
                limit_prior_weight: float = 1e-4, kick_scale: float = 0.02,
                eps_pos: float = 1e-4, eps_ori: float = 1e-3, early_stop: bool = False,
                collision_weight: float = 1e4, collision_margin: float = 0.02,
-               tier: str = "thread", block_threads: int = 64, traced: bool = False,
-               chain_only: bool = True, backend: str = "grim"):
+               tier: str = "thread", block_threads: int = 64,
+               chain_only: bool = True, backend: str = "crocket-f32"):
     """HJCD phase 2: Levenberg-Marquardt with a joint-limit prior and stall kicks
-    (``kernels/ik/hjcd_ik.cu``) -> ``(q, err, stopped)``.
+    (``kernels/ik_crocket/hjcd_ik.cu``) -> ``(q, err, stopped)``.
 
     ``noise`` (P, S, max_iter, n_q) are the stall kicks, drawn by the caller so the solve is
     deterministic. ``early_stop`` stops a problem's seeds once one has converged: faster,
     but then only each problem's best seed is meaningful (the rest depend on scheduling).
     """
     return _solve("hjcd_lm", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
-                  chain_only=chain_only, traced=traced, lower=lower, upper=upper,
+                  chain_only=chain_only, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, noise=noise,
                   max_iter=max_iter, stall_patience=stall_patience, early_stop=early_stop,
                   lambda_init=lambda_init, limit_prior_weight=limit_prior_weight,
@@ -313,12 +282,12 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
             sigma: float = 0.1, mppi_temperature: float = 0.05, pos_weight: float = 50.0,
             ori_weight: float = 10.0, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
             collision_weight: float = 1e4, collision_margin: float = 0.02,
-            traced: bool = False, backend: str = "grim", tier: str = "thread", block_threads: int = 64):
-    """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik/mppi_ik.cu``)
+            backend: str = "crocket-f32", tier: str = "thread", block_threads: int = 64):
+    """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik_crocket/mppi_ik.cu``)
     -> ``(q, err)``. The noise stream is keyed on (rng_seed, problem, seed slot), so a
     solve is deterministic but a seed's result depends on its slot."""
     return _solve("mppi", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
-                  chain_only=False, traced=traced, lower=lower, upper=upper,
+                  chain_only=False, lower=lower, upper=upper,
                   fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, rng_seed=rng_seed, n_particles=n_particles,
                   n_mppi_iters=n_mppi_iters, n_lbfgs_iters=n_lbfgs_iters, m_lbfgs=m_lbfgs,
                   sigma=sigma, mppi_temperature=mppi_temperature, pos_weight=pos_weight,
@@ -328,7 +297,7 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
 
 def build_canonical(robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
                     world_counts=(0, 0, 0, 0), runtime_rot_joint: int = -1,
-                    backend: str = "grim") -> Target:
+                    backend: str = "crocket-f32") -> Target:
     return build("canonical", robot, ee_joints, collision=collision, world_counts=world_counts,
                  runtime_rot_joint=runtime_rot_joint, backend=backend)
 
@@ -337,10 +306,10 @@ def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),
                   max_iters: int = 200, step: float = 0.1, tol: float = 1e-5,
                   damping: float = 1e-6, collision_margin: float = 0.0, rot=None,
                   tier: str = "thread"):
-    """``tier`` (crocket builds only): one problem per thread, warp or block."""
+    """``tier``: one problem per thread, warp or block."""
     q = jnp.asarray(q, jnp.float32)
     P = q.shape[0]
-    extra = {} if target.backend == "grim" else dict(tier=np.int64(TIERS[tier]), block_threads=np.int64(64))
+    extra = dict(tier=np.int64(TIERS[tier]), block_threads=np.int64(64))
     return jax.ffi.ffi_call(target.name, (jax.ShapeDtypeStruct((P, target.n_q), jnp.float32),
                                           jax.ShapeDtypeStruct((P,), jnp.int32)))(
         *_rot_operand(target, rot), q, jnp.asarray(q_ref, jnp.float32),
@@ -352,7 +321,7 @@ def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),
 def canonical_ik(robot: MotionRobot, q, q_ref, targets, ee_joints, *, world: World = World(),
                  collision: CollisionModel | None = None, **kw):
     """Slide IK solutions ``q`` (P, n_q) along their self-motion manifolds to the point
-    nearest ``q_ref`` (``kernels/ik/canonical_ik.cu``) -> ``(q*, iterations)``.
+    nearest ``q_ref`` (``kernels/ik_crocket/canonical_ik.cu``) -> ``(q*, iterations)``.
 
     Solves ``argmin 1/2 |q - q_ref|^2 s.t. r(q) = 0`` by damped Gauss-Newton, which pins a
     redundant arm's solution to one point so its derivative is well defined. With collision

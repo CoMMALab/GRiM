@@ -1,7 +1,8 @@
 """crocket-traced builds of the IK kernels (``kernels/ik_crocket/``).
 
-A crocket IK build runs the same solver as its hand-written counterpart in ``kernels/ik/`` and
-binds the same FFI signature, but everything it reads about the robot comes from one traced
+These are GRiM's IK kernels. Each runs the solver of the hand-written kernel it replaced (tag
+``pre-crocket-ik``; a local copy may sit in the untracked ``legacy/``) and binds the same FFI
+signature, but everything it reads about the robot comes from one traced
 crocket algorithm, ``ik_geometry``, specialised to the build's end-effectors, solved columns
 and collision spheres:
 
@@ -36,7 +37,7 @@ def _model(robot: MotionRobot):
         model = crocket.Robot(urdf, name="robot")
     if sorted(model.joint_names) != sorted(robot.actuated_names):
         raise ValueError(f"crocket's joints {model.joint_names} do not match the robot's actuated "
-                         f"joints {list(robot.actuated_names)} (continuous / planar / floating joints "
+                         f"joints {list(robot.actuated_names)} (planar / floating joints "
                          "are not supported by crocket builds)")
     return model
 
@@ -55,6 +56,30 @@ def _constant(ctype: str, name: str, values) -> str:
     flat = np.asarray(values).reshape(-1)
     vals = ([f"{float(v):.17e}" for v in flat] if ctype == "double" else [str(int(v)) for v in flat]) or ["0"]
     return f"__device__ __constant__ {ctype} {name}[{len(vals)}] = {{{', '.join(vals)}}};\n"
+
+
+def _matrix(wxyz) -> np.ndarray:
+    w, x, y, z = np.asarray(wxyz, float) / np.linalg.norm(wxyz)
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+                     [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+                     [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]])
+
+
+def _wxyz(R) -> np.ndarray:
+    """Unit quaternion (w >= 0) of rotation matrix ``R``, Shepperd's method."""
+    t = np.trace(R)
+    if t > 0:
+        w = np.sqrt(1 + t) / 2
+        q = [w, (R[2, 1] - R[1, 2]) / (4 * w), (R[0, 2] - R[2, 0]) / (4 * w), (R[1, 0] - R[0, 1]) / (4 * w)]
+    else:
+        i = int(np.argmax(np.diag(R)))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        v = np.sqrt(1 + R[i, i] - R[j, j] - R[k, k]) / 2
+        q = [0.0] * 4
+        q[0] = (R[k, j] - R[j, k]) / (4 * v)
+        q[1 + i], q[1 + j], q[1 + k] = v, (R[j, i] + R[i, j]) / (4 * v), (R[k, i] + R[i, k]) / (4 * v)
+    q = np.asarray(q)
+    return q if q[0] >= 0 else -q
 
 
 def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) -> str:
@@ -82,13 +107,27 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
     self_frame = []                                   # self sphere -> its link's joint frame
     for link in range(len(sc.link_start) - 1):
         self_frame += [int(sc.link_joint[link])] * int(sc.link_start[link + 1] - sc.link_start[link])
-    # A world sphere with no joint frame is skipped, as kernels/ik/*.cu do (`jidx < 0`).
+    # A world sphere with no joint frame is skipped (`jidx < 0` in the hand-written kernels).
     ws_idx = [i for i, j in enumerate(sph_joint) if 0 <= j < robot.n_joints]
     ws = tuple((frame(int(sph_joint[i])), tuple(float(x) for x in sph[i, :3])) for i in ws_idx)
     ss = tuple((frame(j), tuple(float(x) for x in s[:3])) for s, j in zip(np.asarray(sc.sph), self_frame))
     frames = tuple(robot.joint_names[e] for e in problem.ee_joints)
     cols = tuple(col_of[a] for a in solved)
     opts = {"frames": frames, "cols": cols, "wspheres": ws, "sspheres": ss}
+    rot_pre = []
+    if problem.runtime_rot_joint >= 0:
+        # GRiM's per-call rotation replaces joint j's URDF origin rotation R0; crocket's replaces
+        # the whole parent-to-joint rotation at q = 0, Rc = Rpre R0 (Rpre: fixed joints folded in
+        # before it). The kernel hands crocket q(Rpre) * rot, rot being GRiM's operand.
+        name = robot.joint_names[problem.runtime_rot_joint]
+        if name not in model.joint_names:
+            raise ValueError(f"runtime_rot_joint {name!r} is not a movable joint: crocket folds "
+                             "fixed joints into the movable joints below them")
+        jc = model.joint_names.index(name)
+        jt = model.joints[jc]
+        Rc = (jt.E[0] + jt.E[1] if jt.kind == "revolute" else jt.E[0]).T
+        rot_pre = _wxyz(Rc @ _matrix(robot.parent_tf[problem.runtime_rot_joint, :4]).T)
+        opts["rot_joint"] = jc
     # Thread, warp and block (BLOCK_THREADS lanes) from the same trace: the kernels compile at
     # every tier and call the variant of theirs.
     traced = crocket.generate(model, {"ik_geometry": opts, "ik_geometry_value": opts},
@@ -117,6 +156,8 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int]) ->
             f"constexpr int NWS = {len(ws)};\n"
             f"constexpr int NSS = {len(ss)};\n"
             f"constexpr int BLOCK_THREADS = {BLOCK_THREADS};\n"
+            f"constexpr int NROT = {len(rot_pre)};\n"   # 4 with a runtime parent rotation
+            + _table("double", "kRotPre", rot_pre)
             + _table("int", "kJointCol", joint_col)
             # Read with runtime sphere indices: __constant__, where a constexpr table would be
             # copied onto the stack at every call.

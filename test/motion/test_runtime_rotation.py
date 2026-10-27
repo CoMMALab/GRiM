@@ -13,6 +13,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from grim.motion.reference import ik as ref_ik
 from grim.motion.reference import kinematics as K
 from grim.motion.reference import trajopt as ref_traj
 
@@ -30,9 +31,9 @@ def _rotations(n, seed=0):
     return q / np.linalg.norm(q, axis=1, keepdims=True)
 
 
-def _with_rotation(robot, rot):
+def _with_rotation(robot, rot, joint=JOINT):
     pt = np.array(robot.parent_tf, copy=True)
-    pt[JOINT, :4] = rot
+    pt[joint, :4] = rot
     return dataclasses.replace(robot, parent_tf=pt)
 
 
@@ -59,19 +60,62 @@ def test_kinematics_and_launch_ordering():
                 assert np.allclose(K.pose_residual(T[b, j], Tw[j]), 0, atol=1e-5)
 
 
-def test_ls_ik_solves_the_rotated_problem():
+LS = dict(pos_weight=50.0, ori_weight=10.0, lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3)
+# float32: the per-call rotation is composed with the folded fixed joints in float, which one
+# step amplifies (measured 1.35e-4 on actuated joint 0); double holds 1e-6.
+BACKENDS = [("crocket-f32", 3e-4), ("crocket-f64", 1e-6)]
+
+
+def _movable(robot, a):
+    """The joint index of actuated joint ``a``: IK builds rotate a movable joint's origin
+    (crocket folds fixed joints into their movable children)."""
+    return robot.joint_names.index(robot.actuated_names[a])
+
+
+@pytest.mark.parametrize("backend,rtol", BACKENDS)
+@pytest.mark.parametrize("act", [0, 3])
+@pytest.mark.parametrize("iters", [0, 1, 2])
+def test_ls_ik_iterations_match_the_rotated_reference(backend, rtol, act, iters):
+    """crocket folds the robot into its trace, so the rotation reaches it as rot_joint, composed
+    with the fixed joints folded in before the joint (see _crocket_ik.source): seed by seed as
+    the oracle. Actuated joint 0 sits under iiwa14's fixed base joint."""
+    from grim.motion import ik
+    from grim.motion.kinematics import solved_columns
+
+    robot = load_robot("iiwa14")
+    joint = _movable(robot, act)
+    rot = _rotations(1, seed=3)[0]
+    mod = _with_rotation(robot, rot, joint)
+    ees = (robot.n_joints - 1,)
+    targets, _ = reachable_targets(mod, ees, 3)
+    s = seeds(robot, 3, 4)
+    t = ik.build("ls", robot, ees, runtime_rot_joint=joint, backend=backend)
+    q, e = (np.asarray(x) for x in ik.run(t, s, targets, rot=rot, max_iter=iters,
+                                          collision_weight=1e4, collision_margin=0.02, **LS))
+    cols = solved_columns(robot, ees, chain_only=True)
+    for p in range(3):
+        for k in range(4):
+            q_ref, e_ref = ref_ik.ls_ik(mod, s[p, k], targets[p], ees, cols, lower=robot.lower,
+                                        upper=robot.upper, fixed_mask=np.zeros(robot.n_act),
+                                        max_iter=iters, **LS)
+            assert_close_scaled(q[p, k], q_ref, rtol, f"{backend} p={p} s={k} q")
+            assert_close_scaled(e[p, k], e_ref, 10 * rtol, f"{backend} p={p} s={k} err")
+
+
+@pytest.mark.parametrize("backend", ["crocket-f32", "crocket-f64"])
+def test_ls_ik_solves_the_rotated_problem(backend):
     from grim.motion import ik
 
     robot = load_robot("iiwa14")
-    mod = _with_rotation(robot, _rotations(1, seed=3)[0])
+    joint = _movable(robot, 0)
+    mod = _with_rotation(robot, _rotations(1, seed=3)[0], joint)
     ees = (robot.n_joints - 1,)
     targets, _ = reachable_targets(mod, ees, 6)
     s = seeds(robot, 6, 8)
-    t = ik.build("ls", robot, ees, runtime_rot_joint=JOINT)
-    q, e = (np.asarray(x) for x in ik.run(t, s, targets, rot=mod.parent_tf[JOINT, :4],
-                                          max_iter=100, pos_weight=50.0, ori_weight=10.0,
-                                          lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3,
-                                          collision_weight=1e4, collision_margin=0.02))
+    t = ik.build("ls", robot, ees, runtime_rot_joint=joint, backend=backend)
+    q, e = (np.asarray(x) for x in ik.run(t, s, targets, rot=mod.parent_tf[joint, :4],
+                                          max_iter=100, collision_weight=1e4,
+                                          collision_margin=0.02, **LS))
     best = np.argmin(e, axis=1)
     for p in range(6):
         pos, rot = pose_errors(mod, q[p, best[p]], targets[p], ees)
@@ -96,9 +140,19 @@ def test_trajopt_zero_iteration_cost_uses_the_rotation():
     assert_close_scaled(np.asarray(c), want, 1e-4, "rotated initial cost")
 
 
-def test_traced_build_refuses_a_runtime_rotation():
+def test_ik_refuses_a_fixed_rotation_joint():
     from grim.motion import ik
 
     robot = load_robot("iiwa14")
+    assert robot.joint_names[JOINT] not in robot.actuated_names
+    with pytest.raises(ValueError, match="not a movable joint"):
+        ik.build("ls", robot, (robot.n_joints - 1,), runtime_rot_joint=JOINT)
+
+
+def test_traced_kinematics_refuses_a_runtime_rotation():
+    from grim.motion.kinematics import kinematics
+
+    robot = load_robot("iiwa14")
     with pytest.raises(ValueError, match="baked tables"):
-        ik.build("ls", robot, (robot.n_joints - 1,), traced=True, runtime_rot_joint=JOINT)
+        kinematics(robot, config_samples(robot), runtime_rot_joint=JOINT, rot=_rotations(1)[0],
+                   traced=True)

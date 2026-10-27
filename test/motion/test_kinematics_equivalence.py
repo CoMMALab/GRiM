@@ -19,7 +19,6 @@ from .conftest import (ROBOTS, assert_close_scaled, config_samples, crocket_avai
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
 
 RTOL = 2e-5   # float32 kernels vs float64 oracle
-CONTINUOUS = {"fetch", "gen3"}   # crocket v1 does not trace continuous joints
 
 
 def _targets(robot, q, ees, rng):
@@ -41,10 +40,6 @@ def test_kinematics_match_reference(name, chain_only, traced):
     from grim.motion.kinematics import kinematics, solved_columns
 
     robot = load_robot(name)
-    if traced and name in CONTINUOUS:
-        with pytest.raises(ValueError, match="continuous"):
-            kinematics(robot, np.zeros((1, robot.n_act)), None, ee_sets(robot)[0], traced=True)
-        return
     q = config_samples(robot)
     rng = np.random.default_rng(1)
     for ees in ee_sets(robot):

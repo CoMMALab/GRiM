@@ -89,9 +89,6 @@ class Problem:
     ``runtime_rot_joint`` >= 0 makes that joint's parent rotation a per-call input (the
     reference rotation of a floating base's chart) instead of a baked constant; the build then
     takes it as the first operand, a wxyz ``(4,)`` float32.
-    ``fused_dls_ori_ratio`` (traced, one end-effector) also traces crocket's whole DLS step
-    ``ik_lm_step`` at position weight 1 and this orientation weight, with the URDF's limits
-    baked in (``GRIM_FUSED_DLS``; see kernels/ik/dls_ik.cu).
     """
     ee_joints: tuple[int, ...] = ()
     robot_spheres: np.ndarray | None = None
@@ -101,7 +98,6 @@ class Problem:
     chain_only: bool = False
     traj_collision: TrajCollision | None = None
     runtime_rot_joint: int = -1
-    fused_dls_ori_ratio: float | None = None
 
 
 def _constant(ctype: str, name: str, values) -> str:
@@ -147,7 +143,7 @@ def robot_header(robot: MotionRobot, problem: Problem, traced: bool = False) -> 
 
     out = ["#pragma once\n"]
     if traced:
-        out.append(_traced_source(robot, solved, frozen, ee, problem.fused_dls_ori_ratio))
+        out.append(_traced_source(robot, solved, frozen, ee))
     out.append(
         "namespace grim::robot {\n"
         f"constexpr int n_frames = {robot.n_joints};\n"
@@ -194,15 +190,15 @@ def _traj_tables(robot: MotionRobot, tc: TrajCollision | None) -> str:
 
 def kinematic_urdf(xml: str) -> str:
     """``xml`` without <visual>/<collision> geometry: tracing needs only the kinematic tree and
-    inertias, and loading meshes would make it depend on files a URDF merely points to."""
+    inertias, and loading meshes would make it depend on files a URDF merely points to. Vendor
+    tag prefixes (``<gazebo:...>``, often unbound) are dropped as in ``robot._parse``."""
     import re
+    xml = re.sub(r"<(/?)[A-Za-z_][\w.-]*:", r"<\1", xml)
     return re.sub(r"<(visual|collision)\b.*?</\1>|<(visual|collision)\b[^>]*/>", "", xml, flags=re.S)
 
 
-def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee: list[int],
-                   fused_dls_ori_ratio: float | None = None) -> str:
-    """crocket's straight-line FK (and with ``fused_dls_ori_ratio`` its DLS step), plus the maps
-    between its joint order and ours."""
+def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee: list[int]) -> str:
+    """crocket's straight-line FK, plus the maps between its joint order and ours."""
     try:
         import crocket
     except ImportError as exc:  # pragma: no cover - environment dependent
@@ -218,21 +214,15 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
             model = crocket.Robot(urdf, name="robot")
         except ValueError as exc:
             if "Unsupported joint type" in str(exc):
-                raise ValueError("traced builds support revolute, prismatic and fixed joints "
-                                 f"only (no continuous / planar / floating): {exc}") from exc
+                raise ValueError("traced builds support revolute, continuous, prismatic and fixed "
+                                 f"joints only (no planar / floating): {exc}") from exc
             raise
     names = model.joint_names
     if sorted(names) != sorted(robot.actuated_names):
         raise ValueError(f"crocket's joints {names} do not match the robot's actuated joints "
-                         f"{list(robot.actuated_names)} (continuous/planar/floating joints are "
+                         f"{list(robot.actuated_names)} (planar/floating joints are "
                          "not supported by the traced build)")
-    algorithms = {}
-    if fused_dls_ori_ratio is not None:
-        if len(ee) != 1:
-            raise ValueError("the fused DLS step traces one end-effector frame")
-        algorithms["ik_lm_step"] = {"frame": robot.joint_names[ee[0]], "pos_weight": 1.0,
-                                    "ori_weight": float(fused_dls_ori_ratio)}
-    source = crocket.generate(model, algorithms, variants=[crocket.Variant("thread")], name="robot",
+    source = crocket.generate(model, {}, variants=[crocket.Variant("thread")], name="robot",
                               kinematics={
         "frames": list(robot.joint_names), "end_effector": robot.joint_names[target]})
     src = {a: f"cfg[{solved.index(a)}]" if a in solved else f"frz[{frozen.index(a)}]"
@@ -248,7 +238,6 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
                         for i, n in enumerate(names) if robot.actuated_names.index(n) in solved)
     return (f"{source}\n#define GRIM_TRACED_KINEMATICS 1\n"
             + ("#define GRIM_TRACED_FRAMES_ONLY 1\n" if len(ee) > 1 else "")
-            + ("#define GRIM_FUSED_DLS 1\n" if algorithms else "")
             + "namespace grim::robot {\n"
             "namespace traced = crocket::robots::robot;\n"
             "static __device__ __forceinline__ void gather_q(const float* __restrict__ cfg,\n"

@@ -18,6 +18,9 @@ t7.txt
 t8.txt
 t9.txt
 
+# Retired hand-written IK kernels (kernels/ik before crocket; tag pre-crocket-ik)
+legacy/
+
 # AI Tool Helpers
 handoff.md
 

@@ -37,7 +37,7 @@ def trust_radius(r: np.ndarray) -> float:
 
 def ls_ik(robot: MotionRobot, seed, targets, ee_joints, cols, *, lower, upper, fixed_mask,
           max_iter, pos_weight, ori_weight, lambda_init, eps_pos, eps_ori):
-    """One seed of ``kernels/ik/ls_ik.cu``; returns (best q, best weighted squared error).
+    """One seed of ``kernels/ik_crocket/ls_ik.cu``; returns (best q, best weighted squared error).
 
     ``cols`` are the solved actuated indices (the build's ``solved_joints``); the others
     stay at the seed.
@@ -99,7 +99,7 @@ def ls_ik(robot: MotionRobot, seed, targets, ee_joints, cols, *, lower, upper, f
 
 def dls_ik(robot: MotionRobot, seed, targets, ee_joints, cols, *, lower, upper, fixed_mask,
            max_iter, pos_weight, ori_weight, lambda_init, eps_pos, eps_ori):
-    """One seed of ``kernels/ik/dls_ik.cu``; returns (q, weighted squared error)."""
+    """One seed of ``kernels/ik_crocket/dls_ik.cu``; returns (q, weighted squared error)."""
     W = np.array([pos_weight] * 3 + [ori_weight] * 3, np.float64)
     q = np.asarray(seed, np.float64).copy()
     lo, hi = np.asarray(lower, np.float64)[cols], np.asarray(upper, np.float64)[cols]
