@@ -7,8 +7,9 @@
  *           the five trials with an early exit on sufficient decrease, stall kicks from the
  *           caller's noise, all-time best tracking, and the opt-in cross-seed early stop.
  *
- * Collision enters the merit only (no step terms), as in the hand-written kernel. Same FFI
- * signatures as HjcdIkCoarseFfi / HjcdIkLmFfi.
+ * Collision enters the merit only (no step terms), as in the hand-written kernel. One seed per
+ * thread, warp or block (`tier`); FFI signatures as HjcdIkCoarseFfi (plus `tier` /
+ * `block_threads`) and HjcdIkLmFfi.
  */
 
 #include "ik_crocket/ck.cuh"
@@ -26,14 +27,20 @@ __device__ __forceinline__ void adaptive_weights(const real* r, real* w)
     w[3] = w[4] = w[5] = s;
 }
 
+template <grim::Tier TIER>
+using HjcdCoarseWork = Work<TIER, 1, false, /*WITH_GV=*/true>;
+
+template <grim::Tier TIER>
 __global__ void ck_hjcd_coarse_kernel(
-    const float* __restrict__ seeds, const float* __restrict__ target_Ts, World world,
+    int wpb, const float* __restrict__ seeds, const float* __restrict__ target_Ts, World world,
     const float* __restrict__ lower, const float* __restrict__ upper, const int* __restrict__ fixed_mask,
     float* __restrict__ out, float* __restrict__ out_err,
     int n_problems, int n_seeds, int k_max, int enable_collision, real cw_weight, real margin)
 {
-    const int gs = blockIdx.x * blockDim.x + threadIdx.x;
+    const int gs = seed_index<TIER>(wpb);
     if (gs >= n_problems * n_seeds) return;
+    const Grp<TIER> G;
+    CK_WORK(TIER, HjcdCoarseWork<TIER>, w);
     Seed sd;
     real cfg[NC], lo[NC], hi[NC];
     bool fixed[NC];
@@ -42,21 +49,22 @@ __global__ void ck_hjcd_coarse_kernel(
         const int src = grim::robot::solved_idx(a);
         lo[a] = lower[src]; hi[a] = upper[src]; fixed[a] = fixed_mask[src] != 0;
     }
-    Geom g;
     for (int iter = 0; iter < k_max; ++iter) {
-        geometry(cfg, sd, g);
-        real w[M];
+        geometry(G, cfg, sd, w);
+        real wt[M];
         for (int e = 0; e < NE; ++e) {
-            adaptive_weights(g.r + 6 * e, w + 6 * e);
-            if (nrm3(g.r + 6 * e) >= real(1e-3)) w[6 * e + 3] = w[6 * e + 4] = w[6 * e + 5] = 0;
+            adaptive_weights(w.g.r + 6 * e, wt + 6 * e);
+            if (nrm3(w.g.r + 6 * e) >= real(1e-3)) wt[6 * e + 3] = wt[6 * e + 4] = wt[6 * e + 5] = 0;
         }
+        // The joint with the largest predicted reduction (lowest index on ties): every lane scans
+        // all NC columns of the shared Jacobian, so they agree.
         int best = -1;
         real best_impr = -1, best_dot = 0, best_sq = 1;
         for (int a = 0; a < NC; ++a) {
             real dot = 0, sq = 0;
             for (int k = 0; k < M; ++k) {
-                const real jw = g.J[k * NC + a] * w[k];
-                dot += jw * g.r[k] * w[k];
+                const real jw = w.g.J[k * NC + a] * wt[k];
+                dot += jw * w.g.r[k] * wt[k];
                 sq += jw * jw;
             }
             sq += real(1e-8);
@@ -67,25 +75,33 @@ __global__ void ck_hjcd_coarse_kernel(
         if (best < 0) break;
         cfg[best] = clamp(cfg[best] - best_dot / best_sq, lo[best], hi[best]);
     }
-    geometry_value(cfg, sd, g);
+    geometry_value(G, cfg, sd, w);
     real err = 0;
-    for (int k = 0; k < M; ++k) err += g.r[k] * g.r[k];
+    for (int k = 0; k < M; ++k) err += w.gv.r[k] * w.gv.r[k];
     const bool want_world = enable_collision && NWS > 0;
-    if (want_world || has_self) err += cw_weight * collision_raw(g, world, want_world, margin);
-    out_err[gs] = (float)err;
-    store(cfg, sd, out, gs);
+    if (want_world || has_self) err += cw_weight * collision_raw_coop(G, w, w.gv, world, want_world, margin);
+    if (G.leader()) {
+        out_err[gs] = (float)err;
+        store(cfg, sd, out, gs);
+    }
 }
 
+template <grim::Tier TIER>
+using HjcdLmWork = Work<TIER>;
+
+template <grim::Tier TIER>
 __global__ void ck_hjcd_lm_kernel(
-    const float* __restrict__ seeds, const float* __restrict__ noise, const float* __restrict__ target_Ts,
+    int wpb, const float* __restrict__ seeds, const float* __restrict__ noise, const float* __restrict__ target_Ts,
     World world, const float* __restrict__ lower, const float* __restrict__ upper,
     const int* __restrict__ fixed_mask, float* __restrict__ out, float* __restrict__ out_err,
     int* __restrict__ stop_flag, int n_problems, int n_seeds, int max_iter, int early_stop,
     real lambda_init, real limit_prior_weight, real kick_scale, real eps_pos, real eps_ori,
     int stall_patience, int enable_collision, real cw_weight, real margin)
 {
-    const int gs = blockIdx.x * blockDim.x + threadIdx.x;
+    const int gs = seed_index<TIER>(wpb);
     if (gs >= n_problems * n_seeds) return;
+    const Grp<TIER> G;
+    CK_WORK(TIER, HjcdLmWork<TIER>, w);
     const int p = gs / n_seeds;
     Seed sd;
     real cfg[NC], best_cfg[NC], lo[NC], hi[NC], mid[NC], half[NC];
@@ -101,80 +117,97 @@ __global__ void ck_hjcd_lm_kernel(
     }
     const bool want_world = enable_collision && NWS > 0;
     const bool want_coll = want_world || has_self;
-    auto pen = [&](const Geom& gg) { return want_coll ? cw_weight * collision_raw(gg, world, want_world, margin) : real(0); };
 
-    Geom g;
-    geometry(cfg, sd, g);
-    real best_err = pen(g);
-    for (int k = 0; k < M; ++k) best_err += g.r[k] * g.r[k];
+    geometry(G, cfg, sd, w);
+    real best_err = want_coll ? cw_weight * collision_raw_coop(G, w, w.g, world, want_world, margin) : real(0);
+    for (int k = 0; k < M; ++k) best_err += w.g.r[k] * w.g.r[k];
     real lam = lambda_init;
     int stall = 0;
 
     for (int iter = 0; iter < max_iter; ++iter) {
-        if (early_stop && *(volatile int*)(stop_flag + p) != 0) break;
-        geometry(cfg, sd, g);
-        const real cpen = pen(g);
+        if (early_stop) {   // read once per group so every lane takes the same branch
+            G.sync();
+            if (G.leader()) w.flag = *(volatile int*)(stop_flag + p);
+            G.sync();
+            const bool stop = w.flag != 0;
+            G.sync();
+            if (stop) break;
+        }
+        geometry(G, cfg, sd, w);
+        const real cpen = want_coll ? cw_weight * collision_raw_coop(G, w, w.g, world, want_world, margin) : real(0);
         real curr_err = cpen;
-        for (int k = 0; k < M; ++k) curr_err += g.r[k] * g.r[k];
-        if (converged(g.r, eps_pos, eps_ori) && (!want_coll || cpen <= real(1e-12))) {
-            if (early_stop) { atomicExch(stop_flag + p, 1); __threadfence(); }
+        for (int k = 0; k < M; ++k) curr_err += w.g.r[k] * w.g.r[k];
+        if (converged(w.g.r, eps_pos, eps_ori) && (!want_coll || cpen <= real(1e-12))) {
+            if (early_stop && G.leader()) { atomicExch(stop_flag + p, 1); __threadfence(); }
             break;
         }
 
-        real w[M], fw[M];
-        for (int e = 0; e < NE; ++e) adaptive_weights(g.r + 6 * e, w + 6 * e);
-        for (int k = 0; k < M; ++k) {
-            fw[k] = g.r[k] * w[k];
-            for (int a = 0; a < NC; ++a) g.J[k * NC + a] *= w[k];
-        }
+        real wt[M], fw[M];
+        for (int e = 0; e < NE; ++e) adaptive_weights(w.g.r + 6 * e, wt + 6 * e);
+        for (int k = 0; k < M; ++k) fw[k] = w.g.r[k] * wt[k];
         real sc[NC];
         for (int a = 0; a < NC; ++a) {
-            real s = 0;
-            for (int k = 0; k < M; ++k) s += g.J[k * NC + a] * g.J[k * NC + a];
-            sc[a] = sqrt(s) + real(1e-8);
+            real s2 = 0;
+            for (int k = 0; k < M; ++k) { const real v = w.g.J[k * NC + a] * wt[k]; s2 += v * v; }
+            sc[a] = sqrt(s2) + real(1e-8);
         }
-        for (int k = 0; k < M; ++k)
-            for (int a = 0; a < NC; ++a) g.J[k * NC + a] /= sc[a];
-
-        real A[NC * NC], b[NC];
-        for (int i = 0; i < NC; ++i) {
+        for (int k = G.rank; k < M; k += G.size)
+            for (int a = 0; a < NC; ++a) w.g.J[k * NC + a] *= wt[k] / sc[a];
+        G.sync();
+        for (int i = G.rank; i < NC; i += G.size) {
+            real ji[M];
+            for (int k = 0; k < M; ++k) ji[k] = w.g.J[k * NC + i];
             for (int j = 0; j < NC; ++j) {
                 real acc = 0;
-                for (int k = 0; k < M; ++k) acc += g.J[k * NC + i] * g.J[k * NC + j];
-                A[i * NC + j] = acc;
+                for (int k = 0; k < M; ++k) acc += ji[k] * w.g.J[k * NC + j];
+                w.A[i * NC + j] = acc;
             }
             real rb = 0;
-            for (int k = 0; k < M; ++k) rb += g.J[k * NC + i] * fw[k];
+            for (int k = 0; k < M; ++k) rb += ji[k] * fw[k];
             const real d_raw = limit_prior_weight / (half[i] * half[i]);
-            A[i * NC + i] += lam + d_raw / (sc[i] * sc[i]);
-            b[i] = -(rb + d_raw * (cfg[i] - mid[i]) / sc[i]);
+            w.A[i * NC + i] += lam + d_raw / (sc[i] * sc[i]);
+            w.b[i] = -(rb + d_raw * (cfg[i] - mid[i]) / sc[i]);
         }
-        for (int a = 0; a < NC; ++a) {
+        G.sync();
+        for (int a = G.rank; a < NC; a += G.size) {
             if (!fixed[a]) continue;
-            for (int j = 0; j < NC; ++j) A[a * NC + j] = A[j * NC + a] = 0;
-            A[a * NC + a] = 1;
-            b[a] = 0;
+            for (int j = 0; j < NC; ++j) w.A[a * NC + j] = w.A[j * NC + a] = 0;
+            w.A[a * NC + a] = 1;
+            w.b[a] = 0;
         }
-        posv<NC>(A, b);
+        posv_tier<TIER, NC>(G, w);
         real delta[NC];
-        for (int a = 0; a < NC; ++a) delta[a] = b[a] / sc[a];
-        clip_to_radius(delta, trust_radius(g.r));
+        for (int a = 0; a < NC; ++a) delta[a] = w.b[a] / sc[a];
+        clip_to_radius(delta, trust_radius(w.g.r));
 
+        // Trials: early exit on sufficient decrease on the one lane of the thread tier; all five in
+        // parallel elsewhere, then the same first-sufficient rule applied in order.
         const real alphas[5] = {1, 0.5, 0.25, 0.1, 0.025};
         const real suff = curr_err * real(1 - 1e-4);
-        real best_a_err = real(1e30);
-        int best_a = 0;
-        for (int ai = 0; ai < 5; ++ai) {
+        auto eval = [&](int ai) {
             real trial[NC];
             for (int a = 0; a < NC; ++a) trial[a] = clamp(cfg[a] + alphas[ai] * delta[a], lo[a], hi[a]);
-            Geom gt;
-            geometry_value(trial, sd, gt);
-            real e = pen(gt);
+            GeomV gt;
+            grim::ck::geometry_value(trial, sd, gt);
+            real e = want_coll ? cw_weight * collision_raw(gt, world, want_world, margin) : real(0);
             for (int k = 0; k < M; ++k) e += gt.r[k] * gt.r[k];
-            if (e < best_a_err) {
-                best_a_err = e; best_a = ai;
-                if (e < suff) break;
+            return e;
+        };
+        real best_a_err = real(1e30);
+        int best_a = 0;
+        if constexpr (TIER == grim::Tier::Thread) {
+            for (int ai = 0; ai < 5; ++ai) {
+                const real e = eval(ai);
+                if (e < best_a_err) { best_a_err = e; best_a = ai; if (e < suff) break; }
             }
+        } else {
+            for (int ai = G.rank; ai < 5; ai += G.size) w.err[ai] = eval(ai);
+            G.sync();
+            for (int ai = 0; ai < 5; ++ai) {
+                const real e = w.err[ai];
+                if (e < best_a_err) { best_a_err = e; best_a = ai; if (e < suff) break; }
+            }
+            G.sync();
         }
         real trial[NC];
         for (int a = 0; a < NC; ++a) trial[a] = clamp(cfg[a] + alphas[best_a] * delta[a], lo[a], hi[a]);
@@ -198,8 +231,10 @@ __global__ void ck_hjcd_lm_kernel(
             stall = 0;
         }
     }
-    store(best_cfg, sd, out, gs);
-    out_err[gs] = (float)best_err;
+    if (G.leader()) {
+        store(best_cfg, sd, out, gs);
+        out_err[gs] = (float)best_err;
+    }
 }
 
 static ffi::Error CkHjcdCoarseImpl(
@@ -210,8 +245,10 @@ static ffi::Error CkHjcdCoarseImpl(
     ffi::Buffer<ffi::DataType::F32> lower, ffi::Buffer<ffi::DataType::F32> upper,
     ffi::Buffer<ffi::DataType::S32> fixed_mask,
     int64_t k_max, int64_t enable_collision, float collision_weight, float collision_margin,
+    int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err)
 {
+    (void)block_threads;
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("hjcd_ik (crocket)", seeds.dimensions()[2],
@@ -220,7 +257,7 @@ static ffi::Error CkHjcdCoarseImpl(
     if (n == 0) return ffi::Error::Success();
     const World world{world_spheres.typed_data(), world_capsules.typed_data(),
                       world_boxes.typed_data(), world_halfspaces.typed_data()};
-    ck_hjcd_coarse_kernel<<<(n + THREADS - 1) / THREADS, THREADS, 0, stream>>>(
+    CK_LAUNCH(ck_hjcd_coarse_kernel, HjcdCoarseWork, tier, n, stream,
         seeds.typed_data(), target_Ts.typed_data(), world, lower.typed_data(), upper.typed_data(),
         fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(), n_problems, n_seeds,
         static_cast<int>(k_max), static_cast<int>(enable_collision), collision_weight, collision_margin);
@@ -244,7 +281,7 @@ static ffi::Error CkHjcdLmImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_err,
     ffi::Result<ffi::Buffer<ffi::DataType::S32>> stop_flag)
 {
-    (void)tier; (void)block_threads;
+    (void)block_threads;
     const int n_problems = static_cast<int>(seeds.dimensions()[0]);
     const int n_seeds = static_cast<int>(seeds.dimensions()[1]);
     GRIM_CK_CHECK_WORLD("hjcd_ik (crocket)", seeds.dimensions()[2],
@@ -254,7 +291,7 @@ static ffi::Error CkHjcdLmImpl(
     const int n = n_problems * n_seeds;
     const World world{world_spheres.typed_data(), world_capsules.typed_data(),
                       world_boxes.typed_data(), world_halfspaces.typed_data()};
-    ck_hjcd_lm_kernel<<<(n + THREADS - 1) / THREADS, THREADS, 0, stream>>>(
+    CK_LAUNCH(ck_hjcd_lm_kernel, HjcdLmWork, tier, n, stream,
         seeds.typed_data(), noise.typed_data(), target_Ts.typed_data(), world, lower.typed_data(),
         upper.typed_data(), fixed_mask.typed_data(), out->typed_data(), out_err->typed_data(),
         stop_flag->typed_data(), n_problems, n_seeds, static_cast<int>(max_iter),
@@ -283,6 +320,8 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("enable_collision")
         .Attr<float>("collision_weight")
         .Attr<float>("collision_margin")
+        .Attr<int64_t>("tier")
+        .Attr<int64_t>("block_threads")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
         .Ret<ffi::Buffer<ffi::DataType::F32>>());
 
