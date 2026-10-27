@@ -333,15 +333,18 @@ def build_canonical(robot: MotionRobot, ee_joints, *, collision: CollisionModel 
 
 def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),
                   max_iters: int = 200, step: float = 0.1, tol: float = 1e-5,
-                  damping: float = 1e-6, collision_margin: float = 0.0, rot=None):
+                  damping: float = 1e-6, collision_margin: float = 0.0, rot=None,
+                  tier: str = "thread"):
+    """``tier`` (crocket builds only): one problem per thread, warp or block."""
     q = jnp.asarray(q, jnp.float32)
     P = q.shape[0]
+    extra = {} if target.backend == "grim" else dict(tier=np.int64(TIERS[tier]), block_threads=np.int64(64))
     return jax.ffi.ffi_call(target.name, (jax.ShapeDtypeStruct((P, target.n_q), jnp.float32),
                                           jax.ShapeDtypeStruct((P,), jnp.int32)))(
         *_rot_operand(target, rot), q, jnp.asarray(q_ref, jnp.float32),
         jnp.asarray(targets, jnp.float32).reshape(P, target.n_ee, 7), *world.arrays(),
         max_iters=np.int64(max_iters), step=np.float32(step), tol=np.float32(tol),
-        damping=np.float32(damping), collision_margin=np.float32(collision_margin))
+        damping=np.float32(damping), collision_margin=np.float32(collision_margin), **extra)
 
 
 def canonical_ik(robot: MotionRobot, q, q_ref, targets, ee_joints, *, world: World = World(),
