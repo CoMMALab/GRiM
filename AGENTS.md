@@ -6,7 +6,8 @@ authoritative for conventions.
 ## What GRiM is
 
 The motion-generation layer on top of GRiD: `bindings/grim/motion/` (IK, region IK, trajectory
-optimization, fused collision, compiled least squares, C3+, traced dynamics). GRiD itself is the
+optimization, fused collision, C3+, traced dynamics). The generic compiled least-squares
+solvers live in the standalone `cudals` package, not here. GRiD itself is the
 `external/GRiD` submodule, used unmodified: it generates the per-robot rigid-body dynamics
 (`grid_codegen` → `grid.cuh`, `grid::` namespace) and brings the GLASS / RBDReference /
 URDFParser peers and the sample robots (`external/GRiD/config/robot_assets/`). Motion kernels use

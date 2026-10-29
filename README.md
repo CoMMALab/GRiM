@@ -21,7 +21,7 @@ each build is specialized to one robot, there is no limit on the number of joint
 | `grim.motion.region_ik` | Sampling joint configurations whose end effector lies in a target region |
 | `grim.motion.trajopt` | Trajectory optimization: SCO, STOMP, CHOMP, and least squares |
 | `grim.motion.collision` | Self- and world-collision distances and their Jacobians |
-| `grim.motion.costs` | Compiled least-squares solvers and contact (C3+) numerics, used by problem compilers such as pyroffi |
+| `grim.motion.costs` | Contact (C3+) numerics for contact-aware trajectory optimization |
 | `grim.motion.dynamics` | Inverse and forward dynamics, mass matrix, and dynamics derivatives, compiled by [crocket](https://github.com/commalab/crocket) |
 | `grim.motion.kinematics` | Batched forward kinematics, pose errors, and Jacobians |
 

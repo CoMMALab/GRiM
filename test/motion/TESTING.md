@@ -1,7 +1,7 @@
 # Motion-kernel verification
 
-How GRiM's motion kernels (IK, region IK, trajectory optimization, fused collision, compiled
-least squares, C3+, traced dynamics) are tested, and why. It applies GRiD's equivalence
+How GRiM's motion kernels (IK, region IK, trajectory optimization, fused collision, C3+,
+traced dynamics) are tested, and why. It applies GRiD's equivalence
 strategy (`external/GRiD/test/TESTING_STRATEGY.md`) to iterative solvers. Read that first; this file covers
 what changes when a kernel is an optimizer rather than a closed-form algorithm.
 
@@ -35,7 +35,6 @@ three levels:
    - joint limits;
    - KKT stationarity (canonical IK);
    - box membership (region IK);
-   - local optimality (compiled least squares);
    - the dense-QP solution (C3 Riccati).
 
 Floors on success rates are measured, never guessed. Where a method itself misses targets, the
@@ -53,8 +52,7 @@ below).
   This catches a cooperative loop writing a thread-local array (the SQP `H_s` trap). It does
   not apply to MPPI and STOMP, which key their noise on the slot by design.
 - **Determinism.** Every kernel is run twice and must give bit-identical outputs. No atomics
-  or races may decide an output. The banded least-squares assembly was rewritten as
-  owner-computes for this, and HJCD's cross-seed early stop is opt-in (`early_stop`).
+  or races may decide an output. HJCD's cross-seed early stop is opt-in (`early_stop`).
 
 ## Samples (GRiD Principle 1, adapted)
 

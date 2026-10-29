@@ -3,7 +3,7 @@
 GRiD (``external/GRiD``, a submodule) supplies the rigid-body dynamics codegen
 (``grid_codegen``), its runtime wrapper (``grid_rbd``) and the URDFParser /
 RBDReference / GLASS peers; GRiM adds the per-robot IK, trajectory optimization,
-collision and least-squares kernels in ``grim.motion``. Importing ``grim`` puts the
+collision and contact kernels in ``grim.motion``. Importing ``grim`` puts the
 GRiD checkout on ``sys.path`` unless ``grid_codegen`` and its peers are already importable, so a
 source checkout works without installing GRiD. ``GRIM_GRID_PATH`` overrides the
 checkout location. crocket (``external/crocket``), the trace compiler behind every IK kernel,
