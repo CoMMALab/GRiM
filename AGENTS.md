@@ -18,6 +18,17 @@ kernels. crocket (`external/crocket`) is the trace compiler behind every IK kern
 **Do not edit `external/`.** A change GRiM needs in GRiD goes upstream to A2R-Lab/GRiD, then the
 submodule pointer is bumped and the motion suite re-run.
 
+**Manual GLASS checkout (temporary).** The crocket IK block tier needs GLASS's restricted-caller
+fix (GLASS `9a24f37`), but upstream GRiD still pins GLASS `9e57178`. After
+`git submodule update --init --recursive`, run:
+
+```bash
+git -C external/GRiD/external/GLASS checkout 9a24f37
+```
+
+Without it, block-tier SQP with collision silently diverges from the thread tier. Remove this
+note once GRiD bumps GLASS (tracked in `OPEN_TASKS.md`).
+
 ## Layout
 
 - `bindings/grim/__init__.py` — puts the `external/GRiD` checkout on `sys.path` when GRiD is not

@@ -745,17 +745,7 @@ __device__ __forceinline__ void jacobi_scale(const Grp<TIER>& G, real* __restric
     G.sync();
 }
 
-/**
- * Factor w.A (N x N) in place for repeated solves (potrs_tier), at TIER; false if not PD.
- *
- * The block tier factors and solves on its first warp with GLASS's warp routines. GLASS's block
- * trsv (so block potrs) is wrong at >1 thread when its x reaches it through a `__restrict__`
- * pointer, as here: nvcc serves the re-reads of x that other threads wrote (the pivot rank 0
- * resolved, the unknowns whose owner changes each step) from registers across __syncthreads.
- * Block-tier SQP-with-collision then diverged from the thread tier on 54 of 64 fr3 seeds after
- * one step; the warp routines agree to round-off. Go back to grim::tier_potrf<TIER> /
- * tier_potrs<TIER> once GLASS's block trsv is fixed upstream.
- */
+/** Factor w.A (N x N) in place for repeated solves (potrs_tier), at TIER; false if not PD. */
 template <grim::Tier TIER, int N, class W>
 __device__ __forceinline__ bool potrf_tier(const Grp<TIER>& G, W& w)
 {
@@ -767,8 +757,7 @@ __device__ __forceinline__ bool potrf_tier(const Grp<TIER>& G, W& w)
     } else {
         if (G.leader()) w.flag = 0;
         G.sync();
-        if (TIER == grim::Tier::Warp || threadIdx.x < 32)
-            grim::tier_potrf<grim::Tier::Warp, real, (uint32_t)N>(w.A, &w.flag);
+        grim::tier_potrf<TIER, real, (uint32_t)N>(w.A, &w.flag);
         G.sync();
         return w.flag == 0;
     }
@@ -780,7 +769,7 @@ __device__ __forceinline__ void potrs_tier(const Grp<TIER>& G, W& w)
 {
     G.sync();
     if constexpr (TIER == grim::Tier::Thread) glass::thread::potrs<real, (uint32_t)N>(w.A, w.b);
-    else if (TIER == grim::Tier::Warp || threadIdx.x < 32) grim::tier_potrs<grim::Tier::Warp, real, (uint32_t)N>(w.A, w.b);
+    else grim::tier_potrs<TIER, real, (uint32_t)N>(w.A, w.b);
     G.sync();
 }
 
