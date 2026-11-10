@@ -126,14 +126,15 @@ def test_trajopt_zero_iteration_cost_uses_the_rotation():
     from grim.motion import trajopt
 
     robot = load_robot("iiwa14")
-    mod = _with_rotation(robot, _rotations(1, seed=5)[0])
+    joint = _movable(robot, 0)
+    mod = _with_rotation(robot, _rotations(1, seed=5)[0], joint)
     x, start, goal = straight_lines(robot, 4, 24)
     tc, world = sphere_model(robot), obstacle_world(mod, start, goal)
     w = dict(w_smooth=1.0, w_acc=0.5, w_jerk=0.1, w_limits=1.0, w_collision_max=100.0,
              collision_margin=0.01)
     _, c = trajopt.sco_trajopt(robot, x, collision=tc, world=world, start=start, goal=goal,
-                               n_outer_iters=0, runtime_rot_joint=JOINT,
-                               rot=mod.parent_tf[JOINT, :4], **w)
+                               n_outer_iters=0, runtime_rot_joint=joint,
+                               rot=mod.parent_tf[joint, :4], **w)
     want = np.array([ref_traj.sco_cost(mod, x[b], tc, world, lower=robot.lower,
                                        upper=robot.upper, **w) for b in range(len(x))])
     assert want.max() > 1.0, "test scene must have active collision terms"
@@ -147,6 +148,17 @@ def test_ik_refuses_a_fixed_rotation_joint():
     assert robot.joint_names[JOINT] not in robot.actuated_names
     with pytest.raises(ValueError, match="not a movable joint"):
         ik.build("ls", robot, (robot.n_joints - 1,), runtime_rot_joint=JOINT)
+
+
+def test_trajopt_refuses_a_fixed_rotation_joint():
+    from grim.motion import trajopt
+
+    robot = load_robot("iiwa14")
+    x, start, goal = straight_lines(robot, 2, 24)
+    with pytest.raises(ValueError, match="not a movable joint"):
+        trajopt.sco_trajopt(robot, x, collision=sphere_model(robot), start=start, goal=goal,
+                            n_outer_iters=0, runtime_rot_joint=JOINT,
+                            rot=robot.parent_tf[JOINT, :4])
 
 
 def test_traced_kinematics_refuses_a_runtime_rotation():

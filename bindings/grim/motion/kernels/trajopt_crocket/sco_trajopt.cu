@@ -1,12 +1,11 @@
 /**
- * SCO trajectory optimization over crocket's traced sphere centres, in `real`, one trajectory
- * per thread, warp or block (`tier`). The algorithm is kernels/trajopt/sco_trajopt.cu's:
- * each outer iteration linearizes the smooth-min collision distances about the trajectory
- * (central differences), then L-BFGS minimizes smoothness + limits + the linearized hinge +
- * a trust region, with a five-step line search. Lanes own timesteps (t = rank, rank + size,
- * ...); the scalars every lane needs (L-BFGS's rho and alpha) come out of group reductions, so
- * each lane keeps its own copy. Same FFI signature as the stock kernel plus `tier` /
- * `block_threads`; every buffer of the workspace is `real`.
+ * SCO trajectory optimization, in `real`, one trajectory per thread, warp or block (`tier`).
+ * Each outer iteration linearizes the smooth-min collision distances about the trajectory
+ * (crocket's traced distances and their analytic Jacobian), then L-BFGS minimizes smoothness +
+ * limits + the linearized hinge + a trust region, with a five-step line search. Lanes own
+ * timesteps (t = rank, rank + size, ...); the scalars every lane needs (L-BFGS's rho and alpha)
+ * come out of group reductions, so each lane keeps its own copy. Every buffer of the workspace
+ * is `real`. The hand-written kernel this replaced is at tag pre-crocket-trajopt.
  */
 
 #include "trajopt_crocket/tk.cuh"
@@ -73,7 +72,7 @@ __global__ void ck_sco_trajopt_kernel(
     int start_stride, int goal_stride, float* __restrict__ out_trajs, float* __restrict__ out_costs,
     real* __restrict__ workspace, int B, int T, int n_outer, int n_inner, int m_lbfgs,
     real w_smooth, real w_acc, real w_jerk, real w_limits, real w_trust, real w_collision,
-    real w_collision_max, real penalty_scale, real margin, real tau, real fd_eps)
+    real w_collision_max, real penalty_scale, real margin, real tau)
 {
     const Grp<TIER> grp;
     const int b = group_index<TIER>();
@@ -110,27 +109,14 @@ __global__ void ck_sco_trajopt_kernel(
 
     real w_coll = w_collision;
     for (int outer = 0; outer < n_outer; ++outer) {
-        // Linearize: distances and central-difference Jacobians, one timestep per lane.
+        // Linearize: smooth-min distances and their analytic Jacobians, one timestep per lane.
         for (int t = grp.rank; t < T; t += grp.size) {
             real* q = w.qk + t * NA;
             for (int d = 0; d < NA; ++d) q[d] = w.traj[t * NA + d];
-#ifdef GRIM_CK_ANALYTIC
             real Jt[G * NA];
             smooth_min_jac(q, world, tau, w.dk + t * G, Jt);
             for (int k = 0; k < G; ++k)
                 for (int d = 0; d < NA; ++d) w.J[(t * G + k) * NA + d] = Jt[k * NA + d];
-#else
-            smooth_min_dists(q, world, tau, w.dk + t * G);
-            for (int d = 0; d < NA; ++d) {
-                const real o = q[d];
-                real dp[G], dm[G];
-                q[d] = o + fd_eps; smooth_min_dists(q, world, tau, dp);
-                q[d] = o - fd_eps; smooth_min_dists(q, world, tau, dm);
-                q[d] = o;
-                const real inv2e = real(1) / (2 * fd_eps);
-                for (int k = 0; k < G; ++k) w.J[(t * G + k) * NA + d] = (dp[k] - dm[k]) * inv2e;
-            }
-#endif
         }
         grp.sync();
 
@@ -260,7 +246,7 @@ static ffi::Error CkScoTrajoptImpl(
     ffi::Buffer<ffi::DataType::F32> goal,
     int64_t n_outer, int64_t n_inner, int64_t m_lbfgs, float w_smooth, float w_acc, float w_jerk,
     float w_limits, float w_trust, float w_collision, float w_collision_max, float penalty_scale,
-    float margin, float tau, float fd_eps, int64_t tier, int64_t block_threads,
+    float margin, float tau, int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_trajs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_costs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> workspace)
@@ -286,7 +272,7 @@ static ffi::Error CkScoTrajoptImpl(
               goal.typed_data(), ss, gs, out_trajs->typed_data(), out_costs->typed_data(),
               reinterpret_cast<real*>(workspace->typed_data()), B, T, (int)n_outer, (int)n_inner,
               (int)m_lbfgs, w_smooth, w_acc, w_jerk, w_limits, w_trust, w_collision, w_collision_max,
-              penalty_scale, margin, tau, fd_eps);
+              penalty_scale, margin, tau);
     const cudaError_t e = cudaGetLastError();
     return e == cudaSuccess ? ffi::Error::Success() : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(e));
 }
@@ -318,7 +304,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<float>("penalty_scale")
         .Attr<float>("collision_margin")
         .Attr<float>("smooth_min_temperature")
-        .Attr<float>("fd_eps")
         .Attr<int64_t>("tier")
         .Attr<int64_t>("block_threads")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()  // out_trajs

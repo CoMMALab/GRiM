@@ -1,6 +1,6 @@
 /**
- * STOMP over crocket's traced sphere centres, in `real`. The algorithm is
- * kernels/trajopt/stomp_trajopt.cu's: per iteration, evaluate K smooth-noise samples around each
+ * STOMP over crocket's traced collision cost, in `real` (the hand-written kernel this replaced
+ * is at tag pre-crocket-trajopt): per iteration, evaluate K smooth-noise samples around each
  * trajectory, softmax-weight them by cost, step toward the weighted noise, and keep the best
  * sample seen; the result is that best sample, scored with w_collision_max.
  *

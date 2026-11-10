@@ -19,7 +19,7 @@ each build is specialized to one robot, there is no limit on the number of joint
 | `grim.motion.ik` | Inverse kinematics: Levenberg-Marquardt, SQP with joint limits and collision constraints, coordinate descent, MPPI + L-BFGS, and redundancy-resolved IK |
 | `grim.motion.analytic_ik` | Closed-form IK for the Franka Panda and FR3 |
 | `grim.motion.region_ik` | Sampling joint configurations whose end effector lies in a target region |
-| `grim.motion.trajopt` | Trajectory optimization: SCO, STOMP, CHOMP, and least squares |
+| `grim.motion.trajopt` | Trajectory optimization: SCO, STOMP and CHOMP, crocket-traced with analytic collision gradients |
 | `grim.motion.collision` | Self- and world-collision distances and their Jacobians |
 | `grim.motion.costs` | Contact (C3+) numerics for contact-aware trajectory optimization |
 | `grim.motion.dynamics` | Inverse and forward dynamics, mass matrix, and dynamics derivatives, compiled by [crocket](https://github.com/commalab/crocket) |

@@ -8,6 +8,8 @@
   oracle's cost of the returned trajectory (it does not grade itself) and is no worse than
   the initial cost.
 * Runs are bit-deterministic and a trajectory's result does not depend on its batch slot.
+
+Every case runs at both scalar types and all three tiers.
 """
 
 from __future__ import annotations
@@ -17,25 +19,24 @@ import pytest
 
 from grim.motion.reference import trajopt as ref
 
-from .conftest import assert_close_scaled, crocket_available, load_robot, requires_gpu
+from .conftest import assert_close_scaled, load_robot, requires_gpu
 from .traj_cases import obstacle_world, sphere_model, straight_lines
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
 
 ROBOTS = ["fr3", "iiwa14"]
-OPTIMIZERS = ["sco", "stomp", "chomp", "ls"]
+OPTIMIZERS = ["sco", "stomp", "chomp"]
 W = dict(w_smooth=1.0, w_acc=0.5, w_jerk=0.1, w_limits=1.0, w_collision_max=100.0,
          collision_margin=0.01)
-ZERO = {"sco": dict(n_outer_iters=0), "stomp": dict(n_iters=0), "chomp": dict(n_iters=0),
-        "ls": dict(n_outer_iters=0)}
-COST = {"sco": ref.sco_cost, "stomp": ref.stomp_cost, "chomp": ref.stomp_cost,
-        "ls": ref.ls_cost}
+ZERO = {"sco": dict(n_outer_iters=0), "stomp": dict(n_iters=0), "chomp": dict(n_iters=0)}
+COST = {"sco": ref.sco_cost, "stomp": ref.stomp_cost, "chomp": ref.stomp_cost}
+CONFIGS = [(b, t) for b in ("crocket-f32", "crocket-f64") for t in ("thread", "warp", "block")]
 
 
 def _run(kind, robot, x, tc, world, start, goal, **kw):
     from grim.motion import trajopt
     fn = {"sco": trajopt.sco_trajopt, "stomp": trajopt.stomp_trajopt,
-          "chomp": trajopt.chomp_trajopt, "ls": trajopt.ls_trajopt}[kind]
+          "chomp": trajopt.chomp_trajopt}[kind]
     t, c = fn(robot, x, collision=tc, world=world, start=start, goal=goal, **W, **kw)
     return np.asarray(t), np.asarray(c)
 
@@ -50,72 +51,11 @@ def _oracle(kind, robot, traj, tc, world):
     return COST[kind](robot, traj, tc, world, lower=robot.lower, upper=robot.upper, **W)
 
 
+@pytest.mark.parametrize("backend,tier", CONFIGS)
 @pytest.mark.parametrize("kind", OPTIMIZERS)
 @pytest.mark.parametrize("name", ROBOTS)
-def test_zero_iterations_cost_matches_reference(kind, name):
-    robot, x, start, goal, tc, world = _setup(name)
-    t, c = _run(kind, robot, x, tc, world, start, goal, **ZERO[kind])
-    assert_close_scaled(t, x, 1e-6, "trajectory moved with zero iterations")
-    want = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
-    assert want.max() > 1.0, "test scene must have active collision terms"
-    assert_close_scaled(c, want, 1e-4, f"{kind} {name} initial cost")
-
-
-@pytest.mark.parametrize("kind", OPTIMIZERS)
-@pytest.mark.parametrize("name", ROBOTS)
-def test_solution(kind, name):
-    robot, x, start, goal, tc, world = _setup(name)
-    t, c = _run(kind, robot, x, tc, world, start, goal)
-    assert np.array_equal(t[:, 0], np.broadcast_to(start.astype(np.float32), t[:, 0].shape))
-    assert np.array_equal(t[:, -1], np.broadcast_to(goal.astype(np.float32), t[:, -1].shape))
-    # Limits are a soft penalty (in the oracle cost below), not a constraint: bound the
-    # violation instead of forbidding it. STOMP's sampled candidates overshoot by up to
-    # 0.076 rad here, identically in pyroffi's original kernel (parity to 2e-7).
-    viol = np.maximum(t - robot.upper, 0) + np.maximum(robot.lower - t, 0)
-    assert viol.max() < 0.1, f"{kind} {name}: limit violation {viol.max():.3f} rad"
-    want = np.array([_oracle(kind, robot, t[b], tc, world) for b in range(len(t))])
-    assert_close_scaled(c, want, 1e-3, f"{kind} {name} reported cost")
-    init = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
-    assert np.all(want <= init * (1 + 1e-5) + 1e-6), f"{kind} {name}: cost increased {init} -> {want}"
-
-
-@pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
-@pytest.mark.parametrize("kind", OPTIMIZERS)
-def test_traced_zero_iterations_cost_matches_reference(kind):
-    """The crocket-traced build poses spheres from crocket's FK: same oracle cost."""
-    robot, x, start, goal, tc, world = _setup("iiwa14")
-    t, c = _run(kind, robot, x, tc, world, start, goal, traced=True, **ZERO[kind])
-    want = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
-    assert_close_scaled(c, want, 1e-4, f"traced {kind} initial cost")
-
-
-@pytest.mark.parametrize("kind", OPTIMIZERS)
-def test_deterministic(kind):
-    robot, x, start, goal, tc, world = _setup("fr3")
-    a = _run(kind, robot, x, tc, world, start, goal)
-    b = _run(kind, robot, x, tc, world, start, goal)
-    assert all(np.array_equal(u, v) for u, v in zip(a, b))
-
-
-@pytest.mark.parametrize("kind", ["sco", "chomp", "ls"])
-def test_batch_invariant(kind):
-    """Trajectories are independent blocks. (STOMP keys its noise on the batch slot.)"""
-    robot, x, start, goal, tc, world = _setup("fr3")
-    a = _run(kind, robot, x, tc, world, start, goal)
-    r = _run(kind, robot, x[::-1], tc, world, start, goal)
-    assert np.array_equal(r[0][::-1], a[0]) and np.array_equal(r[1][::-1], a[1])
-
-
-CK_KINDS = ["sco", "stomp", "chomp"]
-CK_CONFIGS = [(b, t) for b in ("crocket-f32", "crocket-f64") for t in ("thread", "warp", "block")]
-
-
-@pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
-@pytest.mark.parametrize("backend,tier", CK_CONFIGS)
-@pytest.mark.parametrize("kind", CK_KINDS)
-@pytest.mark.parametrize("name", ROBOTS)
-def test_crocket_zero_iterations_and_solution(kind, name, backend, tier):
-    """kernels/trajopt_crocket: the initial cost is the oracle's; the result keeps its endpoints,
+def test_zero_iterations_and_solution(kind, name, backend, tier):
+    """The initial cost is the oracle's; the result keeps its endpoints,
     reports the oracle's cost of what it returns, and does not raise the cost."""
     robot, x, start, goal, tc, world = _setup(name)
     ck = dict(backend=backend, tier=tier)
@@ -125,16 +65,19 @@ def test_crocket_zero_iterations_and_solution(kind, name, backend, tier):
     t, c = _run(kind, robot, x, tc, world, start, goal, **ck)
     assert np.array_equal(t[:, 0], np.broadcast_to(start.astype(np.float32), t[:, 0].shape))
     assert np.array_equal(t[:, -1], np.broadcast_to(goal.astype(np.float32), t[:, -1].shape))
+    # Limits are a soft penalty (in the oracle cost below), not a constraint: bound the
+    # violation instead of forbidding it (STOMP's sampled candidates overshoot by up to 0.076 rad).
+    viol = np.maximum(t - robot.upper, 0) + np.maximum(robot.lower - t, 0)
+    assert viol.max() < 0.1, f"{kind} {name} {backend} {tier}: limit violation {viol.max():.3f} rad"
     got = np.array([_oracle(kind, robot, t[b], tc, world) for b in range(len(t))])
     assert_close_scaled(c, got, 1e-3, f"{kind} {name} {backend} {tier} reported cost")
     init = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
     assert np.all(got <= init * (1 + 1e-5) + 1e-6), f"{kind} {name} {backend} {tier}: cost increased"
 
 
-@pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
 @pytest.mark.parametrize("tier", ["thread", "warp", "block"])
-@pytest.mark.parametrize("kind", CK_KINDS)
-def test_crocket_deterministic_and_batch_invariant(kind, tier):
+@pytest.mark.parametrize("kind", OPTIMIZERS)
+def test_deterministic_and_batch_invariant(kind, tier):
     """Bit-deterministic; a trajectory's result does not depend on its batch slot (except
     STOMP, which keys its noise on the slot) or on what the workspace held before."""
     robot, x, start, goal, tc, world = _setup("fr3")

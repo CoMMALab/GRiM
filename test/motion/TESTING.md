@@ -15,7 +15,7 @@ against the oracle. The motion oracle is `bindings/grim/motion/reference/`:
 | `kinematics` | frame poses, pose residual, geometric Jacobian | Pinocchio (`test_reference_kinematics.py`, every asset robot, 1e-10) |
 | `collision` | primitive distances, clearance map, link/pair minima, ESDF trilinear sampling | closed form |
 | `ik` | LS-IK, transcribed step for step | via `kinematics` |
-| `trajopt` | the four trajectory optimizers' reported costs | via `kinematics` + `collision` |
+| `trajopt` | the three trajectory optimizers' reported costs | via `kinematics` + `collision` |
 
 A final-answer comparison is weak for an iterative solver: it converges from many states, and
 float32 round-off makes iterates drift chaotically after a few steps. So kernels are checked at

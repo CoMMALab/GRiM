@@ -1,11 +1,8 @@
 /**
- * What the crocket trajectory optimizers share: the traced sphere centres, the collision and
- * smoothness terms over them, and the tier scaffolding, all in `real` (GRIM_CK_REAL, float or
- * double). See grim.motion._crocket_traj.
- *
- * Each term reproduces the kernel it replaced (kernels/trajopt/) in `real`: same distances,
- * same per-pair hard min, same smooth-min, same stencils, same summation order where the old
- * kernel summed serially. Inputs and outputs stay float32; every buffer in between is `real`.
+ * What the trajectory optimizers share: crocket's traced collision terms and their analytic
+ * gradients, the smoothness and limit terms, and the tier scaffolding, all in `real`
+ * (GRIM_CK_REAL, float or double). See grim.motion._crocket_traj. Inputs and outputs stay
+ * float32; every buffer in between is `real`.
  *
  * A trajectory (SCO, CHOMP) or a sample (STOMP's evaluation) is owned by one group: a thread,
  * a warp, or a block. Lanes stride over timesteps / perturbations / trials in GLASS form
@@ -33,7 +30,6 @@ constexpr int N = grim::robot::traj_N, S = grim::robot::traj_S, P = grim::robot:
 constexpr int n_ws = grim::robot::n_world_spheres, n_wc = grim::robot::n_world_capsules,
               n_wb = grim::robot::n_world_boxes,   n_wh = grim::robot::n_world_halfspaces;
 constexpr int NA = grim::robot::n_q;
-constexpr int NSPHB = NSPH > 0 ? NSPH : 1;
 constexpr int G = 5;   // SCO's smooth-min groups: self, spheres, capsules, boxes, halfspaces
 
 struct World {
@@ -149,106 +145,9 @@ __device__ __forceinline__ void load_rot(real* rot)
 #endif
 }
 
-/** World centre of every collision sphere at configuration `cfg` (NA, float or real). */
-template <class U>
-__device__ __forceinline__ void centres(const U* __restrict__ cfg, real* __restrict__ cw)
-{
-    real q[NQ > 0 ? NQ : 1], rot[NROT > 0 ? NROT : 1], r[1];
-    gather<real>(cfg, q);
-    load_rot(rot);
-    tr::ik_geometry_value_thread<real>(q, nullptr, rot, r, cw, nullptr, 1);
-}
-
-// Distances (kernels/collision.cuh, in `real`).
-__device__ __forceinline__ real d_sph(const real* a, real ra, const real* b, real rb)
-{
-    const real dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-    return sqrt(dx*dx + dy*dy + dz*dz) - (ra + rb);
-}
-
-__device__ __forceinline__ real d_sphere(const real* c, real rr, const float* o)
-{
-    const real dx = c[0] - o[0], dy = c[1] - o[1], dz = c[2] - o[2];
-    return sqrt(dx*dx + dy*dy + dz*dz) - (rr + real(o[3]));
-}
-
-__device__ __forceinline__ real d_capsule(const real* c, real rr, const float* o)
-{
-    const real vx = real(o[3]) - o[0], vy = real(o[4]) - o[1], vz = real(o[5]) - o[2];
-    const real len2 = vx*vx + vy*vy + vz*vz;
-    real t = 0;
-    if (len2 > real(1e-12)) {
-        t = ((c[0] - o[0]) * vx + (c[1] - o[1]) * vy + (c[2] - o[2]) * vz) / len2;
-        t = fmax(real(0), fmin(real(1), t));
-    }
-    const real dx = c[0] - (o[0] + t * vx), dy = c[1] - (o[1] + t * vy), dz = c[2] - (o[2] + t * vz);
-    return sqrt(dx*dx + dy*dy + dz*dz) - (rr + real(o[6]));
-}
-
-__device__ __forceinline__ real d_box(const real* c, real rr, const float* o)
-{
-    const real dx = c[0] - o[0], dy = c[1] - o[1], dz = c[2] - o[2];
-    real q[3];
-    for (int k = 0; k < 3; ++k)
-        q[k] = fabs(dx * o[3 + 3*k] + dy * o[4 + 3*k] + dz * o[5 + 3*k]) - real(o[12 + k]);
-    const real m0 = fmax(q[0], real(0)), m1 = fmax(q[1], real(0)), m2 = fmax(q[2], real(0));
-    return sqrt(m0*m0 + m1*m1 + m2*m2) + fmin(fmax(fmax(q[0], q[1]), q[2]), real(0)) - rr;
-}
-
-__device__ __forceinline__ real d_halfspace(const real* c, real rr, const float* o)
-{
-    return (c[0] - o[3]) * o[0] + (c[1] - o[4]) * o[1] + (c[2] - o[5]) * o[2] - rr;
-}
-
-/** collision.cuh's colldist_from_sdf in `real`. */
-__device__ __forceinline__ real colldist_from_sdf(real d, real margin)
-{
-    d = fmin(d, margin);
-    if (d < real(0)) return d - real(0.5) * margin;
-    const real t = d - margin;
-    return real(-0.5) / (margin + real(1e-6)) * t * t;
-}
-
-/** Hard min over the spheres of self pair p (1e10 when a row has none). */
-__device__ __forceinline__ real self_min(const real* cw, int p)
-{
-    return self_min_gen<real>(cw, p, [](const real* a, real ra, const real* b, real rb) { return d_sph(a, ra, b, rb); });
-}
-
-/** Hard min over row j's spheres against obstacle `o` of `kind` (1e10 when the row has none). */
-template <int KIND>
-__device__ __forceinline__ real row_min(const real* cw, int j, const float* o)
-{
-    return row_min_gen<real>(cw, j, [o](const real* c, real r) {
-        return KIND == 0 ? d_sphere(c, r, o) : KIND == 1 ? d_capsule(c, r, o)
-             : KIND == 2 ? d_box(c, r, o) : d_halfspace(c, r, o);
-    });
-}
-
-/** f(group, hard-min distance) over every self pair, then row-major over (row, obstacle) with
- *  obstacle kinds in WORLD_KINDS order: the old kernels' order. */
-template <class F>
-__device__ __forceinline__ void for_each_distance(const real* cw, const World& w, F f)
-{
-#pragma unroll
-    for (int p = 0; p < P; ++p) {   // unrolled, the generated switches fold: cw stays in registers
-        const real m = self_min(cw, p);
-        if (m < real(1e9)) f(0, m);
-    }
-#pragma unroll
-    for (int j = 0; j < N; ++j) {
-        for (int k = 0; k < n_ws; ++k) { const real m = row_min<0>(cw, j, w.spheres + 4 * k); if (m < real(1e9)) f(1, m); }
-        for (int k = 0; k < n_wc; ++k) { const real m = row_min<1>(cw, j, w.capsules + 7 * k); if (m < real(1e9)) f(2, m); }
-        for (int k = 0; k < n_wb; ++k) { const real m = row_min<2>(cw, j, w.boxes + 15 * k); if (m < real(1e9)) f(3, m); }
-        for (int k = 0; k < n_wh; ++k) { const real m = row_min<3>(cw, j, w.halfspaces + 6 * k); if (m < real(1e9)) f(4, m); }
-    }
-}
-
-#ifdef GRIM_CK_ANALYTIC
-// The traced collision terms (grim.motion._crocket_traj._analytic_source): crocket's
-// traj_collision / traj_smooth_min, one waypoint each, gradients by its world-wrench backward
-// pass instead of central differences. Values come from the same traces, so a cost and its
-// gradient always agree.
+// The collision terms (grim.motion._crocket_traj): crocket's traj_collision / traj_smooth_min,
+// one waypoint each, gradients by its world-wrench backward pass. Values come from the same
+// traces, so a cost and its gradient always agree.
 namespace tg = crocket::robots::robot_grad;
 
 struct Args {
@@ -300,15 +199,6 @@ __device__ __forceinline__ real sdf_cost(const U* cfg, const World& w, real marg
     return c;
 }
 
-/** SCO's smooth-min distance of each group at `cfg` (1e10 for an empty group). */
-template <class U>
-__device__ __forceinline__ void smooth_min_dists(const U* cfg, const World& w, real tau, real* out)
-{
-    Args a(cfg, w, real(0), tau);
-    real jac[1];
-    tg::ck_smin_thread<real>(a.q, a.ws, a.wc, a.wb, a.wh, a.prm, a.rot, out, jac, 1);
-}
-
 /** The smooth-min distances and their Jacobian, row-major G x NA in `cfg`'s order. */
 template <class U>
 __device__ __forceinline__ void smooth_min_jac(const U* cfg, const World& w, real tau, real* out, real* jac)
@@ -321,49 +211,6 @@ __device__ __forceinline__ void smooth_min_jac(const U* cfg, const World& w, rea
         scatter<real>(J + k * NQ, jac + k * NA);
     }
 }
-#else
-/** CHOMP / STOMP: sum of squared hinges max(0, margin - d) at `cfg`. */
-template <class U>
-__device__ __forceinline__ real hinge_cost(const U* cfg, const World& w, real margin)
-{
-    real cw[3 * NSPHB];
-    centres(cfg, cw);
-    real cost = 0;
-    for_each_distance(cw, w, [&](int, real d) {
-        const real v = fmax(real(0), margin - d);
-        cost += v * v;
-    });
-    return cost;
-}
-
-/** SCO's true collision cost at `cfg`: -sum min(colldist_from_sdf(d), 0). */
-template <class U>
-__device__ __forceinline__ real sdf_cost(const U* cfg, const World& w, real margin)
-{
-    real cw[3 * NSPHB];
-    centres(cfg, cw);
-    real cost = 0;
-    for_each_distance(cw, w, [&](int, real d) { cost -= fmin(colldist_from_sdf(d, margin), real(0)); });
-    return cost;
-}
-
-/** SCO's smooth-min distance of each group at `cfg` (1e10 for an empty group). */
-template <class U>
-__device__ __forceinline__ void smooth_min_dists(const U* cfg, const World& w, real tau, real* out)
-{
-    real cw[3 * NSPHB];
-    centres(cfg, cw);
-    real mx[G], se[G];
-    for (int g = 0; g < G; ++g) { mx[g] = real(-1e30); se[g] = 0; }
-    for_each_distance(cw, w, [&](int g, real d) {
-        const real v = -d / tau;
-        if (v > mx[g]) { se[g] *= exp(mx[g] - v); mx[g] = v; }
-        se[g] += exp(v - mx[g]);
-    });
-    for (int g = 0; g < G; ++g) out[g] = se[g] <= real(0) ? real(1e10) : -tau * (log(se[g]) + mx[g]);
-}
-
-#endif  // GRIM_CK_ANALYTIC
 
 // ---------------------------------------------------------------------------
 // Smoothness (5-point acceleration stencil and its first difference) and limits

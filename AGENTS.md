@@ -13,7 +13,8 @@ solvers live in the standalone `cudals` package, not here. GRiD itself is the
 URDFParser peers and the sample robots (`external/GRiD/config/robot_assets/`). Motion kernels use
 their own `grim::` namespace; only `kernels/dynamics/generated_dynamics.cu` calls GRiD's generated
 kernels. crocket (`external/crocket`) is the trace compiler behind every IK kernel
-(`kernels/ik_crocket`), `traced=True` and `grim.motion.dynamics`.
+(`kernels/ik_crocket`) and trajectory optimizer (`kernels/trajopt_crocket`), `traced=True` and
+`grim.motion.dynamics`.
 
 **Do not edit `external/`.** A change GRiM needs in GRiD goes upstream to A2R-Lab/GRiD, then the
 submodule pointer is bumped and the motion suite re-run.
@@ -39,7 +40,10 @@ note once GRiD bumps GLASS (tracked in `OPEN_TASKS.md`).
   `kernels/ik_crocket` only: the solver loop in CUDA, everything it reads about the robot traced
   by crocket's `ik_geometry`, float or double (`backend="crocket-f32"` / `"crocket-f64"`). The
   hand-written IK kernels it replaced are at tag `pre-crocket-ik` (a local copy may sit in the
-  untracked `legacy/`).
+  untracked `legacy/`). Trajopt (SCO, STOMP, CHOMP) is `kernels/trajopt_crocket` only, the same
+  way: crocket traces the collision terms with their analytic gradients
+  (`grim.motion._crocket_traj`). The hand-written trajopt kernels, and the least-squares one
+  (now a cudals problem in pyroffi), are at tag `pre-crocket-trajopt`.
 - `test/motion/` — read `test/motion/TESTING.md` before touching a kernel.
 - `install/motion_install.sh` — conda-env install: crocket, GRiD and GRiM editable, jax[cuda13].
 

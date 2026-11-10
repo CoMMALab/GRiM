@@ -1,11 +1,11 @@
 /**
- * CHOMP over crocket's traced sphere centres, in `real`, one trajectory per thread, warp or
- * block (`tier`). The algorithm is kernels/trajopt/chomp_trajopt.cu's: smoothness + limits
- * gradient, central-difference collision gradient, gradient clipping, covariant direction
- * (CG on the smoothness metric, one DOF per lane), a four-candidate line search, early stop.
+ * CHOMP, in `real`, one trajectory per thread, warp or block (`tier`): smoothness + limits
+ * gradient, crocket's traced collision cost and analytic gradient, gradient clipping, covariant
+ * direction (CG on the smoothness metric, one DOF per lane), a four-candidate line search, early
+ * stop. The hand-written kernel this replaced is at tag pre-crocket-trajopt.
  *
- * Lanes take the independent configuration evaluations (each timestep's base cost and its
- * 2 * n_q perturbations; each (candidate, timestep) of the line search) into the workspace;
+ * Lanes take the independent configuration evaluations (each timestep's cost and gradient; each
+ * (candidate, timestep) of the line search) into the workspace;
  * after a barrier every lane forms the same totals in the old kernel's serial order, so the
  * control flow (best step, stall count, stop) is group-uniform without broadcasts.
  */
@@ -88,7 +88,7 @@ __global__ void ck_chomp_trajopt_kernel(
     int start_stride, int goal_stride, float* __restrict__ out_trajs, float* __restrict__ out_costs,
     real* __restrict__ workspace, int B, int T, int n_iters, real step_size, real w_smooth, real w_acc,
     real w_jerk, real w_limits, real w_collision, real w_collision_max, real penalty_scale, real margin,
-    int covariant, real reg, real clip, real max_delta, int patience, real min_improve, real fd_eps)
+    int covariant, real reg, real clip, real max_delta, int patience, real min_improve)
 {
     const Grp<TIER> grp;
     const int b = group_index<TIER>();
@@ -122,28 +122,12 @@ __global__ void ck_chomp_trajopt_kernel(
                     + 2 * w_limits * v * (q > upper[d] ? real(1) : q < lower[d] ? real(-1) : real(0));
         }
         grp.sync();
-#ifdef GRIM_CK_ANALYTIC
         // Collision: each timestep's cost and its analytic gradient, one timestep per lane.
         for (int t = grp.rank; t < T; t += grp.size) {
             real g[NA];
             cb[t] = hinge_cost_grad(traj + t * NA, world, margin, g);
             for (int d = 0; d < NA; ++d) grad[t * NA + d] += w_coll * g[d];
         }
-#else
-        // Collision: each timestep's cost, and the central differences of each (t, d).
-        const real inv2e = real(1) / (2 * fd_eps);
-        for (int i = grp.rank; i < T * (1 + NA); i += grp.size) {
-            if (i < T) { cb[i] = hinge_cost(traj + i * NA, world, margin); continue; }
-            const int t = (i - T) / NA, d = (i - T) % NA;
-            real q[NA];
-            for (int k = 0; k < NA; ++k) q[k] = traj[t * NA + k];
-            q[d] = traj[t * NA + d] + fd_eps;
-            const real cp = hinge_cost(q, world, margin);
-            q[d] = traj[t * NA + d] - fd_eps;
-            const real cm = hinge_cost(q, world, margin);
-            grad[t * NA + d] += w_coll * (cp - cm) * inv2e;
-        }
-#endif
         grp.sync();
         real curr = chomp_smooth_limits(T, at, lower, upper, w_smooth, w_acc, w_jerk, w_limits);
         for (int t = 0; t < T; ++t) curr += w_coll * cb[t];
@@ -221,7 +205,7 @@ static ffi::Error CkChompTrajoptImpl(
     ffi::Buffer<ffi::DataType::F32> goal,
     int64_t n_iters, float step_size, float w_smooth, float w_acc, float w_jerk, float w_limits,
     float w_collision, float w_collision_max, float penalty_scale, float margin, int64_t covariant,
-    float reg, float clip, float max_delta, int64_t patience, float min_improve, float fd_eps,
+    float reg, float clip, float max_delta, int64_t patience, float min_improve,
     int64_t tier, int64_t block_threads,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_trajs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_costs,
@@ -248,7 +232,7 @@ static ffi::Error CkChompTrajoptImpl(
               goal.typed_data(), ss, gs, out_trajs->typed_data(), out_costs->typed_data(),
               reinterpret_cast<real*>(workspace->typed_data()), B, T, (int)n_iters, step_size,
               w_smooth, w_acc, w_jerk, w_limits, w_collision, w_collision_max, penalty_scale, margin,
-              (int)covariant, reg, clip, max_delta, (int)patience, min_improve, fd_eps);
+              (int)covariant, reg, clip, max_delta, (int)patience, min_improve);
     const cudaError_t e = cudaGetLastError();
     return e == cudaSuccess ? ffi::Error::Success() : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(e));
 }
@@ -283,7 +267,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<float>("max_delta_per_step")
         .Attr<int64_t>("early_stop_patience")
         .Attr<float>("min_cost_improve")
-        .Attr<float>("fd_eps")
         .Attr<int64_t>("tier")
         .Attr<int64_t>("block_threads")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
