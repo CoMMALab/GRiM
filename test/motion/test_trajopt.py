@@ -104,3 +104,44 @@ def test_batch_invariant(kind):
     a = _run(kind, robot, x, tc, world, start, goal)
     r = _run(kind, robot, x[::-1], tc, world, start, goal)
     assert np.array_equal(r[0][::-1], a[0]) and np.array_equal(r[1][::-1], a[1])
+
+
+CK_KINDS = ["sco", "stomp", "chomp"]
+CK_CONFIGS = [(b, t) for b in ("crocket-f32", "crocket-f64") for t in ("thread", "warp", "block")]
+
+
+@pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
+@pytest.mark.parametrize("backend,tier", CK_CONFIGS)
+@pytest.mark.parametrize("kind", CK_KINDS)
+@pytest.mark.parametrize("name", ROBOTS)
+def test_crocket_zero_iterations_and_solution(kind, name, backend, tier):
+    """kernels/trajopt_crocket: the initial cost is the oracle's; the result keeps its endpoints,
+    reports the oracle's cost of what it returns, and does not raise the cost."""
+    robot, x, start, goal, tc, world = _setup(name)
+    ck = dict(backend=backend, tier=tier)
+    t, c = _run(kind, robot, x, tc, world, start, goal, **ZERO[kind], **ck)
+    want = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
+    assert_close_scaled(c, want, 1e-4 if backend == "crocket-f32" else 1e-6, f"{kind} {name} {backend} {tier} initial cost")
+    t, c = _run(kind, robot, x, tc, world, start, goal, **ck)
+    assert np.array_equal(t[:, 0], np.broadcast_to(start.astype(np.float32), t[:, 0].shape))
+    assert np.array_equal(t[:, -1], np.broadcast_to(goal.astype(np.float32), t[:, -1].shape))
+    got = np.array([_oracle(kind, robot, t[b], tc, world) for b in range(len(t))])
+    assert_close_scaled(c, got, 1e-3, f"{kind} {name} {backend} {tier} reported cost")
+    init = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
+    assert np.all(got <= init * (1 + 1e-5) + 1e-6), f"{kind} {name} {backend} {tier}: cost increased"
+
+
+@pytest.mark.skipif(not crocket_available(), reason="crocket not installed")
+@pytest.mark.parametrize("tier", ["thread", "warp", "block"])
+@pytest.mark.parametrize("kind", CK_KINDS)
+def test_crocket_deterministic_and_batch_invariant(kind, tier):
+    """Bit-deterministic; a trajectory's result does not depend on its batch slot (except
+    STOMP, which keys its noise on the slot) or on what the workspace held before."""
+    robot, x, start, goal, tc, world = _setup("fr3")
+    ck = dict(backend="crocket-f32", tier=tier)
+    a = _run(kind, robot, x, tc, world, start, goal, **ck)
+    b = _run(kind, robot, x, tc, world, start, goal, **ck)
+    assert all(np.array_equal(u, v) for u, v in zip(a, b))
+    if kind != "stomp":
+        r = _run(kind, robot, x[::-1], tc, world, start, goal, **ck)
+        assert np.array_equal(r[0][::-1], a[0]) and np.array_equal(r[1][::-1], a[1])
