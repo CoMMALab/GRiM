@@ -17,8 +17,12 @@ GRiD's ``fd`` (through its M^-1) is the baseline of both crocket ``fd`` (ABA) an
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
+import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -30,18 +34,31 @@ import pinocchio as pin
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[0]))
 sys.path.insert(0, str(HERE))
-from bench_traced_vs_generated import ASSETS, grid_header  # noqa: E402
-from motion.test_traced_dynamics import _pin  # noqa: E402
+from motion.test_crocket_dynamics import _pin  # noqa: E402
 
 from grim.motion import MotionRobot, generated_dynamics  # noqa: E402
 from grim.motion.dynamics import CrocketDynamics  # noqa: E402
 
+ASSETS = Path(__file__).resolve().parents[2] / "external" / "GRiD" / "grid_assets" / "robots"
 BATCHES = (128, 16384)
 REPS, MIN_RUN_S = 5, 0.2
 SCORE_MAX = 16
 # crocket op -> GRiD op
 GRID_OP = {"id": "id", "crba": "crba", "fd": "fd", "fd_crba": "fd", "id_du": "id_grad",
            "minv": "minv", "fd_du": "fd_grad"}
+
+
+def grid_header(urdf: Path) -> str:
+    from grid_codegen import GRiDCodeGenerator
+    from URDFParser import URDFParser
+    with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+        cwd = os.getcwd()
+        try:
+            os.chdir(d)
+            GRiDCodeGenerator(URDFParser().parse(str(urdf)), False, False).gen_all_code()
+        finally:
+            os.chdir(cwd)
+        return (Path(d) / "grid.cuh").read_text()
 
 
 def timed(fn, *args) -> float:

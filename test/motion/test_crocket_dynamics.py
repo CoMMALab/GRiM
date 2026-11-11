@@ -6,12 +6,30 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from .conftest import assert_close_scaled, crocket_available, load_robot, requires_gpu
-from .test_traced_dynamics import _pin, _states
+from .conftest import assert_close_scaled, config_samples, crocket_available, load_robot, requires_gpu
 
 pin = pytest.importorskip("pinocchio")
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence,
               pytest.mark.skipif(not crocket_available(), reason="crocket not installed")]
+
+def _pin(robot):
+    # Mimic joints follow their source in both models. A continuous joint is a revolute one
+    # without limits; Pinocchio would give it nq = 2 (cos, sin), so it is read as revolute.
+    xml = robot.urdf_xml.replace('type="continuous"', 'type="revolute"')
+    model = pin.buildModelFromXML(xml, mimic=bool((robot.mimic_act_idx != -1).any()))
+    idx_q = [model.idx_qs[model.getJointId(n)] for n in robot.actuated_names]
+    idx_v = [model.idx_vs[model.getJointId(n)] for n in robot.actuated_names]
+    return model, model.createData(), np.array(idx_q), np.array(idx_v)
+
+
+def _states(robot, n=12, seed=0):
+    rng = np.random.default_rng(seed)
+    q = config_samples(robot, n_random=n)[-n:]
+    scales = np.r_[np.zeros(1), np.ones(n // 3), 10 * np.ones(n - 1 - n // 3)]
+    qd = rng.uniform(-1, 1, q.shape) * scales[:, None]
+    qdd = rng.uniform(-1, 1, q.shape) * 5 * scales[:, None]
+    return q, qd, qdd
+
 
 RTOL = {"crocket-f32": 2e-5, "crocket-f64": 1e-6}   # f64 computes in double, returns float32
 
@@ -40,7 +58,7 @@ def _ref(model, data, iq, iv, op, q, qd, x):
 
 
 @pytest.mark.parametrize("backend", ["crocket-f32", "crocket-f64"])
-@pytest.mark.parametrize("name", ["iiwa14", "fr3", "gen3"])   # fr3: mimic fingers; gen3: continuous
+@pytest.mark.parametrize("name", ["iiwa14", "rizon4", "fr3", "gen3"])   # fr3: mimic fingers; gen3: continuous
 def test_crocket_dynamics_match_pinocchio(name, backend):
     from grim.motion.dynamics import CrocketDynamics
     robot = load_robot(name)

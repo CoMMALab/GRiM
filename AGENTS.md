@@ -6,7 +6,7 @@ authoritative for conventions.
 ## What GRiM is
 
 The motion-generation layer on top of GRiD: `bindings/grim/motion/` (IK, region IK, trajectory
-optimization, fused collision, C3+, traced dynamics). The generic compiled least-squares
+optimization, fused collision, C3+, crocket dynamics). The generic compiled least-squares
 solvers live in the standalone `cudals` package, not here. GRiD itself is the
 `external/GRiD` submodule, used unmodified: it generates the per-robot rigid-body dynamics
 (`grid_codegen` → `grid.cuh`, `grid::` namespace) and brings the GLASS / RBDReference /
@@ -14,7 +14,8 @@ URDFParser peers and the sample robots (`external/GRiD/config/robot_assets/`). M
 their own `grim::` namespace; only `kernels/dynamics/generated_dynamics.cu` calls GRiD's generated
 kernels. crocket (`external/crocket`) is the trace compiler behind every IK kernel
 (`kernels/ik_crocket`) and trajectory optimizer (`kernels/trajopt_crocket`), `traced=True` and
-`grim.motion.dynamics`.
+`grim.motion.dynamics` (`CrocketDynamics`). `generated_dynamics` still wraps GRiD for what
+crocket lacks: floating base, runtime inertia and the second-order `idsva_so`.
 
 **Do not edit `external/`.** A change GRiM needs in GRiD goes upstream to A2R-Lab/GRiD, then the
 submodule pointer is bumped and the motion suite re-run.
@@ -65,7 +66,7 @@ python -m pytest test/motion -m pinocchio_equivalence  # oracle vs Pinocchio (CP
   validated against Pinocchio. Keep that invariant.
 - **Fix, don't guard** — no `xfail`/`skip`/defensive guards; fix the root cause.
 - **Physics**: gravity `-9.81`; Pinocchio is authoritative.
-- **Validate every traced build.** Very large straight-line cricket traces have been miscompiled
+- **Validate every traced build.** Very large straight-line crocket traces have been miscompiled
   silently by ptxas at -O2/-O3.
 - **Verify yourself** before committing; don't trust a subagent's "done".
 - **Git**: short single-line commit messages, no Co-Authored-By footer; path-scoped `git add`
