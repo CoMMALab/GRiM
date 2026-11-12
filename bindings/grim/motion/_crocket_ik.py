@@ -134,7 +134,8 @@ def source(robot: MotionRobot, problem, solved: list[int], frozen: list[int],
     # every tier and call the variant of theirs.
     traced = crocket.generate(model, {"ik_geometry": opts, "ik_geometry_value": opts},
                               variants=[crocket.Variant("thread"), crocket.Variant("warp", units=32),
-                                        crocket.Variant("block", units=block_threads)], name="robot")
+                                        crocket.Variant("block", units=block_threads, placement="task")],
+                              name="robot")
 
     nj = len(model.joints)
     joint_col = [solved.index(robot.actuated_names.index(model.joint_names[j.q_index]))

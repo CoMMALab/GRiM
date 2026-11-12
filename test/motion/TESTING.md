@@ -43,8 +43,11 @@ below).
 
 ## Invariances (GRiD Principle 2, adapted)
 
-- **Thread count.** A tiered kernel's block tier must be bit-identical at 32, 64, 128 and a
-  random odd block size. A missing barrier shows up at more than one warp, not at 32.
+- **Thread count.** A tiered kernel's block tier must agree at 32, 64, 128 and 256 threads
+  (crocket's block tier needs block_threads / 32 in 1, 2, 4, 8). Each warp count is its own
+  crocket schedule, so FMA contraction differs: agreement is to the tiers' round-off (bit-
+  identical only under -fmad=false). A missing barrier shows up at more than one warp, not at
+  32, as an O(1) error; the skewed-barrier test covers it directly.
 - **Tiers.** Thread, warp and block tiers run the same algorithm with differently ordered
   Cholesky factorizations (GLASS thread / warp / block `potrf`). One step therefore agrees to
   round-off; later iterates are covered by certificates.

@@ -20,8 +20,8 @@ robot (residual, Jacobian, collision-sphere centres, joint twists) from crocket'
 ``"crocket-f32"`` (default) or ``"crocket-f64"``, float or double end to end.
 
 ``tier`` picks how many threads own one seed: ``"thread"`` (one; the fastest at large batch on
-every robot measured), ``"warp"`` (32) or ``"block"`` (``block_threads``, at least 32, fixed when
-the kernel is built: crocket generates its block variant for that many lanes).
+every robot measured), ``"warp"`` (32) or ``"block"`` (``block_threads``: 32, 64, 128 or 256,
+fixed when the kernel is built; crocket's block variant runs ``block_threads / 32`` warps).
 """
 
 from __future__ import annotations
@@ -127,9 +127,9 @@ def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionMod
     source, symbol, all_joints = KERNELS[kernel]
     if backend not in BACKENDS:
         raise ValueError(f"unknown backend {backend!r}: one of {sorted(BACKENDS)}")
-    if not 32 <= block_threads <= 1024:
-        raise ValueError(f"block_threads={block_threads}: the block tier needs 32..1024 lanes "
-                         "per seed (its dense solves run on the first full warp)")
+    if block_threads not in (32, 64, 128, 256):
+        raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (crocket's block tier "
+                         "runs block_threads / 32 warps, one of 1, 2, 4, 8)")
     prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
                    runtime_rot_joint)
     (name,) = _build.target(source, (symbol,), robot, prob, crocket_real=BACKENDS[backend],

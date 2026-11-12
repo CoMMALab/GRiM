@@ -78,16 +78,37 @@ class CrocketDynamics:
                              f"{self.actuated}")
         self._to_gen = np.array([self.actuated.index(nm) for nm in model.joint_names])
         self._from_gen = np.argsort(self._to_gen)
+        if block_threads not in (32, 64, 128, 256):
+            raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (crocket's block "
+                             "tier runs block_threads / 32 warps, one of 1, 2, 4, 8)")
         algs = sorted({a for op in ops for a in _CK_OPS[op][1]})
         src = crocket.generate(model, {a: {} for a in algs}, name="robot", variants=[
             crocket.Variant("thread"), crocket.Variant("warp", units=32),
-            crocket.Variant("block", units=block_threads)])
+            crocket.Variant("block", units=block_threads, placement="task")])
         smem = " ".join(f"R::{a}_warp_smem, R::{a}_block_smem," for a in algs)
+        # crocket's lookup tables, once per block ahead of the configurations' slots, laid out
+        # per operation (a launch runs one): a region for each of its algorithms, since warps of
+        # a block may run different algorithms at once; each padded to 4 elements of real.
+        # tab_<tier>_<alg><T>(op) is its offset, tab_<tier>_total<T>(op) the operation's total.
+        op_index = {op: i for i, op in enumerate(_CK_OPS)}   # kernels/dynamics Op enum order
+        pad = "(R::{b}_{tier}_tables<T>() + 3) / 4 * 4"
+        tabs = ""
+        for tier in ("warp", "block"):
+            for a in algs:
+                cases = "".join(
+                    f"case {op_index[op]}: return {' + '.join(pad.format(b=b, tier=tier) for b in _CK_OPS[op][1][:_CK_OPS[op][1].index(a)]) or '0'}; "
+                    for op in ops if a in _CK_OPS[op][1])
+                tabs += (f"template <class T> __host__ __device__ constexpr int tab_{tier}_{a}(int op) "
+                         f"{{ switch (op) {{ {cases}default: return 0; }} }}\n")
+            cases = "".join(f"case {op_index[op]}: return {' + '.join(pad.format(b=b, tier=tier) for b in _CK_OPS[op][1])}; "
+                            for op in ops)
+            tabs += (f"template <class T> __host__ __device__ constexpr int tab_{tier}_total(int op) "
+                     f"{{ switch (op) {{ {cases}default: return 0; }} }}\n")
         header = (f"{src}\nnamespace grim::dyn {{\nnamespace R = crocket::robots::robot;\n"
                   f"constexpr int N = {n};\nconstexpr int BLOCK_THREADS = {block_threads};\n"
                   f"constexpr int SMEM_ALL[] = {{{smem}}};\n"
                   "constexpr int smem_max() { int m = 1; for (int v : SMEM_ALL) m = v > m ? v : m; return m; }\n"
-                  "constexpr int SMEM = smem_max();\n}\n"
+                  "constexpr int SMEM = smem_max();\n" + tabs + "}\n"
                   + "".join(f"#define GRIM_CK_HAS_{a}\n" for a in algs) +
                   "#define GRIM_CK_DYN_OPS(X) " + " ".join(f"X({op}, {_CK_OPS[op][0]})" for op in ops)
                   + "\n")

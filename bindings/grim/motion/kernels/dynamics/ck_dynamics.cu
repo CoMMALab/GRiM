@@ -49,12 +49,36 @@ struct Grp {
 constexpr int WARPS = 4;   // warp tier: at most this many configurations per block
 constexpr size_t SMEM_MAX = 99 * 1024;
 
-// crocket's variant of TIER; the cooperative ones end without a barrier, so sync after.
+/** The block's crocket tables for OP at TIER, ahead of the configurations' slots. */
+template <grim::Tier TIER, Op OP>
+__host__ __device__ constexpr int tab_total()
+{
+    return TIER == grim::Tier::Warp ? grim::dyn::tab_warp_total<real>(OP)
+         : TIER == grim::Tier::Block ? grim::dyn::tab_block_total<real>(OP) : 0;
+}
+__device__ __forceinline__ real* dyn_tables()
+{
+    extern __shared__ __align__(16) unsigned char dyn_smem_[];
+    return reinterpret_cast<real*>(dyn_smem_);
+}
+
+// crocket's variant of TIER; the cooperative ones end without a barrier, so sync after. Their
+// tables (one region per algorithm) are filled by the group first: identical writes from every
+// group of the block, so no group waits on another.
 #define CK_CALL(ALG, ...)                                                                       \
     do {                                                                                        \
         if constexpr (TIER == grim::Tier::Thread) R::ALG##_thread<real>(__VA_ARGS__, 1);        \
-        else if constexpr (TIER == grim::Tier::Warp) R::ALG##_warp<real>(__VA_ARGS__, s, 1);   \
-        else R::ALG##_block<real>(__VA_ARGS__, s, 1);                                           \
+        else if constexpr (TIER == grim::Tier::Warp) {                                          \
+            real* tb_ = dyn_tables() + grim::dyn::tab_warp_##ALG<real>(OP);                     \
+            R::ALG##_warp_load_tables<real>(tb_, g.rank, g.size);                               \
+            g.sync();                                                                           \
+            R::ALG##_warp<real>(__VA_ARGS__, s, tb_, 1);                                        \
+        } else {                                                                                \
+            real* tb_ = dyn_tables() + grim::dyn::tab_block_##ALG<real>(OP);                    \
+            R::ALG##_block_load_tables<real>(tb_, g.rank, g.size);                              \
+            g.sync();                                                                           \
+            R::ALG##_block<real>(__VA_ARGS__, s, tb_, 1);                                       \
+        }                                                                                       \
         g.sync();                                                                               \
     } while (0)
 
@@ -157,8 +181,7 @@ __global__ void dyn_kernel(const float* __restrict__ in, float* __restrict__ out
     if constexpr (TIER == grim::Tier::Thread) {
         x = lx; y = ly; s = nullptr;
     } else {
-        extern __shared__ __align__(16) unsigned char dyn_smem_[];
-        x = reinterpret_cast<real*>(dyn_smem_) + (TIER == grim::Tier::Warp ? (threadIdx.x >> 5) : 0) * SLOT;
+        x = dyn_tables() + tab_total<TIER, OP>() + (TIER == grim::Tier::Warp ? (threadIdx.x >> 5) : 0) * SLOT;
         y = x + NI;
         s = y + NW;
     }
@@ -178,20 +201,22 @@ ffi::Error Run(cudaStream_t stream, ffi::Buffer<ffi::DataType::F32> in,
     const int batch = (int)in.dimensions()[0];
     if (batch == 0) return ffi::Error::Success();
     constexpr size_t slot = sizeof(real) * (nin(OP) + nwork(OP) + grim::dyn::SMEM);
-    if (tier != 0 && slot > SMEM_MAX)
+    constexpr size_t tab_w = sizeof(real) * tab_total<grim::Tier::Warp, OP>(), tab_b = sizeof(real) * tab_total<grim::Tier::Block, OP>();
+    if (tier != 0 && slot + (tier == 1 ? tab_w : tab_b) > SMEM_MAX)
         return ffi::Error(ffi::ErrorCode::kInvalidArgument,
                           "crocket dynamics: one configuration's work exceeds shared memory at the "
                           "cooperative tiers; use the thread tier");
     if (tier == 0) {
         dyn_kernel<grim::Tier::Thread, OP><<<(batch + 127) / 128, 128, 0, stream>>>(in.typed_data(), out->typed_data(), batch, 1);
     } else if (tier == 1) {
-        const int wpb = (int)(SMEM_MAX / slot) < WARPS ? (int)(SMEM_MAX / slot) : WARPS;
-        cudaFuncSetAttribute(dyn_kernel<grim::Tier::Warp, OP>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)(wpb * slot));
-        dyn_kernel<grim::Tier::Warp, OP><<<(batch + wpb - 1) / wpb, 32 * wpb, wpb * slot, stream>>>(
+        const int fit = (int)((SMEM_MAX - tab_w) / slot);
+        const int wpb = fit < WARPS ? fit : WARPS;
+        cudaFuncSetAttribute(dyn_kernel<grim::Tier::Warp, OP>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)(tab_w + wpb * slot));
+        dyn_kernel<grim::Tier::Warp, OP><<<(batch + wpb - 1) / wpb, 32 * wpb, tab_w + wpb * slot, stream>>>(
             in.typed_data(), out->typed_data(), batch, wpb);
     } else {
-        cudaFuncSetAttribute(dyn_kernel<grim::Tier::Block, OP>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)slot);
-        dyn_kernel<grim::Tier::Block, OP><<<batch, grim::dyn::BLOCK_THREADS, slot, stream>>>(
+        cudaFuncSetAttribute(dyn_kernel<grim::Tier::Block, OP>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)(tab_b + slot));
+        dyn_kernel<grim::Tier::Block, OP><<<batch, grim::dyn::BLOCK_THREADS, tab_b + slot, stream>>>(
             in.typed_data(), out->typed_data(), batch, 1);
     }
     const cudaError_t e = cudaGetLastError();

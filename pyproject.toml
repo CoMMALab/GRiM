@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 # RBDReference / GLASS peers — is the external/GRiD submodule; `import grim` puts a
 # source checkout of it on sys.path, or install it (`pip install -e external/GRiD`).
 name = "grim"
-version = "0.6.0"
+version = "0.7.0"
 description = "GPU motion generation (IK, trajectory optimization, collision) built on GRiD"
 readme = "README.md"
 requires-python = ">=3.10"

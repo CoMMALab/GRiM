@@ -439,6 +439,43 @@ struct Work {
     int flag;
 };
 
+/** crocket's lookup tables for TIER's two geometry functions, in elements of real: held once per
+ *  block at the start of the dynamic shared memory, ahead of the Work slots, and filled once per
+ *  launch by CK_WORK (crocket's warp / block tiers take them as an argument; none at the thread
+ *  tier). Kept a multiple of 4 so the Work slots after them stay 16-byte aligned. */
+template <grim::Tier TIER>
+__host__ __device__ constexpr int tables()
+{
+    constexpr int n = TIER == grim::Tier::Warp ? tr::ik_geometry_warp_tables<real>() + tr::ik_geometry_value_warp_tables<real>()
+                    : TIER == grim::Tier::Block ? tr::ik_geometry_block_tables<real>() + tr::ik_geometry_value_block_tables<real>() : 0;
+    return (n + 3) / 4 * 4;
+}
+
+/** The block's tables: ik_geometry's, then ik_geometry_value's. */
+template <grim::Tier TIER>
+__device__ __forceinline__ real* tables_ptr(int which)
+{
+    extern __shared__ __align__(16) unsigned char ck_smem_[];
+    real* t = reinterpret_cast<real*>(ck_smem_);
+    if constexpr (TIER == grim::Tier::Warp) return which ? t + tr::ik_geometry_warp_tables<real>() : t;
+    else return which ? t + tr::ik_geometry_block_tables<real>() : t;
+}
+
+/** Fill the block's tables: every thread of the group calls it, then the group syncs. Several
+ *  warps of a block may each load them (identical writes), so a group needs no other group. */
+template <grim::Tier TIER>
+__device__ __forceinline__ void load_tables(const Grp<TIER>& G)
+{
+    if constexpr (TIER == grim::Tier::Warp) {
+        tr::ik_geometry_warp_load_tables<real>(tables_ptr<TIER>(0), G.rank, G.size);
+        tr::ik_geometry_value_warp_load_tables<real>(tables_ptr<TIER>(1), G.rank, G.size);
+    } else if constexpr (TIER == grim::Tier::Block) {
+        tr::ik_geometry_block_load_tables<real>(tables_ptr<TIER>(0), G.rank, G.size);
+        tr::ik_geometry_value_block_load_tables<real>(tables_ptr<TIER>(1), G.rank, G.size);
+    }
+    G.sync();
+}
+
 /** Seeds per block at the warp tier: as many warps as their Work slots fit in 40 KB of shared. */
 template <class W>
 __host__ __device__ constexpr int warps_per_block() { return sizeof(W) * 8 <= 40960 ? 8 : sizeof(W) * 4 <= 40960 ? 4
@@ -464,14 +501,16 @@ template <grim::Tier TIER, class W>
 __device__ __forceinline__ W& work_slot(Local<W, TIER == grim::Tier::Thread>& l, unsigned char* smem)
 {
     if constexpr (TIER == grim::Tier::Thread) { (void)smem; return l.w; }
-    else return reinterpret_cast<W*>(smem)[TIER == grim::Tier::Warp ? (threadIdx.x >> 5) : 0];
+    else return reinterpret_cast<W*>(smem + tables<TIER>() * sizeof(real))[TIER == grim::Tier::Warp ? (threadIdx.x >> 5) : 0];
 }
 
-/** Declare `w`, this seed's Work of type W (a Work<TIER, ...>). */
+/** Declare `w`, this seed's Work of type W (a Work<TIER, ...>), and fill the block's crocket
+ *  tables (once per launch; needs the group `G`). */
 #define CK_WORK(TIER, W, w)                                                    \
     Local<W, (TIER) == grim::Tier::Thread> w##_local_;                         \
     extern __shared__ __align__(16) unsigned char ck_smem_[];                  \
-    W& w = work_slot<TIER, W>(w##_local_, ck_smem_)
+    W& w = work_slot<TIER, W>(w##_local_, ck_smem_);                           \
+    load_tables<TIER>(G)
 
 /** Grid, block and dynamic shared memory for `n` seeds (problems / targets) at TIER. */
 struct Shape { int blocks, threads, wpb; size_t smem; };
@@ -482,8 +521,8 @@ inline Shape launch_shape(int n)
     if constexpr (TIER == grim::Tier::Thread) return {(n + THREADS - 1) / THREADS, THREADS, 1, 0};
     else if constexpr (TIER == grim::Tier::Warp) {
         constexpr int wpb = warps_per_block<W>();
-        return {(n + wpb - 1) / wpb, wpb * 32, wpb, wpb * sizeof(W)};
-    } else return {n, BLOCK_THREADS, 1, sizeof(W)};
+        return {(n + wpb - 1) / wpb, wpb * 32, wpb, tables<TIER>() * sizeof(real) + wpb * sizeof(W)};
+    } else return {n, BLOCK_THREADS, 1, tables<TIER>() * sizeof(real) + sizeof(W)};
 }
 
 /** Launch KERNEL<TIER> over `n` seeds at the runtime tier `t` (0 thread, 1 warp, 2 block), its
@@ -511,8 +550,8 @@ __device__ __forceinline__ void geometry(const Grp<TIER>& G, const real* __restr
     real q[NQ];
     gather<real>(cfg, sd.frz, q);
     if constexpr (TIER == grim::Tier::Thread) tr::ik_geometry_thread<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, 1);
-    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_warp<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, 1);
-    else tr::ik_geometry_block<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, 1);
+    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_warp<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, tables_ptr<TIER>(0), 1);
+    else tr::ik_geometry_block<real>(q, sd.target, sd.rot, w.g.r, w.g.J, w.g.cw, w.g.cs, w.g.tw, w.scr, tables_ptr<TIER>(0), 1);
     G.sync();
 }
 
@@ -524,8 +563,8 @@ __device__ __forceinline__ void geometry_value(const Grp<TIER>& G, const real* _
     real q[NQ];
     gather<real>(cfg, sd.frz, q);
     if constexpr (TIER == grim::Tier::Thread) tr::ik_geometry_value_thread<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, 1);
-    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_value_warp<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, w.scr, 1);
-    else tr::ik_geometry_value_block<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, w.scr, 1);
+    else if constexpr (TIER == grim::Tier::Warp) tr::ik_geometry_value_warp<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, w.scr, tables_ptr<TIER>(1), 1);
+    else tr::ik_geometry_value_block<real>(q, sd.target, sd.rot, w.gv.r, w.gv.cw, w.gv.cs, w.scr, tables_ptr<TIER>(1), 1);
     G.sync();
 }
 
