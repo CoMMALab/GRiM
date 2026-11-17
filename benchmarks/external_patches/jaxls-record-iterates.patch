@@ -1,0 +1,162 @@
+diff --git a/src/jaxls/__init__.py b/src/jaxls/__init__.py
+index 29e1936..368be61 100644
+--- a/src/jaxls/__init__.py
++++ b/src/jaxls/__init__.py
+@@ -19,6 +19,7 @@ if TYPE_CHECKING or sys.version_info >= (3, 12):
+     from ._problem import LeastSquaresProblem as LeastSquaresProblem
+     from ._solvers import ConjugateGradientConfig as ConjugateGradientConfig
+     from ._solvers import record_iteration_times as record_iteration_times
++    from ._solvers import record_iterates as record_iterates
+     from ._solvers import SolveSummary as SolveSummary
+     from ._solvers import TerminationConfig as TerminationConfig
+     from ._solvers import TrustRegionConfig as TrustRegionConfig
+@@ -44,6 +45,7 @@ elif sys.version_info >= (3, 10):
+     from ._py310._problem import LeastSquaresProblem as LeastSquaresProblem
+     from ._py310._solvers import ConjugateGradientConfig as ConjugateGradientConfig
+     from ._py310._solvers import record_iteration_times as record_iteration_times
++    from ._py310._solvers import record_iterates as record_iterates
+     from ._py310._solvers import SolveSummary as SolveSummary
+     from ._py310._solvers import TerminationConfig as TerminationConfig
+     from ._py310._solvers import TrustRegionConfig as TrustRegionConfig
+diff --git a/src/jaxls/_py310/_solvers.py b/src/jaxls/_py310/_solvers.py
+index 4fc5983..a711b17 100644
+--- a/src/jaxls/_py310/_solvers.py
++++ b/src/jaxls/_py310/_solvers.py
+@@ -148,6 +148,37 @@ def _cholmod_solve_symmetric_on_host(
+ _active_iteration_time_recorder: Any = None
+ 
+ 
++_active_iterate_recorder: Any = None
++
++
++@contextlib.contextmanager
++def record_iterates() -> Any:
++    """Record the variable values (a host-side `VarValues`) at the start of
++    the solve and after each outer LM iteration of any `solve()` traced in
++    this block, for convergence plots. As `record_iteration_times`, the
++    callback is decided at trace time: trace (jit) the solve inside the block.
++
++    Usage:
++        with jaxls.record_iterates() as iterates:
++            vals = problem.solve(...)
++        # [v[var] for v in iterates]  ->  the iterate sequence
++    """
++    global _active_iterate_recorder
++    prev, _active_iterate_recorder = _active_iterate_recorder, []
++    try:
++        yield _active_iterate_recorder
++    finally:
++        _active_iterate_recorder = prev
++
++
++def _record_iterate(vals) -> None:
++    """Hand `vals` to the active `record_iterates()` list (no-op otherwise)."""
++    if _active_iterate_recorder is None:
++        return
++    out = _active_iterate_recorder
++    jax.debug.callback(lambda v: out.append(jax.tree.map(onp.asarray, v)), vals, ordered=True)
++
++
+ @contextlib.contextmanager
+ def record_iteration_times() -> Any:
+     global _active_iteration_time_recorder
+@@ -388,6 +419,11 @@ class NonlinearSolver:
+         if self.verbose:
+             _record_solve_start(cost_info.cost_total)
+ 
++        def _recorded(state):
++            _record_iterate(state.solution.vals)
++            return state
++
++        _record_iterate(state.solution.vals)
+         if self.termination.early_termination:
+ 
+             def should_continue(state: Any) -> Any:
+@@ -418,14 +454,14 @@ class NonlinearSolver:
+ 
+             state = jax.lax.while_loop(
+                 cond_fun=should_continue,
+-                body_fun=lambda state: self.lm_outer_step(problem, state),
++                body_fun=lambda state: _recorded(self.lm_outer_step(problem, state)),
+                 init_val=state,
+             )
+         else:
+             state = jax.lax.fori_loop(
+                 0,
+                 self.termination.max_iterations,
+-                body_fun=lambda _, state: self.lm_outer_step(problem, state),
++                body_fun=lambda _, state: _recorded(self.lm_outer_step(problem, state)),
+                 init_val=state,
+             )
+         if self.verbose:
+diff --git a/src/jaxls/_solvers.py b/src/jaxls/_solvers.py
+index 70ca8c9..d88bc63 100644
+--- a/src/jaxls/_solvers.py
++++ b/src/jaxls/_solvers.py
+@@ -207,6 +207,37 @@ def _cholmod_solve_symmetric_on_host(
+ _active_iteration_time_recorder: list[float] | None = None
+ 
+ 
++_active_iterate_recorder: list | None = None
++
++
++@contextlib.contextmanager
++def record_iterates() -> Iterator[list]:
++    """Record the variable values (a host-side `VarValues`) at the start of
++    the solve and after each outer LM iteration of any `solve()` traced in
++    this block, for convergence plots. As `record_iteration_times`, the
++    callback is decided at trace time: trace (jit) the solve inside the block.
++
++    Usage:
++        with jaxls.record_iterates() as iterates:
++            vals = problem.solve(...)
++        # [v[var] for v in iterates]  ->  the iterate sequence
++    """
++    global _active_iterate_recorder
++    prev, _active_iterate_recorder = _active_iterate_recorder, []
++    try:
++        yield _active_iterate_recorder
++    finally:
++        _active_iterate_recorder = prev
++
++
++def _record_iterate(vals) -> None:
++    """Hand `vals` to the active `record_iterates()` list (no-op otherwise)."""
++    if _active_iterate_recorder is None:
++        return
++    out = _active_iterate_recorder
++    jax.debug.callback(lambda v: out.append(jax.tree.map(onp.asarray, v)), vals, ordered=True)
++
++
+ @contextlib.contextmanager
+ def record_iteration_times() -> Iterator[list[float]]:
+     """Record a host wall-clock timestamp at each outer LM iteration of any
+@@ -623,6 +654,11 @@ class NonlinearSolver:
+             _record_solve_start(cost_info.cost_total)
+ 
+         # Optimization.
++        def _recorded(state):
++            _record_iterate(state.solution.vals)
++            return state
++
++        _record_iterate(state.solution.vals)
+         if self.termination.early_termination:
+ 
+             def should_continue(state: _LmOuterState) -> jax.Array:
+@@ -668,14 +704,14 @@ class NonlinearSolver:
+ 
+             state = jax.lax.while_loop(
+                 cond_fun=should_continue,
+-                body_fun=lambda state: self.lm_outer_step(problem, state),
++                body_fun=lambda state: _recorded(self.lm_outer_step(problem, state)),
+                 init_val=state,
+             )
+         else:
+             state = jax.lax.fori_loop(
+                 0,
+                 self.termination.max_iterations,
+-                body_fun=lambda _, state: self.lm_outer_step(problem, state),
++                body_fun=lambda _, state: _recorded(self.lm_outer_step(problem, state)),
+                 init_val=state,
+             )
+         if self.verbose:

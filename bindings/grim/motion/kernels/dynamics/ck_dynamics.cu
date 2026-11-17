@@ -1,11 +1,11 @@
-// crocket dynamics in `real` (GRIM_CK_REAL, float or double), one configuration per thread,
-// warp or block: crocket's thread / warp / block variant of each traced algorithm, and the
+// mantis dynamics in `real` (GRIM_CK_REAL, float or double), one configuration per thread,
+// warp or block: mantis's thread / warp / block variant of each traced algorithm, and the
 // dense solves of the composite ops in the same scalar type. Compiled per robot by
-// grim.motion.dynamics.CrocketDynamics against "ck_dynamics_gen.cuh", which holds crocket's
+// grim.motion.dynamics.MantisDynamics against "ck_dynamics_gen.cuh", which holds mantis's
 // rnea / crba / aba / rnea_derivatives and, in grim::dyn, N (joints), SMEM (the largest
 // cooperative scratch, reals) and BLOCK_THREADS.
 //
-// Ops (inputs -> outputs, matrices column-major, joint order crocket's):
+// Ops (inputs -> outputs, matrices column-major, joint order mantis's):
 //   id       q, qd, qdd -> tau
 //   crba     q          -> M
 //   fd       q, qd, tau -> qdd                               (ABA)
@@ -24,7 +24,7 @@
 #include "xla/ffi/api/ffi.h"
 
 namespace ffi = xla::ffi;
-namespace R = crocket::robots::robot;
+namespace R = mantis::robots::robot;
 using grim::dyn::N;
 using real = GRIM_CK_REAL;
 
@@ -49,7 +49,7 @@ struct Grp {
 constexpr int WARPS = 4;   // warp tier: at most this many configurations per block
 constexpr size_t SMEM_MAX = 99 * 1024;
 
-/** The block's crocket tables for OP at TIER, ahead of the configurations' slots. */
+/** The block's mantis tables for OP at TIER, ahead of the configurations' slots. */
 template <grim::Tier TIER, Op OP>
 __host__ __device__ constexpr int tab_total()
 {
@@ -62,7 +62,7 @@ __device__ __forceinline__ real* dyn_tables()
     return reinterpret_cast<real*>(dyn_smem_);
 }
 
-// crocket's variant of TIER; the cooperative ones end without a barrier, so sync after. Their
+// mantis's variant of TIER; the cooperative ones end without a barrier, so sync after. Their
 // tables (one region per algorithm) are filled by the group first: identical writes from every
 // group of the block, so no group waits on another.
 #define CK_CALL(ALG, ...)                                                                       \
@@ -197,14 +197,14 @@ ffi::Error Run(cudaStream_t stream, ffi::Buffer<ffi::DataType::F32> in,
                ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, int64_t tier)
 {
     if (in.dimensions().size() != 2 || in.dimensions()[1] != nin(OP))
-        return ffi::Error(ffi::ErrorCode::kInvalidArgument, "crocket dynamics: input is not (B, NIN)");
+        return ffi::Error(ffi::ErrorCode::kInvalidArgument, "mantis dynamics: input is not (B, NIN)");
     const int batch = (int)in.dimensions()[0];
     if (batch == 0) return ffi::Error::Success();
     constexpr size_t slot = sizeof(real) * (nin(OP) + nwork(OP) + grim::dyn::SMEM);
     constexpr size_t tab_w = sizeof(real) * tab_total<grim::Tier::Warp, OP>(), tab_b = sizeof(real) * tab_total<grim::Tier::Block, OP>();
     if (tier != 0 && slot + (tier == 1 ? tab_w : tab_b) > SMEM_MAX)
         return ffi::Error(ffi::ErrorCode::kInvalidArgument,
-                          "crocket dynamics: one configuration's work exceeds shared memory at the "
+                          "mantis dynamics: one configuration's work exceeds shared memory at the "
                           "cooperative tiers; use the thread tier");
     if (tier == 0) {
         dyn_kernel<grim::Tier::Thread, OP><<<(batch + 127) / 128, 128, 0, stream>>>(in.typed_data(), out->typed_data(), batch, 1);
@@ -221,7 +221,7 @@ ffi::Error Run(cudaStream_t stream, ffi::Buffer<ffi::DataType::F32> in,
     }
     const cudaError_t e = cudaGetLastError();
     return e == cudaSuccess ? ffi::Error::Success()
-                            : ffi::Error(ffi::ErrorCode::kInternal, std::string("crocket dynamics: ") + cudaGetErrorString(e));
+                            : ffi::Error(ffi::ErrorCode::kInternal, std::string("mantis dynamics: ") + cudaGetErrorString(e));
 }
 
 #define CK_DYN_HANDLER(NAME, OP)                                                               \

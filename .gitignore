@@ -18,7 +18,7 @@ t7.txt
 t8.txt
 t9.txt
 
-# Retired hand-written IK kernels (kernels/ik before crocket; tag pre-crocket-ik)
+# Retired hand-written IK kernels (kernels/ik before mantis; tag pre-crocket-ik)
 legacy/
 
 # AI Tool Helpers
@@ -140,3 +140,10 @@ test/.split-suite-state.json
 # dated one-off night scripts are scratch (durable harness scripts are tracked)
 test/benchmarks/run_overnight_2*.sh
 test/benchmarks/probe_*.sh
+
+# benchmarks (moved from mantis): pinned baseline clones, results, local trajopt viewer
+benchmarks/external/
+benchmarks/results/*
+benchmarks/**/.build/
+view_trajopt.py
+anneal_trajopt.py

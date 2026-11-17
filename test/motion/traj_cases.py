@@ -52,8 +52,9 @@ def straight_lines(robot: MotionRobot, B: int, T: int, seed: int = 0, noise: flo
 
 
 def obstacle_world(robot: MotionRobot, start, goal) -> World:
-    """A sphere near the end-effector's midpoint, plus a floor."""
+    """A sphere and a tilted cylinder near the end-effector's midpoint, plus a floor."""
     leaf = max(range(robot.n_joints), key=lambda j: len(robot.chain(j)))
     p = K.frame_poses(robot, 0.5 * (start + goal))[leaf, 4:]
     return World(spheres=np.array([[p[0] + 0.1, p[1], p[2], 0.08]]),
-                 halfspaces=np.array([[0, 0, 1, 0, 0, -0.05]]))
+                 halfspaces=np.array([[0, 0, 1, 0, 0, -0.05]]),
+                 cylinders=np.array([[p[0] - 0.1, p[1], p[2], 0.0, 0.6, 0.8, 0.05, 0.1]]))

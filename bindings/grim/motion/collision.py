@@ -33,10 +33,10 @@ class Checker:
     n_q: int
     n_links: int
     n_pairs: int
-    world_counts: tuple[int, int, int, int]
+    world_counts: tuple[int, int, int, int, int]
 
 
-def build(robot: MotionRobot, model: SelfCollision, world_counts=(0, 0, 0, 0),
+def build(robot: MotionRobot, model: SelfCollision, world_counts=(0, 0, 0, 0, 0),
           traced: bool = False) -> Checker:
     prob = _build.Problem(self_collision=model,
                           world_counts=tuple(int(n) for n in world_counts))
@@ -61,7 +61,7 @@ def self_distances(c: Checker, q, jacobian: bool = False):
 
 def world_distances(c: Checker, q, world: World, jacobian: bool = False):
     """Per (link, obstacle), the min signed distance over the link's spheres
-    ``(B, N_links, M)``, obstacles ordered spheres, capsules, boxes, halfspaces."""
+    ``(B, N_links, M)``, obstacles ordered spheres, capsules, boxes, halfspaces, cylinders."""
     if world.counts() != c.world_counts:
         raise ValueError(f"world counts {world.counts()} differ from the build {c.world_counts}")
     q = jnp.asarray(q, jnp.float32)

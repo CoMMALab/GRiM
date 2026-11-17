@@ -186,14 +186,14 @@ void fused_self_collision_kernel(
 // primitives instead of against each other.
 //
 // The robot side is spheres-only by construction (RobotCollisionSpherized *is*
-// a sphere model), so only sphere-vs-X is ever needed. All four world types are
+// a sphere model), so only sphere-vs-X is ever needed. All five world types are
 // supported because `_collision_cuda_helpers.cuh` already provides them; the
 // world buffers use the same row layouts every other CUDA IK kernel takes, so a
 // world built for ls_ik/hjcd_ik/sqp_ik works here unchanged:
 //   spheres    (Ms, 4)   capsules (Mc, 7)
-//   boxes      (Mb, 15)  halfspaces (Mh, 6)
+//   boxes      (Mb, 15)  halfspaces (Mh, 6)  cylinders (My, 8)
 //
-// Output is [B, N, M] with M = Ms + Mc + Mb + Mh in that order, matching
+// Output is [B, N, M] with M = Ms + Mc + Mb + Mh + My in that order, matching
 // `compute_world_collision_distance`'s (link x object) contract. Per link the
 // value is the MINIMUM over that link's spheres -- note the JAX docstring says
 // "maximum", but `collide_link_vs_world` reduces with `.min`, and min is the
@@ -209,9 +209,10 @@ void fused_world_collision_kernel(
     const float* __restrict__ w_cap,
     const float* __restrict__ w_box,
     const float* __restrict__ w_hs,
+    const float* __restrict__ w_cyl,
     float*       __restrict__ out,
     int B, int n_joints, int n_act, int N_links_arg,
-    int n_ws_arg, int n_wc_arg, int n_wb_arg, int n_wh_arg)
+    int n_ws_arg, int n_wc_arg, int n_wb_arg, int n_wh_arg, int n_wy_arg)
 {
     // The scene's obstacle set is fixed, so M is a compile-time constant and each link's
     // per-obstacle minima live in registers, written to global memory once per link instead
@@ -219,7 +220,8 @@ void fused_world_collision_kernel(
     constexpr int N_links = grim::robot::n_self_links;
     constexpr int n_ws = grim::robot::n_world_spheres, n_wc = grim::robot::n_world_capsules;
     constexpr int n_wb = grim::robot::n_world_boxes, n_wh = grim::robot::n_world_halfspaces;
-    (void)N_links_arg; (void)n_ws_arg; (void)n_wc_arg; (void)n_wb_arg; (void)n_wh_arg;
+    constexpr int n_wy = grim::robot::n_world_cylinders;
+    (void)N_links_arg; (void)n_ws_arg; (void)n_wc_arg; (void)n_wb_arg; (void)n_wh_arg; (void)n_wy_arg;
     FUSED_BIND_TABLES();
     extern __shared__ float s_Tw[];
     float* T = s_Tw + (size_t)threadIdx.x * n_joints * 7;
@@ -230,7 +232,7 @@ void fused_world_collision_kernel(
 
     grim::robot::frame_poses(cfg + (size_t)b * grim::robot::n_q, nullptr, T);
 
-    const int M = n_ws + n_wc + n_wb + n_wh;
+    const int M = n_ws + n_wc + n_wb + n_wh + n_wy;
 
     for (int n = 0; n < N_links; ++n) {
         const int jn = link_joint[n];
@@ -266,6 +268,11 @@ void fused_world_collision_kernel(
                 const float* o = w_hs + k * 6;
                 orow[m] = fminf(orow[m], sphere_halfspace_dist(
                     c[0], c[1], c[2], r, o[0], o[1], o[2], o[3], o[4], o[5]));
+            }
+            for (int k = 0; k < n_wy; ++k, ++m) {
+                const float* o = w_cyl + k * 8;
+                orow[m] = fminf(orow[m], sphere_cylinder_dist(
+                    c[0], c[1], c[2], r, o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7]));
             }
         }
         for (int m = 0; m < M; ++m) orow_out[m] = orow[m];
@@ -427,15 +434,17 @@ void fused_world_collision_jac_kernel(
     const float* __restrict__ w_cap,
     const float* __restrict__ w_box,
     const float* __restrict__ w_hs,
+    const float* __restrict__ w_cyl,
     float*       __restrict__ out,      // [B, N, M]
     float*       __restrict__ out_jac,  // [B, N, M, n_act]
     int B, int n_joints, int n_act, int N_links_arg,
-    int n_ws_arg, int n_wc_arg, int n_wb_arg, int n_wh_arg)
+    int n_ws_arg, int n_wc_arg, int n_wb_arg, int n_wh_arg, int n_wy_arg)
 {
     constexpr int N_links = grim::robot::n_self_links;
     constexpr int n_ws = grim::robot::n_world_spheres, n_wc = grim::robot::n_world_capsules;
     constexpr int n_wb = grim::robot::n_world_boxes, n_wh = grim::robot::n_world_halfspaces;
-    (void)N_links_arg; (void)n_ws_arg; (void)n_wc_arg; (void)n_wb_arg; (void)n_wh_arg;
+    constexpr int n_wy = grim::robot::n_world_cylinders;
+    (void)N_links_arg; (void)n_ws_arg; (void)n_wc_arg; (void)n_wb_arg; (void)n_wh_arg; (void)n_wy_arg;
     FUSED_BIND_TABLES();
     extern __shared__ float s_Twj[];
     float* T = s_Twj + (size_t)threadIdx.x * n_joints * 7;
@@ -444,15 +453,15 @@ void fused_world_collision_jac_kernel(
     if (b >= B) return;
     grim::robot::frame_poses(cfg + (size_t)b * grim::robot::n_q, nullptr, T);
 
-    const float* base[4] = {w_sph, w_cap, w_box, w_hs};
-    const int count[4] = {n_ws, n_wc, n_wb, n_wh};
-    const int stride[4] = {4, 7, 15, 6};
-    const int M = n_ws + n_wc + n_wb + n_wh;
+    const float* base[5] = {w_sph, w_cap, w_box, w_hs, w_cyl};
+    const int count[5] = {n_ws, n_wc, n_wb, n_wh, n_wy};
+    const int stride[5] = {4, 7, 15, 6, 8};
+    const int M = n_ws + n_wc + n_wb + n_wh + n_wy;
     for (int n = 0; n < N_links; ++n) {
         const int jn = link_joint[n];
         const float* Tn = (jn >= 0) ? T + (size_t)jn * 7 : IDENTITY_TF;
         int m = 0;
-        for (int kind = 0; kind < 4; ++kind) {
+        for (int kind = 0; kind < 5; ++kind) {
             for (int k = 0; k < count[kind]; ++k, ++m) {
                 const float* o = base[kind] + (size_t)k * stride[kind];
                 float best = 1e9f, cb[3] = {0.f, 0.f, 0.f}, rb = 0.f;
@@ -469,7 +478,7 @@ void fused_world_collision_jac_kernel(
                 for (int a = 0; a < n_act; ++a) g[a] = 0.f;
                 if (jn < 0 || best >= 1e9f) continue;
                 // Closed-form directions where they exist (float32 central differences leave
-                // ~3e-4 in the unit vector); capsules and boxes keep the shared FD helper.
+                // ~3e-4 in the unit vector); capsules, boxes and cylinders keep the shared FD helper.
                 float u[3];
                 bool ok = true;
                 if (kind == kWorldSphere) {
@@ -602,12 +611,14 @@ static ffi::Error fused_check(const ffi::Buffer<ffi::DataType::F32>& cfg, const 
 static ffi::Error fused_check_world(const ffi::Buffer<ffi::DataType::F32>& ws,
                                     const ffi::Buffer<ffi::DataType::F32>& wc,
                                     const ffi::Buffer<ffi::DataType::F32>& wb,
-                                    const ffi::Buffer<ffi::DataType::F32>& wh)
+                                    const ffi::Buffer<ffi::DataType::F32>& wh,
+                                    const ffi::Buffer<ffi::DataType::F32>& wy)
 {
     if (ws.dimensions()[0] != grim::robot::n_world_spheres ||
         wc.dimensions()[0] != grim::robot::n_world_capsules ||
         wb.dimensions()[0] != grim::robot::n_world_boxes ||
-        wh.dimensions()[0] != grim::robot::n_world_halfspaces)
+        wh.dimensions()[0] != grim::robot::n_world_halfspaces ||
+        wy.dimensions()[0] != grim::robot::n_world_cylinders)
         return ffi::Error(ffi::ErrorCode::kInvalidArgument,
                           "fused_world_collision: obstacle counts differ from the build");
     return ffi::Error::Success();
@@ -641,6 +652,7 @@ constexpr int kNJ = grim::robot::n_frames, kNQ = grim::robot::n_q;
 constexpr int kNL = grim::robot::n_self_links, kNP = grim::robot::n_self_pairs;
 constexpr int kWS = grim::robot::n_world_spheres, kWC = grim::robot::n_world_capsules;
 constexpr int kWB = grim::robot::n_world_boxes, kWH = grim::robot::n_world_halfspaces;
+constexpr int kWY = grim::robot::n_world_cylinders;
 
 static ffi::Error FusedSelfCollisionImpl(
     cudaStream_t stream, ffi::Buffer<ffi::DataType::F32> cfg,
@@ -667,16 +679,17 @@ static ffi::Error FusedWorldCollisionImpl(
     cudaStream_t stream, ffi::Buffer<ffi::DataType::F32> cfg,
     ffi::Buffer<ffi::DataType::F32> w_sph, ffi::Buffer<ffi::DataType::F32> w_cap,
     ffi::Buffer<ffi::DataType::F32> w_box, ffi::Buffer<ffi::DataType::F32> w_hs,
+    ffi::Buffer<ffi::DataType::F32> w_cyl,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out)      // [B, N_links, M]
 {
     if (ffi::Error e = fused_check(cfg, "fused_world_collision"); e.failure()) return e;
-    if (ffi::Error e = fused_check_world(w_sph, w_cap, w_box, w_hs); e.failure()) return e;
+    if (ffi::Error e = fused_check_world(w_sph, w_cap, w_box, w_hs, w_cyl); e.failure()) return e;
     const int B = (int)cfg.dimensions()[0];
     return fused_launch(fused_world_collision_kernel, B, [&](int blocks, int threads, size_t shmem) {
         fused_world_collision_kernel<<<blocks, threads, shmem, stream>>>(
             cfg.typed_data(), FUSED_TABLES, w_sph.typed_data(), w_cap.typed_data(),
-            w_box.typed_data(), w_hs.typed_data(), out->typed_data(),
-            B, kNJ, kNQ, kNL, kWS, kWC, kWB, kWH);
+            w_box.typed_data(), w_hs.typed_data(), w_cyl.typed_data(), out->typed_data(),
+            B, kNJ, kNQ, kNL, kWS, kWC, kWB, kWH, kWY);
     });
 }
 
@@ -688,6 +701,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Arg<ffi::Buffer<ffi::DataType::F32>>()     // world capsules
         .Arg<ffi::Buffer<ffi::DataType::F32>>()     // world boxes
         .Arg<ffi::Buffer<ffi::DataType::F32>>()     // world halfspaces
+        .Arg<ffi::Buffer<ffi::DataType::F32>>()     // world cylinders
         .Ret<ffi::Buffer<ffi::DataType::F32>>());   // out [B, N_links, M]
 
 static ffi::Error FusedWorldEsdfImpl(
@@ -741,16 +755,17 @@ static ffi::Error FusedWorldCollisionJacImpl(
     cudaStream_t stream, ffi::Buffer<ffi::DataType::F32> cfg,
     ffi::Buffer<ffi::DataType::F32> w_sph, ffi::Buffer<ffi::DataType::F32> w_cap,
     ffi::Buffer<ffi::DataType::F32> w_box, ffi::Buffer<ffi::DataType::F32> w_hs,
+    ffi::Buffer<ffi::DataType::F32> w_cyl,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out, ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_jac)
 {
     if (ffi::Error e = fused_check(cfg, "fused_world_collision_jac"); e.failure()) return e;
-    if (ffi::Error e = fused_check_world(w_sph, w_cap, w_box, w_hs); e.failure()) return e;
+    if (ffi::Error e = fused_check_world(w_sph, w_cap, w_box, w_hs, w_cyl); e.failure()) return e;
     const int B = (int)cfg.dimensions()[0];
     return fused_launch(fused_world_collision_jac_kernel, B, [&](int blocks, int threads, size_t shmem) {
         fused_world_collision_jac_kernel<<<blocks, threads, shmem, stream>>>(
             cfg.typed_data(), FUSED_TABLES, w_sph.typed_data(), w_cap.typed_data(),
-            w_box.typed_data(), w_hs.typed_data(), out->typed_data(), out_jac->typed_data(),
-            B, kNJ, kNQ, kNL, kWS, kWC, kWB, kWH);
+            w_box.typed_data(), w_hs.typed_data(), w_cyl.typed_data(), out->typed_data(), out_jac->typed_data(),
+            B, kNJ, kNQ, kNL, kWS, kWC, kWB, kWH, kWY);
     });
 }
 
@@ -760,6 +775,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Arg<ffi::Buffer<ffi::DataType::F32>>()
         .Arg<ffi::Buffer<ffi::DataType::F32>>().Arg<ffi::Buffer<ffi::DataType::F32>>()
         .Arg<ffi::Buffer<ffi::DataType::F32>>().Arg<ffi::Buffer<ffi::DataType::F32>>()
+        .Arg<ffi::Buffer<ffi::DataType::F32>>()     // world cylinders
         .Ret<ffi::Buffer<ffi::DataType::F32>>().Ret<ffi::Buffer<ffi::DataType::F32>>());
 
 static ffi::Error FusedWorldEsdfJacImpl(

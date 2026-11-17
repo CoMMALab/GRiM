@@ -30,7 +30,7 @@ W = dict(w_smooth=1.0, w_acc=0.5, w_jerk=0.1, w_limits=1.0, w_collision_max=100.
          collision_margin=0.01)
 ZERO = {"sco": dict(n_outer_iters=0), "stomp": dict(n_iters=0), "chomp": dict(n_iters=0)}
 COST = {"sco": ref.sco_cost, "stomp": ref.stomp_cost, "chomp": ref.stomp_cost}
-CONFIGS = [(b, t) for b in ("crocket-f32", "crocket-f64") for t in ("thread", "warp", "block")]
+CONFIGS = [(b, t) for b in ("mantis-f32", "mantis-f64") for t in ("thread", "warp", "block")]
 
 
 def _run(kind, robot, x, tc, world, start, goal, **kw):
@@ -61,7 +61,7 @@ def test_zero_iterations_and_solution(kind, name, backend, tier):
     ck = dict(backend=backend, tier=tier)
     t, c = _run(kind, robot, x, tc, world, start, goal, **ZERO[kind], **ck)
     want = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
-    assert_close_scaled(c, want, 1e-4 if backend == "crocket-f32" else 1e-6, f"{kind} {name} {backend} {tier} initial cost")
+    assert_close_scaled(c, want, 1e-4 if backend == "mantis-f32" else 1e-6, f"{kind} {name} {backend} {tier} initial cost")
     t, c = _run(kind, robot, x, tc, world, start, goal, **ck)
     assert np.array_equal(t[:, 0], np.broadcast_to(start.astype(np.float32), t[:, 0].shape))
     assert np.array_equal(t[:, -1], np.broadcast_to(goal.astype(np.float32), t[:, -1].shape))
@@ -75,13 +75,40 @@ def test_zero_iterations_and_solution(kind, name, backend, tier):
     assert np.all(got <= init * (1 + 1e-5) + 1e-6), f"{kind} {name} {backend} {tier}: cost increased"
 
 
+@pytest.mark.parametrize("kind", OPTIMIZERS)
+def test_world_is_a_runtime_argument(kind, monkeypatch):
+    """One build serves worlds of any obstacle counts: the same FFI target runs an empty world, the
+    test world and a larger mixed one, each at the oracle's zero-iteration cost."""
+    from grim.motion.ik import World
+    robot, x, start, goal, tc, base = _setup("fr3")
+    rng = np.random.default_rng(4)
+    axes = np.linalg.qr(rng.normal(size=(3, 3, 3)))[0]
+    big = World(spheres=base.spheres, halfspaces=base.halfspaces, cylinders=base.cylinders,
+                boxes=np.concatenate([rng.uniform(-0.6, 0.6, (3, 3)), axes.reshape(3, 9),
+                                      rng.uniform(0.05, 0.2, (3, 3))], 1),
+                capsules=np.array([[0.3, 0.0, 0.3, 0.3, 0.2, 0.6, 0.05], [0.0, 0.3, 0.2, 0.2, 0.3, 0.7, 0.04]]))
+    from grim.motion import trajopt
+    monkeypatch.setattr(trajopt, "_TARGETS", {})   # count this test's builds from an empty cache
+    names, build = [], trajopt._ck_build
+
+    def spy(*a, **kw):
+        names.append(build(*a, **kw))
+        return names[-1]
+    monkeypatch.setattr(trajopt, "_ck_build", spy)
+    for world in (World(), base, big):
+        _, c = _run(kind, robot, x, tc, world, start, goal, **ZERO[kind])
+        want = np.array([_oracle(kind, robot, x[b], tc, world) for b in range(len(x))])
+        assert_close_scaled(c, want, 1e-4, f"{kind} counts {world.counts()}")
+    assert len(names) == 1, f"{kind}: built {len(names)} times for 3 worlds: {names}"
+
+
 @pytest.mark.parametrize("tier", ["thread", "warp", "block"])
 @pytest.mark.parametrize("kind", OPTIMIZERS)
 def test_deterministic_and_batch_invariant(kind, tier):
     """Bit-deterministic; a trajectory's result does not depend on its batch slot (except
     STOMP, which keys its noise on the slot) or on what the workspace held before."""
     robot, x, start, goal, tc, world = _setup("fr3")
-    ck = dict(backend="crocket-f32", tier=tier)
+    ck = dict(backend="mantis-f32", tier=tier)
     a = _run(kind, robot, x, tc, world, start, goal, **ck)
     b = _run(kind, robot, x, tc, world, start, goal, **ck)
     assert all(np.array_equal(u, v) for u, v in zip(a, b))

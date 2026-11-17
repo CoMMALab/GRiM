@@ -1,0 +1,101 @@
+[
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 2,
+  "ms": 4.521241900511086,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 5.8244958462004676e-05,
+  "ori_rad": 7.598131170262078e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 2,
+  "ms": 8.807243360206485,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 6.401552385843249e-05,
+  "ori_rad": 9.770684152184922e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 2,
+  "ms": 79.04928484000266,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 6.633074978772453e-05,
+  "ori_rad": 1.0536712127723512e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 2,
+  "ms": 4.509746159892529,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 0.00010920715732013142,
+  "ori_rad": 8.940696716308596e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 2,
+  "ms": 8.94697570009157,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 7.128659329004499e-05,
+  "ori_rad": 9.65705618025044e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 2,
+  "ms": 43.725299099460244,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 7.100004527362067e-05,
+  "ori_rad": 9.884312124119404e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 2,
+  "ms": 4.690399840474129,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 4.442324041660306e-05,
+  "ori_rad": 1.0106459234841571e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 2,
+  "ms": 10.13010469963774,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 4.303077906057007e-05,
+  "ori_rad": 9.540689005512464e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 2,
+  "ms": 52.72210055962205,
+  "tier": "lbfgs+lm-seed",
+  "success": 1.0,
+  "pos_mm": 4.4650826007532136e-05,
+  "ori_rad": 1.0106459234841571e-07
+ }
+]

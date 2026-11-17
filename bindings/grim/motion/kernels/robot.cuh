@@ -180,6 +180,7 @@ static __device__ __forceinline__ void residual_and_jacobian(
     constexpr int n_world_capsules   = grim::robot::n_world_capsules;                     \
     constexpr int n_world_boxes      = grim::robot::n_world_boxes;                        \
     constexpr int n_world_halfspaces = grim::robot::n_world_halfspaces;                   \
+    constexpr int n_world_cylinders  = grim::robot::n_world_cylinders;                    \
     const float* robot_spheres_local    = grim::robot::kRobotSpheres;                     \
     const int*   robot_sphere_joint_idx = grim::robot::kRobotSphereJoint;                 \
     const float* self_sph_local  = grim::robot::kSelfSph;                                 \
@@ -189,7 +190,8 @@ static __device__ __forceinline__ void residual_and_jacobian(
     const int*   self_pair_j     = grim::robot::kSelfPairJ;                               \
     (void)n_joints; (void)n_act; (void)n_ee; (void)n_full; (void)n_robot_spheres;         \
     (void)n_self_pairs; (void)n_world_spheres; (void)n_world_capsules;                    \
-    (void)n_world_boxes; (void)n_world_halfspaces; (void)robot_spheres_local;             \
+    (void)n_world_boxes; (void)n_world_halfspaces; (void)n_world_cylinders;               \
+    (void)robot_spheres_local;                                                            \
     (void)robot_sphere_joint_idx; (void)self_sph_local; (void)self_link_start;            \
     (void)self_link_joint; (void)self_pair_i; (void)self_pair_j
 #define GRIM_ACT_SRC(i)      grim::robot::solved_idx(i)

@@ -1,5 +1,5 @@
 """Closed-form IK for the 7-DOF "spherical shoulder, intersecting axes 5-6, offset axis 7"
-family (Franka Panda / FR3), built per robot (``kernels/ik_crocket/analytic_ik.cu``).
+family (Franka Panda / FR3), built per robot (``kernels/ik_mantis/analytic_ik.cu``).
 
 The kernel sweeps the redundancy parameter q7 and, for each value, solves the remaining six
 joints with Paden-Kahan subproblems (8 branches). :func:`arm_geometry` reads the home-pose
@@ -93,23 +93,23 @@ def _geometry_header(g: ArmGeometry) -> str:
             f"__device__ __constant__ double kArmGeom[{GEOM_N_SCALARS}] = {{{vals}}};\n}}\n")
 
 
-def build(robot: MotionRobot, ee_joint: int, backend: str = "crocket-f32") -> str:
+def build(robot: MotionRobot, ee_joint: int, backend: str = "mantis-f32") -> str:
     """Compile (or load) the kernel for the chain ending at joint frame ``ee_joint`` -> FFI
     target. The geometry is baked in, so it needs the concrete robot (outside jit). The closed
-    form is traced by crocket with the geometry folded in; ``backend`` is ``"crocket-f32"`` or
-    ``"crocket-f64"``, the scalar type."""
-    import crocket
-    from ._crocket_ik import _model
+    form is traced by mantis with the geometry folded in; ``backend`` is ``"mantis-f32"`` or
+    ``"mantis-f64"``, the scalar type."""
+    import mantis
+    from ._mantis_ik import _model
     from .ik import BACKENDS
     if backend not in BACKENDS:
         raise ValueError(f"unknown backend {backend!r}: one of {sorted(BACKENDS)}")
     g = arm_geometry(robot, ee_joint)
     header = _build.robot_header(robot, _build.Problem(ee_joints=(int(ee_joint),))) + _geometry_header(g)
     geom = tuple(float(x) for x in pack_geometry(g))
-    traced = crocket.generate(_model(robot), {"analytic_ik_candidates": {"geom": geom},
+    traced = mantis.generate(_model(robot), {"analytic_ik_candidates": {"geom": geom},
                                               "analytic_ik_chain": {"geom": geom}},
-                              variants=[crocket.Variant("thread")], name="robot")
-    so = _build.build("ik_crocket/analytic_ik", header + traced, 1, robot.n_joints, 1,
+                              variants=[mantis.Variant("thread")], name="robot")
+    so = _build.build("ik_mantis/analytic_ik", header + traced, 1, robot.n_joints, 1,
                       (f"-DGRIM_CK_REAL={BACKENDS[backend]}",))
     return _build.register(so, ("AnalyticIkFfi",))[0]
 
@@ -143,7 +143,7 @@ def run(target: str, targets, q7_samples, previous_q=None, *, spheres_home=None,
 def analytic_ik(robot: MotionRobot, targets, ee_joint: int, q7_samples=None, *,
                 previous_q=None, spheres_home=None, sphere_joint=None, self_pairs=None,
                 world=None, respect_limits: bool = True, err_tol: float = 1e-4,
-                margin: float = 0.005, backend: str = "crocket-f32", tier: str = "block"):
+                margin: float = 0.005, backend: str = "mantis-f32", tier: str = "block"):
     """Best branch per target -> ``(q (B, 7), err (B,), found (B,), clearance (B,))``.
 
     ``targets`` (B, 4, 4) end-effector poses. ``q7_samples`` (S,) redundancy values (default

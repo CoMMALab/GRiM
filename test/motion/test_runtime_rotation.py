@@ -63,12 +63,12 @@ def test_kinematics_and_launch_ordering():
 LS = dict(pos_weight=50.0, ori_weight=10.0, lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3)
 # float32: the per-call rotation is composed with the folded fixed joints in float, which one
 # step amplifies (measured 1.35e-4 on actuated joint 0); double holds 1e-6.
-BACKENDS = [("crocket-f32", 3e-4), ("crocket-f64", 1e-6)]
+BACKENDS = [("mantis-f32", 3e-4), ("mantis-f64", 1e-6)]
 
 
 def _movable(robot, a):
     """The joint index of actuated joint ``a``: IK builds rotate a movable joint's origin
-    (crocket folds fixed joints into their movable children)."""
+    (mantis folds fixed joints into their movable children)."""
     return robot.joint_names.index(robot.actuated_names[a])
 
 
@@ -76,8 +76,8 @@ def _movable(robot, a):
 @pytest.mark.parametrize("act", [0, 3])
 @pytest.mark.parametrize("iters", [0, 1, 2])
 def test_ls_ik_iterations_match_the_rotated_reference(backend, rtol, act, iters):
-    """crocket folds the robot into its trace, so the rotation reaches it as rot_joint, composed
-    with the fixed joints folded in before the joint (see _crocket_ik.source): seed by seed as
+    """mantis folds the robot into its trace, so the rotation reaches it as rot_joint, composed
+    with the fixed joints folded in before the joint (see _mantis_ik.source): seed by seed as
     the oracle. Actuated joint 0 sits under iiwa14's fixed base joint."""
     from grim.motion import ik
     from grim.motion.kinematics import solved_columns
@@ -102,7 +102,7 @@ def test_ls_ik_iterations_match_the_rotated_reference(backend, rtol, act, iters)
             assert_close_scaled(e[p, k], e_ref, 10 * rtol, f"{backend} p={p} s={k} err")
 
 
-@pytest.mark.parametrize("backend", ["crocket-f32", "crocket-f64"])
+@pytest.mark.parametrize("backend", ["mantis-f32", "mantis-f64"])
 def test_ls_ik_solves_the_rotated_problem(backend):
     from grim.motion import ik
 

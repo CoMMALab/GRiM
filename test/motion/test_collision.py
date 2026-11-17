@@ -42,7 +42,8 @@ def self_model(robot) -> SelfCollision:
 WORLD = World(spheres=np.array([[0.3, 0.1, 0.5, 0.1], [-0.2, 0.3, 0.8, 0.05]]),
               capsules=np.array([[0.2, -0.3, 0.2, 0.4, -0.3, 0.9, 0.04]]),
               boxes=np.array([[0.5, 0.0, 0.3, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0.1, 0.2, 0.05]]),
-              halfspaces=np.array([[0, 0, 1, 0, 0, -0.02]]))
+              halfspaces=np.array([[0, 0, 1, 0, 0, -0.02]]),
+              cylinders=np.array([[0.35, -0.15, 0.6, 0.6, 0.0, 0.8, 0.05, 0.12]]))
 
 
 def _fd(fn, q, eps=1e-6):
@@ -52,6 +53,50 @@ def _fd(fn, q, eps=1e-6):
         dq[a] = eps
         cols.append((fn(q + dq) - fn(q - dq)) / (2 * eps))
     return np.stack(cols, -1)
+
+
+def test_cylinder_reference_vs_brute_force():
+    """The float64 solid-cylinder distance against the nearest of a dense sampling of its
+    surface (outside), and against its depth to the side and caps (inside)."""
+    rng = np.random.default_rng(0)
+    ax = np.array([0.6, 0.0, 0.8])
+    cyl = np.array([0.1, -0.2, 0.3, *ax, 0.07, 0.15])
+    e1 = np.cross(ax, [0, 1, 0]); e1 /= np.linalg.norm(e1)
+    e2 = np.cross(ax, e1)
+    th = np.linspace(0, 2 * np.pi, 720, endpoint=False)
+    ring = np.cos(th)[:, None] * e1 + np.sin(th)[:, None] * e2
+    side = (cyl[:3] + np.linspace(-cyl[7], cyl[7], 400)[:, None, None] * ax + cyl[6] * ring).reshape(-1, 3)
+    caps = (cyl[:3] + np.array([-1, 1])[:, None, None, None] * cyl[7] * ax
+            + np.linspace(0, cyl[6], 120)[None, :, None, None] * ring[None, None]).reshape(-1, 3)
+    surface = np.concatenate([side, caps])
+    for _ in range(200):
+        c = cyl[:3] + rng.uniform(-0.4, 0.4, 3)
+        a = (c - cyl[:3]) @ ax
+        rho = np.linalg.norm(c - cyl[:3] - a * ax)
+        inside = rho <= cyl[6] and abs(a) <= cyl[7]
+        want = -min(cyl[6] - rho, cyl[7] - abs(a)) if inside else np.linalg.norm(surface - c, axis=1).min()
+        assert abs(R.sphere_cylinder(c, 0.02, cyl) - (want - 0.02)) < 2e-3
+
+
+@pytest.mark.parametrize("kind", ["spheres", "capsules", "boxes", "halfspaces", "cylinders"])
+def test_closed_form_normals_vs_distance_gradient(kind):
+    """reference/collision.py's NORMALS (the IK kernels' n_prim) against central differences of
+    the distances, at random centres inside and outside; points whose difference step straddles a
+    kink or an inside ridge (|gradient| != 1) are skipped."""
+    rng = np.random.default_rng(0)
+    o = np.asarray(getattr(WORLD, kind)[0], np.float64)
+    if kind == "boxes":   # a rotated box exercises the axes
+        o = np.r_[o[:3], np.linalg.qr(rng.normal(size=(3, 3)))[0].ravel(), o[12:]]
+    f, nf, checked = R.PRIMITIVES[kind], R.NORMALS[kind], 0
+    for _ in range(400):
+        c = o[:3] + rng.normal(scale=0.3, size=3) if kind != "halfspaces" else rng.normal(scale=0.3, size=3)
+        fd = np.array([(f(c + e, 0.02, o) - f(c - e, 0.02, o)) / 2e-7 for e in np.eye(3) * 1e-7])
+        n = nf(c, 0.02, o)
+        if n is None or abs(np.linalg.norm(fd) - 1) > 1e-4:
+            continue
+        np.testing.assert_allclose(n, fd, atol=1e-7)
+        checked += 1
+    assert checked > 300, f"{kind}: only {checked} smooth samples"
 
 
 @pytest.mark.parametrize("name", ROBOTS)

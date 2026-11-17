@@ -18,7 +18,7 @@ SETTINGS = dict(pos_weight=50.0, ori_weight=10.0, lambda_init=5e-3, eps_pos=1e-4
 CASES = [("fr3", 0), ("iiwa14", 0), ("baxter", 0), ("baxter", 1), ("g1", 0), ("g1", 1)]  # (robot, ee set)
 # (backend, rtol): the double build agrees with the float64 transcription far tighter; 1e-6
 # leaves room for the float32 seeds and targets the launcher passes.
-BACKENDS = [("crocket-f32", 1e-4), ("crocket-f64", 1e-6)]
+BACKENDS = [("mantis-f32", 1e-4), ("mantis-f64", 1e-6)]
 
 
 @pytest.mark.parametrize("backend,rtol", BACKENDS)

@@ -151,6 +151,21 @@ __device__ __forceinline__ float sphere_halfspace_dist(
     return (sx - px) * nx + (sy - py) * ny + (sz - pz) * nz - sr;
 }
 
+/** Solid cylinder: centre, unit axis, radius, half-height. The box SDF over the (radial,
+ *  axial) excess, so the inside is negative. */
+__device__ __forceinline__ float sphere_cylinder_dist(
+    float sx, float sy, float sz, float sr,
+    float cx, float cy, float cz,
+    float ax, float ay, float az, float R, float h)
+{
+    const float dx = sx - cx, dy = sy - cy, dz = sz - cz;
+    const float a = dx * ax + dy * ay + dz * az;
+    const float wx = dx - a * ax, wy = dy - a * ay, wz = dz - a * az;
+    const float q1 = sqrtf(wx * wx + wy * wy + wz * wz) - R, q2 = fabsf(a) - h;
+    const float m1 = fmaxf(q1, 0.0f), m2 = fmaxf(q2, 0.0f);
+    return sqrtf(m1 * m1 + m2 * m2) + fminf(fmaxf(q1, q2), 0.0f) - sr;
+}
+
 __device__ __forceinline__ float capsule_halfspace_dist(
     float x1, float y1, float z1,
     float x2, float y2, float z2, float cr,
@@ -471,7 +486,8 @@ __device__ __forceinline__ float self_collision_pair_dist_grad(
 // direction. All that is needed is grad_c d.
 
 /** Primitive kinds, matching the buffer order used by every IK kernel. */
-enum WorldPrimKind { kWorldSphere = 0, kWorldCapsule = 1, kWorldBox = 2, kWorldHalfspace = 3 };
+enum WorldPrimKind { kWorldSphere = 0, kWorldCapsule = 1, kWorldBox = 2, kWorldHalfspace = 3,
+                     kWorldCylinder = 4 };
 
 /** Signed distance from a robot sphere (centre `c`, radius `rr`) to one world
  *  primitive. Thin dispatch over the existing per-type helpers so the gradient
@@ -490,9 +506,12 @@ __device__ __forceinline__ float world_prim_dist(
                                    o[0], o[1], o[2], o[3], o[4], o[5],
                                    o[6], o[7], o[8], o[9], o[10], o[11],
                                    o[12], o[13], o[14]);
-        default:
+        case kWorldHalfspace:
             return sphere_halfspace_dist(c[0], c[1], c[2], rr,
                                          o[0], o[1], o[2], o[3], o[4], o[5]);
+        default:
+            return sphere_cylinder_dist(c[0], c[1], c[2], rr,
+                                        o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7]);
     }
 }
 
@@ -582,6 +601,7 @@ struct WorldCollisionRefs {
     const float* __restrict__ capsules;   int n_capsules;
     const float* __restrict__ boxes;      int n_boxes;
     const float* __restrict__ halfspaces; int n_halfspaces;
+    const float* __restrict__ cylinders;  int n_cylinders;
 };
 
 /**
@@ -624,11 +644,11 @@ __device__ __forceinline__ void collision_gauss_newton_terms(
     }
 
     if (want_world) {
-        const float* prim_base[4]   = { world.spheres, world.capsules,
-                                        world.boxes, world.halfspaces };
-        const int    prim_count[4]  = { world.n_spheres, world.n_capsules,
-                                        world.n_boxes, world.n_halfspaces };
-        const int    prim_stride[4] = { 4, 7, 15, 6 };
+        const float* prim_base[5]   = { world.spheres, world.capsules,
+                                        world.boxes, world.halfspaces, world.cylinders };
+        const int    prim_count[5]  = { world.n_spheres, world.n_capsules,
+                                        world.n_boxes, world.n_halfspaces, world.n_cylinders };
+        const int    prim_stride[5] = { 4, 7, 15, 6, 8 };
 
         for (int i = 0; i < world.n_robot_spheres; ++i) {
             const int jidx = world.robot_sphere_joint_idx[i];
@@ -640,7 +660,7 @@ __device__ __forceinline__ void collision_gauss_newton_terms(
             apply_se3_point(T + (size_t)jidx * 7, local_p, cw);
             const float rr = sp[3];
 
-            for (int kind = 0; kind < 4; ++kind) {
+            for (int kind = 0; kind < 5; ++kind) {
                 for (int m = 0; m < prim_count[kind]; ++m) {
                     const float* o = prim_base[kind] + (size_t)m * prim_stride[kind];
                     const float d = world_prim_dist(cw, rr, kind, o);

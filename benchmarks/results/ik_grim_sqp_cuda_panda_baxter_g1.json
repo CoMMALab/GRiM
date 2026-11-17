@@ -1,0 +1,101 @@
+[
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 10.85110424,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.004575945078747161,
+  "ori_rad": 4.811298593175134e-06
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 11.086182879999999,
+  "tier": "thread",
+  "success": 0.9921875,
+  "pos_mm": 0.0002984803199116455,
+  "ori_rad": 6.046197215755159e-07
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 11.4168822,
+  "tier": "thread",
+  "success": 0.9931640625,
+  "pos_mm": 0.0003142865278216796,
+  "ori_rad": 6.038098106842319e-07
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 10.444477260000001,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 4.8465227141292616e-05,
+  "ori_rad": 7.300048299977716e-08
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 11.10093026,
+  "tier": "thread",
+  "success": 0.9921875,
+  "pos_mm": 0.0002286214948598996,
+  "ori_rad": 4.308422448675682e-07
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 11.3901343,
+  "tier": "thread",
+  "success": 0.9931640625,
+  "pos_mm": 0.0002620304091738535,
+  "ori_rad": 4.782300731454996e-07
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 29.79094454,
+  "tier": "warp",
+  "success": 1.0,
+  "pos_mm": 0.004163249747102054,
+  "ori_rad": 1.78428074638807e-05
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 44.87721432,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.000131292811049636,
+  "ori_rad": 4.761175407162579e-07
+ },
+ {
+  "method": "grim_sqp_cuda",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 46.40993044,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.00014208029356247752,
+  "ori_rad": 4.3033150071483144e-07
+ }
+]

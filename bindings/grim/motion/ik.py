@@ -14,14 +14,14 @@ A solve is two steps, which callers working under ``jax.jit`` use separately:
 
 The named functions (:func:`ls_ik`, :func:`sqp_ik`, ...) do both.
 
-Every kernel is ``kernels/ik_crocket``: the solver loop in CUDA, everything it reads about the
-robot (residual, Jacobian, collision-sphere centres, joint twists) from crocket's traced
-``ik_geometry`` (see :mod:`grim.motion._crocket_ik`). ``backend`` picks the scalar type,
-``"crocket-f32"`` (default) or ``"crocket-f64"``, float or double end to end.
+Every kernel is ``kernels/ik_mantis``: the solver loop in CUDA, everything it reads about the
+robot (residual, Jacobian, collision-sphere centres, joint twists) from mantis's traced
+``ik_geometry`` (see :mod:`grim.motion._mantis_ik`). ``backend`` picks the scalar type,
+``"mantis-f32"`` (default) or ``"mantis-f64"``, float or double end to end.
 
 ``tier`` picks how many threads own one seed: ``"thread"`` (one; the fastest at large batch on
 every robot measured), ``"warp"`` (32) or ``"block"`` (``block_threads``: 32, 64, 128 or 256,
-fixed when the kernel is built; crocket's block variant runs ``block_threads / 32`` warps).
+fixed when the kernel is built; mantis's block variant runs ``block_threads / 32`` warps).
 """
 
 from __future__ import annotations
@@ -44,20 +44,23 @@ class World:
     """World obstacles; each kind is an (M, width) array.
 
     spheres ``[x, y, z, r]``; capsules ``[ax, ay, az, bx, by, bz, r]``; boxes ``[center(3),
-    axis_x(3), axis_y(3), axis_z(3), half_extents(3)]``; halfspaces ``[normal(3), point(3)]``.
+    axis_x(3), axis_y(3), axis_z(3), half_extents(3)]``; halfspaces ``[normal(3), point(3)]``;
+    cylinders (solid) ``[center(3), unit_axis(3), radius, half_height]``.
     """
     spheres: np.ndarray | None = None
     capsules: np.ndarray | None = None
     boxes: np.ndarray | None = None
     halfspaces: np.ndarray | None = None
+    cylinders: np.ndarray | None = None
 
     def arrays(self) -> tuple[jax.Array, ...]:
         return tuple(jnp.zeros((0, _build.WORLD_WIDTH[k]), jnp.float32) if a is None
                      else jnp.asarray(a, jnp.float32).reshape(-1, _build.WORLD_WIDTH[k])
                      for k, a in zip(_build.WORLD_KINDS,
-                                     (self.spheres, self.capsules, self.boxes, self.halfspaces)))
+                                     (self.spheres, self.capsules, self.boxes, self.halfspaces,
+                                      self.cylinders)))
 
-    def counts(self) -> tuple[int, int, int, int]:
+    def counts(self) -> tuple[int, int, int, int, int]:
         return tuple(int(a.shape[0]) for a in self.arrays())
 
 
@@ -72,16 +75,16 @@ class CollisionModel:
 
 # kernel -> (source, FFI symbol, solves every joint)
 KERNELS = {
-    "ls": ("ik_crocket/ls_ik", "LsIkFfi", False),
-    "dls": ("ik_crocket/dls_ik", "DlsIkFfi", False),
-    "sqp": ("ik_crocket/sqp_ik", "SqpIkFfi", False),
-    "hjcd_coarse": ("ik_crocket/hjcd_ik", "HjcdIkCoarseFfi", False),
-    "hjcd_lm": ("ik_crocket/hjcd_ik", "HjcdIkLmFfi", False),
+    "ls": ("ik_mantis/ls_ik", "LsIkFfi", False),
+    "dls": ("ik_mantis/dls_ik", "DlsIkFfi", False),
+    "sqp": ("ik_mantis/sqp_ik", "SqpIkFfi", False),
+    "hjcd_coarse": ("ik_mantis/hjcd_ik", "HjcdIkCoarseFfi", False),
+    "hjcd_lm": ("ik_mantis/hjcd_ik", "HjcdIkLmFfi", False),
     # Off-chain joints still receive noise, so a chain-only build is not equivalent.
-    "mppi": ("ik_crocket/mppi_ik", "MppiIkFfi", True),
-    "canonical": ("ik_crocket/canonical_ik", "CanonicalIkFfi", True),
+    "mppi": ("ik_mantis/mppi_ik", "MppiIkFfi", True),
+    "canonical": ("ik_mantis/canonical_ik", "CanonicalIkFfi", True),
 }
-BACKENDS = {"crocket-f32": "float", "crocket-f64": "double"}
+BACKENDS = {"mantis-f32": "float", "mantis-f64": "double"}
 
 
 @dataclass(frozen=True)
@@ -91,36 +94,36 @@ class Target:
     name: str                       # registered FFI target
     n_q: int
     n_ee: int
-    world_counts: tuple[int, int, int, int]
     has_robot_spheres: bool
     lower: tuple[float, ...]
     upper: tuple[float, ...]
     runtime_rot: bool = False       # takes a per-call parent rotation (see Problem)
-    backend: str = "crocket-f32"    # "crocket-f32" / "crocket-f64": the kernel's scalar type
+    backend: str = "mantis-f32"    # "mantis-f32" / "mantis-f64": the kernel's scalar type
     block_threads: int = 64         # lanes per seed at the block tier
 
 
 def problem(robot: MotionRobot, ee_joints, collision: CollisionModel | None = None,
-            world_counts=(0, 0, 0, 0), chain_only: bool = True,
+            chain_only: bool = True,
             runtime_rot_joint: int = -1) -> _build.Problem:
     c = collision or CollisionModel()
     has_spheres = c.robot_spheres is not None and len(c.robot_spheres) > 0
     sc = c.self_collision
     return _build.Problem(
         ee_joints=tuple(int(e) for e in ee_joints),
-        robot_spheres=np.asarray(c.robot_spheres, np.float32) if has_spheres else None,
+        robot_spheres=np.asarray(c.robot_spheres, np.float64) if has_spheres else None,
         robot_sphere_joint=np.asarray(c.robot_sphere_joint, np.int32) if has_spheres else None,
         self_collision=sc if sc is not None and len(sc.pair_i) > 0 else None,
-        world_counts=tuple(int(n) for n in world_counts), chain_only=chain_only,
+        chain_only=chain_only,
         runtime_rot_joint=int(runtime_rot_joint))
 
 
 def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
-          world_counts=(0, 0, 0, 0), chain_only: bool = True, runtime_rot_joint: int = -1,
-          backend: str = "crocket-f32", block_threads: int = 64, debug_skew_ns: int = 0) -> Target:
-    """Compile (or load) ``kernel`` for this robot and problem structure. With
+          chain_only: bool = True, runtime_rot_joint: int = -1,
+          backend: str = "mantis-f32", block_threads: int = 64, debug_skew_ns: int = 0) -> Target:
+    """Compile (or load) ``kernel`` for this robot and problem structure; the world is a
+    runtime argument of :func:`run` (any obstacles, no rebuild). With
     ``runtime_rot_joint`` >= 0, :func:`run` takes that joint's parent rotation per call; it must
-    be a movable joint (crocket folds fixed joints into the movable joints below them).
+    be a movable joint (mantis folds fixed joints into the movable joints below them).
     ``block_threads`` is the block tier's lanes per seed. ``debug_skew_ns`` > 0 is for tests: the
     cooperative tiers' upper lanes then sleep that long after every barrier, so a missing barrier
     races on every run."""
@@ -128,14 +131,14 @@ def build(kernel: str, robot: MotionRobot, ee_joints, *, collision: CollisionMod
     if backend not in BACKENDS:
         raise ValueError(f"unknown backend {backend!r}: one of {sorted(BACKENDS)}")
     if block_threads not in (32, 64, 128, 256):
-        raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (crocket's block tier "
+        raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (mantis's block tier "
                          "runs block_threads / 32 warps, one of 1, 2, 4, 8)")
-    prob = problem(robot, ee_joints, collision, world_counts, chain_only and not all_joints,
+    prob = problem(robot, ee_joints, collision, chain_only and not all_joints,
                    runtime_rot_joint)
-    (name,) = _build.target(source, (symbol,), robot, prob, crocket_real=BACKENDS[backend],
-                            crocket_block_threads=block_threads,
+    (name,) = _build.target(source, (symbol,), robot, prob, mantis_real=BACKENDS[backend],
+                            mantis_block_threads=block_threads,
                             extra_flags=(f"-DGRIM_CK_SKEW_NS={debug_skew_ns}",) if debug_skew_ns else ())
-    return Target(kernel, name, robot.n_act, len(prob.ee_joints), prob.world_counts,
+    return Target(kernel, name, robot.n_act, len(prob.ee_joints),
                   prob.robot_spheres is not None, tuple(map(float, robot.lower)),
                   tuple(map(float, robot.upper)), runtime_rot_joint >= 0, backend, block_threads)
 
@@ -146,16 +149,13 @@ def run(target: Target, seeds, targets, *, world: World = World(), lower=None, u
     """Launch a built IK kernel. ``settings`` are the kernel's solver settings (see the named
     functions); ``noise`` is hjcd_lm's stall-kick noise, ``rng_seed`` mppi's seed and ``rot``
     the wxyz parent rotation of a ``runtime_rot_joint`` build."""
-    if world.counts() != target.world_counts:
-        raise ValueError(f"world has obstacle counts {world.counts()}; the target was built "
-                         f"for {target.world_counts}")
     seeds = jnp.asarray(seeds, jnp.float32)
     P, S, _ = seeds.shape
     lo = jnp.asarray(target.lower if lower is None else lower, jnp.float32)
     hi = jnp.asarray(target.upper if upper is None else upper, jnp.float32)
     fm = jnp.asarray(np.zeros(target.n_q) if fixed_mask is None else fixed_mask, jnp.int32)
     if enable_collision is None:
-        enable_collision = target.has_robot_spheres and sum(target.world_counts) > 0
+        enable_collision = target.has_robot_spheres and sum(world.counts()) > 0
     outs = [jax.ShapeDtypeStruct((P, S, target.n_q), jnp.float32),
             jax.ShapeDtypeStruct((P, S), jnp.float32)]
     after_seeds, after_limits = [], []
@@ -183,8 +183,8 @@ def _rot_operand(target: Target, rot) -> tuple:
 
 
 def _solve(kernel, robot, seeds, targets, ee_joints, *, world, collision, chain_only,
-           backend="crocket-f32", block_threads=64, **kw):
-    t = build(kernel, robot, ee_joints, collision=collision, world_counts=world.counts(),
+           backend="mantis-f32", block_threads=64, **kw):
+    t = build(kernel, robot, ee_joints, collision=collision,
               chain_only=chain_only, backend=backend, block_threads=block_threads)
     return run(t, seeds, targets, world=world, **kw)
 
@@ -195,8 +195,8 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
           lambda_init: float = 5e-3, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
           collision_weight: float = 1e4, collision_margin: float = 0.02,
           tier: str = "thread", block_threads: int = 64,
-          chain_only: bool = True, backend: str = "crocket-f32"):
-    """Levenberg-Marquardt from every seed (``kernels/ik_crocket/ls_ik.cu``) -> ``(q, err)``.
+          chain_only: bool = True, backend: str = "mantis-f32"):
+    """Levenberg-Marquardt from every seed (``kernels/ik_mantis/ls_ik.cu``) -> ``(q, err)``.
 
     World collision applies when ``collision`` has robot spheres and ``world`` obstacles;
     self-collision when ``collision.self_collision`` has pairs. Both enter the step (as
@@ -213,9 +213,9 @@ def ls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=No
 def dls_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=None,
            fixed_mask=None, max_iter: int = 60, pos_weight: float = 50.0,
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
-           eps_ori: float = 1e-3, chain_only: bool = True, backend: str = "crocket-f32",
+           eps_ori: float = 1e-3, chain_only: bool = True, backend: str = "mantis-f32",
            tier: str = "thread", block_threads: int = 64):
-    """Damped least squares, LM in its dual form (``kernels/ik_crocket/dls_ik.cu``) -> ``(q, err)``.
+    """Damped least squares, LM in its dual form (``kernels/ik_mantis/dls_ik.cu``) -> ``(q, err)``.
 
     The step ``-J^T (J J^T + lam I)^-1 r`` is LS-IK's direction without column scaling, solved
     as a 6 n_ee system; plain LM accept/reject, no line search or trust radius. No collision.
@@ -234,8 +234,8 @@ def sqp_ik(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None, upper=N
            ori_weight: float = 10.0, lambda_init: float = 5e-3, eps_pos: float = 1e-4,
            eps_ori: float = 1e-3, collision_weight: float = 1e4,
            collision_margin: float = 0.02, tier: str = "thread", block_threads: int = 64,
-           chain_only: bool = True, backend: str = "crocket-f32"):
-    """SQP with joint limits and collision as hard constraints (``kernels/ik_crocket/sqp_ik.cu``)
+           chain_only: bool = True, backend: str = "mantis-f32"):
+    """SQP with joint limits and collision as hard constraints (``kernels/ik_mantis/sqp_ik.cu``)
     -> ``(q, err, feasible)``; ``feasible`` is 1 where the returned configuration satisfies
     the collision constraint (always 1 without collision)."""
     return _solve("sqp", robot, seeds, targets, ee_joints, world=world, backend=backend, collision=collision,
@@ -251,10 +251,10 @@ def hjcd_ik_coarse(robot: MotionRobot, seeds, targets, ee_joints, *, lower=None,
                    fixed_mask=None, world: World = World(),
                    collision: CollisionModel | None = None, k_max: int = 20,
                    collision_weight: float = 1e4, collision_margin: float = 0.02,
-                   chain_only: bool = True, backend: str = "crocket-f32",
+                   chain_only: bool = True, backend: str = "mantis-f32",
                    tier: str = "thread", block_threads: int = 64):
     """HJCD phase 1: greedy coordinate descent, one thread per seed
-    (``kernels/ik_crocket/hjcd_ik.cu``) -> ``(q, err)``."""
+    (``kernels/ik_mantis/hjcd_ik.cu``) -> ``(q, err)``."""
     return _solve("hjcd_coarse", robot, seeds, targets, ee_joints, world=world, backend=backend,
                   collision=collision, chain_only=chain_only, lower=lower,
                   upper=upper, fixed_mask=fixed_mask, tier=tier, block_threads=block_threads, k_max=k_max,
@@ -269,9 +269,9 @@ def hjcd_ik_lm(robot: MotionRobot, seeds, targets, ee_joints, noise, *, lower=No
                eps_pos: float = 1e-4, eps_ori: float = 1e-3, early_stop: bool = False,
                collision_weight: float = 1e4, collision_margin: float = 0.02,
                tier: str = "thread", block_threads: int = 64,
-               chain_only: bool = True, backend: str = "crocket-f32"):
+               chain_only: bool = True, backend: str = "mantis-f32"):
     """HJCD phase 2: Levenberg-Marquardt with a joint-limit prior and stall kicks
-    (``kernels/ik_crocket/hjcd_ik.cu``) -> ``(q, err, stopped)``.
+    (``kernels/ik_mantis/hjcd_ik.cu``) -> ``(q, err, stopped)``.
 
     ``noise`` (P, S, max_iter, n_q) are the stall kicks, drawn by the caller so the solve is
     deterministic. ``early_stop`` stops a problem's seeds once one has converged: faster,
@@ -293,8 +293,8 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
             sigma: float = 0.1, mppi_temperature: float = 0.05, pos_weight: float = 50.0,
             ori_weight: float = 10.0, eps_pos: float = 1e-4, eps_ori: float = 1e-3,
             collision_weight: float = 1e4, collision_margin: float = 0.02,
-            backend: str = "crocket-f32", tier: str = "thread", block_threads: int = 64):
-    """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik_crocket/mppi_ik.cu``)
+            backend: str = "mantis-f32", tier: str = "thread", block_threads: int = 64):
+    """MPPI particle search then L-BFGS, one thread per seed (``kernels/ik_mantis/mppi_ik.cu``)
     -> ``(q, err)``. The noise stream is keyed on (rng_seed, problem, seed slot), so a
     solve is deterministic but a seed's result depends on its slot. ``n_particles`` is at most 32
     per seed (the kernel's ``CK_MAX_EVAL``); more raises."""
@@ -308,9 +308,9 @@ def mppi_ik(robot: MotionRobot, seeds, targets, ee_joints, *, rng_seed: int = 0,
 
 
 def build_canonical(robot: MotionRobot, ee_joints, *, collision: CollisionModel | None = None,
-                    world_counts=(0, 0, 0, 0), runtime_rot_joint: int = -1,
-                    backend: str = "crocket-f32", block_threads: int = 64) -> Target:
-    return build("canonical", robot, ee_joints, collision=collision, world_counts=world_counts,
+                    runtime_rot_joint: int = -1,
+                    backend: str = "mantis-f32", block_threads: int = 64) -> Target:
+    return build("canonical", robot, ee_joints, collision=collision,
                  runtime_rot_joint=runtime_rot_joint, backend=backend, block_threads=block_threads)
 
 
@@ -333,12 +333,12 @@ def run_canonical(target: Target, q, q_ref, targets, *, world: World = World(),
 def canonical_ik(robot: MotionRobot, q, q_ref, targets, ee_joints, *, world: World = World(),
                  collision: CollisionModel | None = None, **kw):
     """Slide IK solutions ``q`` (P, n_q) along their self-motion manifolds to the point
-    nearest ``q_ref`` (``kernels/ik_crocket/canonical_ik.cu``) -> ``(q*, iterations)``.
+    nearest ``q_ref`` (``kernels/ik_mantis/canonical_ik.cu``) -> ``(q*, iterations)``.
 
     Solves ``argmin 1/2 |q - q_ref|^2 s.t. r(q) = 0`` by damped Gauss-Newton, which pins a
     redundant arm's solution to one point so its derivative is well defined. With collision
     the step never lowers the clearance the input had. ``kw``: max_iters, step, tol,
     damping, collision_margin.
     """
-    t = build_canonical(robot, ee_joints, collision=collision, world_counts=world.counts())
+    t = build_canonical(robot, ee_joints, collision=collision)
     return run_canonical(t, q, q_ref, targets, world=world, **kw)

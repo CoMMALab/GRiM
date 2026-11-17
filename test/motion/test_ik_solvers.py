@@ -35,7 +35,7 @@ def _hjcd_noise(s, iters):
 
 
 def _solve(kind, robot, ees, s, t, iters, **kw):
-    """``kind`` is ``solver@backend``, the backend ``crocket-f32`` or ``crocket-f64``."""
+    """``kind`` is ``solver@backend``, the backend ``mantis-f32`` or ``mantis-f64``."""
     from grim.motion import ik
     kind, _, backend = kind.partition("@")
     kw["backend"] = backend
@@ -56,9 +56,9 @@ def _solve(kind, robot, ees, s, t, iters, **kw):
     return tuple(np.asarray(x) for x in out)
 
 
-# Every solver, float and double (kernels/ik_crocket).
+# Every solver, float and double (kernels/ik_mantis).
 _SOLVERS = ["ls", "dls", "sqp", "hjcd", "hjcd_coarse", "mppi"]
-SOLVERS = [f"{k}@{b}" for k in _SOLVERS for b in ("crocket-f32", "crocket-f64")]
+SOLVERS = [f"{k}@{b}" for k in _SOLVERS for b in ("mantis-f32", "mantis-f64")]
 TIERED = SOLVERS     # one seed per thread / warp / block
 SLOT_INVARIANT = [k for k in SOLVERS if not k.startswith("mppi")]   # mppi keys its noise on the slot
 WEIGHTED = {"ls": True, "dls": True, "sqp": True, "hjcd": False, "hjcd_coarse": False, "mppi": True}
@@ -104,14 +104,14 @@ def test_zero_iterations_return_seed_and_merit(kind, name, which):
 @pytest.mark.parametrize("kind", TIERED)
 @pytest.mark.parametrize("name,which", CASES)
 def test_block_tier_is_thread_count_invariant(kind, name, which):
-    """crocket's block tier runs block_threads / 32 warps, each its own schedule, so nvcc's FMA
+    """mantis's block tier runs block_threads / 32 warps, each its own schedule, so nvcc's FMA
     contraction of the traced geometry differs between thread counts (bit-identical only under
     -fmad=false): one step agrees to the tiers' round-off, and later iterates drift chaotically
     as in test_tiers_agree_to_roundoff. Missing barriers: test_barriers_hold_under_lane_skew."""
     robot, ees, s, t = _case(name, which)
-    rtol_q = 3e-4 if kind.endswith("@crocket-f32") else 1e-6
+    rtol_q = 3e-4 if kind.endswith("@mantis-f32") else 1e-6
     want = _solve(kind, robot, ees, s, t, 1, tier="block", block_threads=32)
-    for threads in (64, 128, 256):   # crocket's block tier: block_threads / 32 warps in 1, 2, 4, 8
+    for threads in (64, 128, 256):   # mantis's block tier: block_threads / 32 warps in 1, 2, 4, 8
         got = _solve(kind, robot, ees, s, t, 1, tier="block", block_threads=threads)
         assert_close_scaled(got[0], want[0], rtol_q, f"{kind} {name} block {threads} q")
         assert_close_scaled(got[1], want[1], max(1e-5, rtol_q), f"{kind} {name} block {threads} err")
@@ -124,10 +124,10 @@ def test_tiers_agree_to_roundoff(kind, name, which):
     thread / warp / block potrf), so one step agrees to float32 round-off; later iterates
     drift chaotically near convergence, which the certificate test covers."""
     robot, ees, s, t = _case(name, which)
-    # A crocket-f32 build's tiers also differ in nvcc's FMA contraction of the traced geometry
-    # (crocket keeps its tiers bit-identical only under -fmad=false), which one solve amplifies:
+    # A mantis-f32 build's tiers also differ in nvcc's FMA contraction of the traced geometry
+    # (mantis keeps its tiers bit-identical only under -fmad=false), which one solve amplifies:
     # measured 2.0e-4 (DLS, g1's 24-row dual system), <= 5e-6 elsewhere. Double builds hold 1e-6.
-    rtol_q = 3e-4 if kind.endswith("@crocket-f32") else 1e-6
+    rtol_q = 3e-4 if kind.endswith("@mantis-f32") else 1e-6
     want = _solve(kind, robot, ees, s, t, 1, tier="thread")
     for tier in ("warp", "block"):
         got = _solve(kind, robot, ees, s, t, 1, tier=tier)
@@ -142,8 +142,7 @@ def _run_built(kind, robot, ees, s, t, iters, tier, **build_kw):
     kind, _, backend = kind.partition("@")
     kernel = "hjcd_lm" if kind == "hjcd" else kind
     coll, world = collision_case(robot)
-    target = ik.build(kernel, robot, ees, collision=coll, world_counts=world.counts(),
-                      backend=backend, **build_kw)
+    target = ik.build(kernel, robot, ees, collision=coll, backend=backend, **build_kw)
     kw = dict(max_iter=iters, lambda_init=5e-3, eps_pos=1e-4, eps_ori=1e-3,
               collision_weight=1e4, collision_margin=0.02)
     if kind == "hjcd":
@@ -157,7 +156,7 @@ def _run_built(kind, robot, ees, s, t, iters, tier, **build_kw):
 
 
 @pytest.mark.parametrize("kind", [f"{k}@{b}" for k in ("ls", "sqp", "hjcd")
-                                  for b in ("crocket-f32", "crocket-f64")])
+                                  for b in ("mantis-f32", "mantis-f64")])
 @pytest.mark.parametrize("name,which", [("fr3", 0), ("baxter", 1)])
 @pytest.mark.parametrize("tier", ["warp", "block"])
 def test_barriers_hold_under_lane_skew(kind, name, which, tier):

@@ -1,0 +1,101 @@
+[
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 103.980377,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.004588765584217147,
+  "ori_rad": 4.779673756895993e-06
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 104.813133,
+  "tier": "f64",
+  "success": 0.9921875,
+  "pos_mm": 0.00034829078394604183,
+  "ori_rad": 7.616399679465522e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 158.418533,
+  "tier": "f64",
+  "success": 0.9931640625,
+  "pos_mm": 0.00028139799448804705,
+  "ori_rad": 5.452666270545013e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 102.103386,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 2.191822684362477e-05,
+  "ori_rad": 2.9802322387695312e-08
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 105.385803,
+  "tier": "f64",
+  "success": 0.9921875,
+  "pos_mm": 0.00016315227480108633,
+  "ori_rad": 4.533941935785481e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 159.637054,
+  "tier": "f64",
+  "success": 0.994140625,
+  "pos_mm": 0.00024837103262222,
+  "ori_rad": 4.924118755002567e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 188.063431,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.00012247947249430303,
+  "ori_rad": 3.7460938364197636e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 191.115845,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.00014482301776787236,
+  "ori_rad": 4.971092827588661e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 275.196289,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.00011498981533305023,
+  "ori_rad": 4.107909748159841e-07
+ }
+]

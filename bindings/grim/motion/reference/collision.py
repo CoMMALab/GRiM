@@ -31,8 +31,82 @@ def sphere_halfspace(c, r, hs):
     return (c - hs[3:6]) @ hs[:3] - r
 
 
+def sphere_cylinder(c, r, cyl):
+    """Solid cylinder ``[centre, unit axis, radius, half-height]``: outside, the distance to the
+    clamped closest point; inside, minus the depth to the nearest face (side or cap)."""
+    ax = cyl[3:6]
+    v = c - cyl[:3]
+    a = v @ ax
+    radial = v - a * ax
+    rho = np.linalg.norm(radial)
+    R, h = cyl[6], cyl[7]
+    if rho <= R and abs(a) <= h:
+        return -min(R - rho, h - abs(a)) - r
+    u = radial / rho if rho > 0 else np.zeros(3)
+    closest = cyl[:3] + np.clip(a, -h, h) * ax + min(rho, R) * u
+    return np.linalg.norm(c - closest) - r
+
+
 PRIMITIVES = {"spheres": sphere_sphere, "capsules": sphere_capsule, "boxes": sphere_box,
-              "halfspaces": sphere_halfspace}
+              "halfspaces": sphere_halfspace, "cylinders": sphere_cylinder}
+
+
+def _unit(v):
+    n = np.linalg.norm(v)
+    return None if n < 1e-12 else v / n
+
+
+def _sgn(x):
+    return 1.0 if x >= 0 else -1.0
+
+
+# Closed-form unit normals d(distance)/d(centre), None where the distance has no gradient (the
+# centre on a sphere's centre, a capsule's axis, ...); the kernels' n_prim in ik_mantis/ck.cuh.
+
+def sphere_sphere_normal(c, r, o):
+    return _unit(c - o[:3])
+
+
+def sphere_capsule_normal(c, r, cap):
+    a, b = cap[:3], cap[3:6]
+    v = b - a
+    t = 0.0 if v @ v <= 1e-12 else np.clip((c - a) @ v / (v @ v), 0.0, 1.0)
+    return _unit(c - (a + t * v))
+
+
+def sphere_box_normal(c, r, box):
+    axes, hl = box[3:12].reshape(3, 3), box[12:15]
+    p = axes @ (c - box[:3])
+    q = np.abs(p) - hl
+    if q.max() > 0:   # outside: towards the closest point
+        g = np.array([_sgn(p[k]) * max(q[k], 0.0) for k in range(3)])
+    else:             # inside: out through the nearest face
+        k = int(np.argmax(q))
+        g = np.zeros(3)
+        g[k] = _sgn(p[k])
+    return _unit(axes.T @ g)
+
+
+def sphere_halfspace_normal(c, r, hs):
+    return np.asarray(hs[:3], np.float64)
+
+
+def sphere_cylinder_normal(c, r, cyl):
+    ax = cyl[3:6]
+    v = c - cyl[:3]
+    a = v @ ax
+    radial = v - a * ax
+    rho = np.linalg.norm(radial)
+    u = radial / rho if rho > 1e-12 else np.zeros(3)
+    q1, q2 = rho - cyl[6], abs(a) - cyl[7]
+    if q1 > 0 or q2 > 0:   # outside
+        return _unit(max(q1, 0.0) * u + max(q2, 0.0) * _sgn(a) * ax)
+    return _unit(u) if q1 > q2 else _sgn(a) * ax   # inside: the nearest face
+
+
+NORMALS = {"spheres": sphere_sphere_normal, "capsules": sphere_capsule_normal,
+           "boxes": sphere_box_normal, "halfspaces": sphere_halfspace_normal,
+           "cylinders": sphere_cylinder_normal}
 
 
 def colldist_from_sdf(d, margin):

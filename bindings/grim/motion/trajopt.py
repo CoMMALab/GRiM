@@ -3,8 +3,9 @@
 Every optimizer takes initial trajectories ``(B, T, n_q)``, joint limits, endpoints (``(n_q,)``
 shared or ``(B, n_q)`` per trajectory) and the world, and returns the optimized trajectories
 with a cost per trajectory. Collision uses a :class:`~grim.motion._build.TrajCollision` model,
-traced by crocket with its analytic gradient (:mod:`grim.motion._crocket_traj`); ``backend``
-picks the scalar type, ``"crocket-f32"`` (default) or ``"crocket-f64"``, and ``tier`` gives one
+traced by mantis with its analytic gradient (:mod:`grim.motion._mantis_traj`); the world is a
+runtime argument (any obstacles of every kind, no rebuild per world); ``backend``
+picks the scalar type, ``"mantis-f32"`` (default) or ``"mantis-f64"``, and ``tier`` gives one
 trajectory a thread, a warp or a block of ``block_threads`` lanes. ``runtime_rot_joint`` >= 0
 takes that joint's parent rotation per call as ``rot`` (wxyz): the reference rotation of a
 floating base's chart.
@@ -21,21 +22,35 @@ from ._build import TrajCollision
 from .ik import World
 from .robot import MotionRobot
 
-SCO_MAX_G, SCO_MAX_M = 5, 8      # kernels/trajopt_crocket/sco_trajopt.cu
-BACKENDS = {"crocket-f32": "float", "crocket-f64": "double"}   # backend -> scalar type
+SCO_MAX_G, SCO_MAX_M = 6, 8      # kernels/trajopt_mantis/sco_trajopt.cu
+BACKENDS = {"mantis-f32": "float", "mantis-f64": "double"}   # backend -> scalar type
 TIERS = {"thread": 0, "warp": 1, "block": 2}
+
+
+_TARGETS: dict = {}   # build key -> registered FFI target
 
 
 def _ck_target(kernel: str, symbol: str, robot: MotionRobot, prob, backend: str) -> str:
     """Build (or load) a trajopt kernel: the robot header plus the traced collision terms of
-    :mod:`grim.motion._crocket_traj`."""
-    from . import _crocket_traj
-    header = _build.robot_header(robot, prob) + _crocket_traj.source(
-        robot, prob.traj_collision, prob.runtime_rot_joint, prob.world_counts, BACKENDS[backend])
+    :mod:`grim.motion._mantis_traj`. Memoized on everything the build depends on (the world is a
+    runtime argument, not part of it): tracing and mantis's register guard cost ~0.5 s, which
+    every call paid before. The key is the robot header (robot tables and collision model, cheap
+    to generate) with what else enters the build."""
+    base = _build.robot_header(robot, prob)
+    key = (kernel, symbol, base, prob.runtime_rot_joint, backend)
+    if key not in _TARGETS:
+        _TARGETS[key] = _ck_build(kernel, symbol, robot, prob, backend, base)
+    return _TARGETS[key]
+
+
+def _ck_build(kernel: str, symbol: str, robot: MotionRobot, prob, backend: str, base: str) -> str:
+    from . import _mantis_traj
+    header = base + _mantis_traj.source(
+        robot, prob.traj_collision, prob.runtime_rot_joint, BACKENDS[backend])
     flags = (f"-DGRIM_CK_REAL={BACKENDS[backend]}",
              *((f"-DGRIM_RUNTIME_ROT_JOINT={prob.runtime_rot_joint}",)
                if prob.runtime_rot_joint >= 0 else ()))
-    so = _build.build(f"trajopt_crocket/{kernel}", header, robot.n_act, robot.n_joints, 0, flags)
+    so = _build.build(f"trajopt_mantis/{kernel}", header, robot.n_act, robot.n_joints, 0, flags)
     return _build.register(so, (symbol,))[0]
 
 
@@ -81,9 +96,9 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
                 w_limits: float = 1.0, w_trust: float = 0.5, w_collision: float = 1.0,
                 w_collision_max: float = 100.0, penalty_scale: float = 3.0,
                 collision_margin: float = 0.01, smooth_min_temperature: float = 0.05,
-                runtime_rot_joint: int = -1, rot=None, backend: str = "crocket-f32",
+                runtime_rot_joint: int = -1, rot=None, backend: str = "mantis-f32",
                 tier: str = "block", block_threads: int | None = None):
-    """Sequential convex optimization (``kernels/trajopt_crocket/sco_trajopt.cu``) ->
+    """Sequential convex optimization (``kernels/trajopt_mantis/sco_trajopt.cu``) ->
     ``(trajs, costs)``.
 
     Each outer iteration linearizes the smooth-min collision distances about the current
@@ -94,8 +109,7 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
     """
     if m_lbfgs > SCO_MAX_M:
         raise ValueError(f"m_lbfgs must be <= {SCO_MAX_M}")
-    prob = _build.Problem(traj_collision=collision, world_counts=world.counts(),
-                          runtime_rot_joint=runtime_rot_joint)
+    prob = _build.Problem(traj_collision=collision, runtime_rot_joint=runtime_rot_joint)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     bt = block_threads or _block_threads(T)
@@ -125,22 +139,21 @@ def stomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
                   w_collision: float = 10.0, w_collision_max: float = 100.0,
                   collision_penalty_scale: float = 1.05, collision_margin: float = 0.01,
                   rng_seed: int = 0, runtime_rot_joint: int = -1, rot=None,
-                  backend: str = "crocket-f32",
+                  backend: str = "mantis-f32",
                   tier: str = "block", block_threads: int | None = None):
     """STOMP: sample smooth noise around each trajectory, softmax-weight the samples by cost
-    and step toward their weighted mean (``kernels/trajopt_crocket/stomp_trajopt.cu``) ->
+    and step toward their weighted mean (``kernels/trajopt_mantis/stomp_trajopt.cu``) ->
     ``(trajs, costs)``; the best sampled trajectory is returned, scored with
     ``w_collision_max``. At most 512 samples and 64 timesteps. ``backend`` / ``tier`` /
     ``block_threads`` as in :func:`sco_trajopt`; the tier is that of the sample evaluation, one
     sample per thread, warp or block."""
-    prob = _build.Problem(traj_collision=collision, world_counts=world.counts(),
-                          runtime_rot_joint=runtime_rot_joint)
+    prob = _build.Problem(traj_collision=collision, runtime_rot_joint=runtime_rot_joint)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     bt = block_threads or _block_threads(T)
     _ck_check(backend, tier, bt)
     name = _ck_target("stomp_trajopt", "CkStompTrajoptFfi", robot, prob, backend)
-    size = B * (2 * T * n + 1 + 2 * n_samples) * (2 if backend.endswith("f64") else 1)
+    size = B * (2 * T * n + 1 + 3 * n_samples) * (2 if backend.endswith("f64") else 1)
     trajs, costs, _ = jax.ffi.ffi_call(name, (
         jax.ShapeDtypeStruct((B, T, n), jnp.float32), jax.ShapeDtypeStruct((B,), jnp.float32),
         jax.ShapeDtypeStruct((size,), jnp.float32)))(
@@ -165,13 +178,12 @@ def chomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
                   use_covariant_update: bool = True, smoothness_reg: float = 1e-3,
                   grad_clip_norm: float = 10.0, max_delta_per_step: float = 0.05,
                   early_stop_patience: int = 15, min_cost_improve: float = 1e-5,
-                  runtime_rot_joint: int = -1, rot=None, backend: str = "crocket-f32",
+                  runtime_rot_joint: int = -1, rot=None, backend: str = "mantis-f32",
                   tier: str = "block", block_threads: int = 64):
     """CHOMP: covariant (smoothness-metric) gradient descent with a line search
-    (``kernels/trajopt_crocket/chomp_trajopt.cu``) -> ``(trajs, costs)``, scored with
+    (``kernels/trajopt_mantis/chomp_trajopt.cu``) -> ``(trajs, costs)``, scored with
     ``w_collision_max``. At most 64 timesteps."""
-    prob = _build.Problem(traj_collision=collision, world_counts=world.counts(),
-                          runtime_rot_joint=runtime_rot_joint)
+    prob = _build.Problem(traj_collision=collision, runtime_rot_joint=runtime_rot_joint)
     _ck_check(backend, tier, block_threads)
     name = _ck_target("chomp_trajopt", "CkChompTrajoptFfi", robot, prob, backend)
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)

@@ -8,7 +8,7 @@ structure. :func:`robot_header` writes everything that build depends on into
 * which actuated joints are solved and which ride along frozen from the seed;
 * the end-effector frames and their ancestor chains;
 * the collision tables (robot spheres, self-collision pairs) and the world obstacle counts;
-* optionally (``traced=True``) crocket's straight-line FK of the same robot.
+* optionally (``traced=True``) mantis's straight-line FK of the same robot.
 
 :func:`build` nvcc's a kernel source against that header into a shared library, cached on
 disk under a key over every input, and :func:`register` exposes its XLA FFI handlers to JAX.
@@ -36,9 +36,9 @@ KERNELS_DIR = Path(__file__).parent / "kernels"
 _REPO = Path(__file__).resolve().parents[3]
 GLASS_DIR = Path(os.environ.get("GRIM_GLASS_DIR", _REPO / "external" / "GRiD" / "external" / "GLASS"))
 
-WORLD_KINDS = ("spheres", "capsules", "boxes", "halfspaces")
+WORLD_KINDS = ("spheres", "capsules", "boxes", "halfspaces", "cylinders")
 # Row width of each world obstacle kind, as the kernels read it.
-WORLD_WIDTH = {"spheres": 4, "capsules": 7, "boxes": 15, "halfspaces": 6}
+WORLD_WIDTH = {"spheres": 4, "capsules": 7, "boxes": 15, "halfspaces": 6, "cylinders": 8}
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ class Problem:
     robot_spheres: np.ndarray | None = None
     robot_sphere_joint: np.ndarray | None = None
     self_collision: SelfCollision | None = None
-    world_counts: tuple[int, int, int, int] = (0, 0, 0, 0)
+    world_counts: tuple[int, int, int, int, int] = (0, 0, 0, 0, 0)
     chain_only: bool = False
     traj_collision: TrajCollision | None = None
     runtime_rot_joint: int = -1
@@ -198,12 +198,12 @@ def kinematic_urdf(xml: str) -> str:
 
 
 def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee: list[int]) -> str:
-    """crocket's straight-line FK, plus the maps between its joint order and ours."""
+    """mantis's straight-line FK, plus the maps between its joint order and ours."""
     try:
-        import crocket
+        import mantis
     except ImportError as exc:  # pragma: no cover - environment dependent
-        raise RuntimeError("traced=True needs crocket (see install/motion_install.sh)") from exc
-    # crocket traces the pose and Jacobian of ONE end-effector frame (any joint frame, fixed
+        raise RuntimeError("traced=True needs mantis (see install/motion_install.sh)") from exc
+    # mantis traces the pose and Jacobian of ONE end-effector frame (any joint frame, fixed
     # ones included); with several end-effectors the build traces frame poses only
     # (FRAMES_ONLY) and each residual and Jacobian comes from those frames.
     target = int(ee[0]) if ee else deepest_actuated_joint(robot)
@@ -211,7 +211,7 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
         urdf = Path(tmp) / "robot.urdf"
         urdf.write_text(kinematic_urdf(robot.urdf_xml))
         try:
-            model = crocket.Robot(urdf, name="robot")
+            model = mantis.Robot(urdf, name="robot")
         except ValueError as exc:
             if "Unsupported joint type" in str(exc):
                 raise ValueError("traced builds support revolute, continuous, prismatic and fixed "
@@ -219,10 +219,10 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
             raise
     names = model.joint_names
     if sorted(names) != sorted(robot.actuated_names):
-        raise ValueError(f"crocket's joints {names} do not match the robot's actuated joints "
+        raise ValueError(f"mantis's joints {names} do not match the robot's actuated joints "
                          f"{list(robot.actuated_names)} (planar/floating joints are "
                          "not supported by the traced build)")
-    source = crocket.generate(model, {}, variants=[crocket.Variant("thread")], name="robot",
+    source = mantis.generate(model, {}, variants=[mantis.Variant("thread")], name="robot",
                               kinematics={
         "frames": list(robot.joint_names), "end_effector": robot.joint_names[target]})
     src = {a: f"cfg[{solved.index(a)}]" if a in solved else f"frz[{frozen.index(a)}]"
@@ -239,7 +239,7 @@ def _traced_source(robot: MotionRobot, solved: list[int], frozen: list[int], ee:
     return (f"{source}\n#define GRIM_TRACED_KINEMATICS 1\n"
             + ("#define GRIM_TRACED_FRAMES_ONLY 1\n" if len(ee) > 1 else "")
             + "namespace grim::robot {\n"
-            "namespace traced = crocket::robots::robot;\n"
+            "namespace traced = mantis::robots::robot;\n"
             "static __device__ __forceinline__ void gather_q(const float* __restrict__ cfg,\n"
             "    const float* __restrict__ frz, float* __restrict__ q)\n"
             f"{{\n{gather}    (void)frz;\n}}\n"
@@ -345,22 +345,22 @@ def register(so: Path, symbols: tuple[str, ...]) -> tuple[str, ...]:
 
 def target(kernel: str, symbols: tuple[str, ...], robot: MotionRobot, problem: Problem,
            traced: bool = False, extra_flags: tuple[str, ...] = (),
-           crocket_real: str | None = None, crocket_block_threads: int = 64) -> tuple[str, ...]:
+           mantis_real: str | None = None, mantis_block_threads: int = 64) -> tuple[str, ...]:
     """Build (or load) ``kernel`` for ``robot``/``problem`` and return its FFI target names.
-    ``crocket_real`` ("float" / "double") appends the crocket IK geometry (see _crocket_ik), its
-    block tier ``crocket_block_threads`` lanes per seed."""
+    ``mantis_real`` ("float" / "double") appends the mantis IK geometry (see _mantis_ik), its
+    block tier ``mantis_block_threads`` lanes per seed."""
     header = robot_header(robot, problem, traced)
     solved = solved_joints(robot, problem)
     n_solve = len(solved)
-    if crocket_real is not None:
-        from . import _crocket_ik
-        header += _crocket_ik.source(robot, problem, solved,
+    if mantis_real is not None:
+        from . import _mantis_ik
+        header += _mantis_ik.source(robot, problem, solved,
                                      [a for a in range(robot.n_act) if a not in solved],
-                                     crocket_block_threads)
-        extra_flags = (*extra_flags, f"-DGRIM_CK_REAL={crocket_real}")
+                                     mantis_block_threads)
+        extra_flags = (*extra_flags, f"-DGRIM_CK_REAL={mantis_real}")
     if problem.runtime_rot_joint >= 0:
         if traced:
-            raise ValueError("a runtime parent rotation needs the baked tables: crocket's "
+            raise ValueError("a runtime parent rotation needs the baked tables: mantis's "
                              "traced FK folds every transform into constants")
         extra_flags = (*extra_flags, f"-DGRIM_RUNTIME_ROT_JOINT={problem.runtime_rot_joint}")
     so = build(kernel, header, n_solve, robot.n_joints, len(problem.ee_joints), extra_flags)

@@ -1,0 +1,101 @@
+[
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 2.8299208399999998,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.07299057759490782,
+  "ori_rad": 0.0006559803416919224
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 2.92907712,
+  "tier": "thread",
+  "success": 0.984375,
+  "pos_mm": 0.03983214751959872,
+  "ori_rad": 0.00028037954394271604
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 3.05299312,
+  "tier": "thread",
+  "success": 0.9775390625,
+  "pos_mm": 0.04245563488910984,
+  "ori_rad": 0.0002756200343185908
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 3.8048146000000003,
+  "tier": "block",
+  "success": 1.0,
+  "pos_mm": 0.03275007015323422,
+  "ori_rad": 0.0001546446099837604
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 4.49125494,
+  "tier": "thread",
+  "success": 0.9609375,
+  "pos_mm": 0.04860037793114092,
+  "ori_rad": 0.00031633614034861973
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 5.27956142,
+  "tier": "thread",
+  "success": 0.974609375,
+  "pos_mm": 0.046520116391948155,
+  "ori_rad": 0.00031216757665302234
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 10.578091500000001,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.06326887466808605,
+  "ori_rad": 0.0002958446825296353
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 10.96057198,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.031199600787325695,
+  "ori_rad": 0.00019011587233869694
+ },
+ {
+  "method": "grim_mppi_cuda",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 16.87292338,
+  "tier": "thread",
+  "success": 0.998046875,
+  "pos_mm": 0.03282808851743897,
+  "ori_rad": 0.00018015439406808456
+ }
+]

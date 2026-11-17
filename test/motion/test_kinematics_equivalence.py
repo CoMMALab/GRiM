@@ -3,7 +3,7 @@
 Every solver reads the robot through robot.cuh, so this is the primitive gate the solver
 tests build on: frame poses, pose residuals and geometric Jacobians, for one and several
 end-effectors, over all joints and over the end-effector chains alone, from the baked
-tables and (when crocket is installed) from the traced straight-line FK.
+tables and (when mantis is installed) from the traced straight-line FK.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 
 from grim.motion.reference import kinematics as K
 
-from .conftest import (ROBOTS, assert_close_scaled, config_samples, crocket_available, ee_sets,
+from .conftest import (ROBOTS, assert_close_scaled, config_samples, mantis_available, ee_sets,
                        load_robot, requires_gpu)
 
 pytestmark = [requires_gpu, pytest.mark.cuda_equivalence]
@@ -33,7 +33,7 @@ def _targets(robot, q, ees, rng):
 
 
 @pytest.mark.parametrize("traced", [False, pytest.param(True, marks=pytest.mark.skipif(
-    not crocket_available(), reason="crocket not installed"))], ids=["tables", "traced"])
+    not mantis_available(), reason="mantis not installed"))], ids=["tables", "traced"])
 @pytest.mark.parametrize("chain_only", [False, True], ids=["all", "chain"])
 @pytest.mark.parametrize("name", ROBOTS)
 def test_kinematics_match_reference(name, chain_only, traced):
@@ -68,8 +68,8 @@ def test_kinematics_match_reference(name, chain_only, traced):
 def test_frame_poses_without_end_effectors(traced):
     """FK alone (no end-effector): pyroffi's use_cuda FK path. Once failed to compile
     (zero-sized residual arrays)."""
-    if traced and not crocket_available():
-        pytest.skip("crocket not installed")
+    if traced and not mantis_available():
+        pytest.skip("mantis not installed")
     robot = load_robot("iiwa14")
     q = config_samples(robot)
     from grim.motion.kinematics import kinematics

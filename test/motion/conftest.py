@@ -25,9 +25,9 @@ def gpu_available() -> bool:
         return False
 
 
-def crocket_available() -> bool:
+def mantis_available() -> bool:
     try:
-        import crocket  # noqa: F401
+        import mantis  # noqa: F401
         return True
     except ImportError:
         return False
@@ -64,14 +64,15 @@ def ee_sets(robot: MotionRobot) -> list[tuple[int, ...]]:
     return [(deepest,), leaves[:4]] if len(leaves) > 1 else [(deepest,)]
 
 
-def assert_close_scaled(actual, expected, rtol: float, what: str = ""):
+def assert_close_scaled(actual, expected, rtol: float, what: str = "", extra: float = 0.0):
     """Principle 3: floor atol at rtol * max|expected|, so a structurally-zero entry carrying
-    float32 round-off of the array's scale passes while an O(scale) error fails."""
+    float32 round-off of the array's scale passes while an O(scale) error fails. ``extra`` adds a
+    measured absolute bound (e.g. the reference's own sensitivity at the inputs' precision)."""
     actual, expected = np.asarray(actual, np.float64), np.asarray(expected, np.float64)
     assert np.all(np.isfinite(actual)), f"{what}: non-finite output"
     if actual.size == 0:
         return
-    atol = rtol * max(np.abs(expected).max(initial=0.0), 1.0)
+    atol = rtol * max(np.abs(expected).max(initial=0.0), 1.0) + extra
     err = np.abs(actual - expected)
     worst = np.unravel_index(np.argmax(err - rtol * np.abs(expected)), err.shape)
     assert np.all(err <= atol + rtol * np.abs(expected)), (

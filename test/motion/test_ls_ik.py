@@ -20,7 +20,7 @@ CASES = [("fr3", 0), ("iiwa14", 0), ("baxter", 1), ("g1", 1)]       # (robot, ee
 
 # (backend, rtol): the double build agrees with the float64 transcription far tighter; 1e-6
 # leaves room for the float32 seeds and targets the launcher passes.
-BACKENDS = [("crocket-f32", 1e-4), ("crocket-f64", 1e-6)]
+BACKENDS = [("mantis-f32", 1e-4), ("mantis-f64", 1e-6)]
 
 
 def _solve(robot, ees, seeds_, targets, **kw):

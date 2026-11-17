@@ -63,7 +63,7 @@ def collision_cost(robot, q, tc, world, margin, w):
 
 def sco_cost(robot, traj, tc, world, *, lower, upper, w_smooth, w_acc, w_jerk, w_limits,
              w_collision_max, collision_margin):
-    """The nonlinear cost ``kernels/trajopt_crocket/sco_trajopt.cu`` reports per trajectory."""
+    """The nonlinear cost ``kernels/trajopt_mantis/sco_trajopt.cu`` reports per trajectory."""
     traj = np.asarray(traj, float)
     return (smoothness(traj, w_smooth, w_acc, w_jerk)
             + limit_penalty(traj, lower, upper, w_limits)
@@ -96,7 +96,7 @@ def hinge_collision_cost(robot, q, tc, world, margin):
 
 def stomp_cost(robot, traj, tc, world, *, lower, upper, w_smooth, w_acc, w_jerk, w_limits,
                w_collision_max, collision_margin):
-    """The cost ``kernels/trajopt_crocket/stomp_trajopt.cu`` reports per trajectory."""
+    """The cost ``kernels/trajopt_mantis/stomp_trajopt.cu`` reports per trajectory."""
     traj = np.asarray(traj, float)
     return (smoothness(traj, w_smooth, w_acc, w_jerk)
             + limit_penalty(traj, lower, upper, w_limits)

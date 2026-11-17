@@ -1,0 +1,101 @@
+[
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 10.193306,
+  "tier": "mixed",
+  "success": 1.0,
+  "pos_mm": 0.0046737042879071425,
+  "ori_rad": 4.7161174695051605e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 10.235451,
+  "tier": "mixed",
+  "success": 0.9765625,
+  "pos_mm": 0.0011212193430213098,
+  "ori_rad": 2.1904691185751663e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 14.293319,
+  "tier": "mixed",
+  "success": 0.9619140625,
+  "pos_mm": 0.00120630222617945,
+  "ori_rad": 2.515649609109305e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 10.358334,
+  "tier": "mixed",
+  "success": 1.0,
+  "pos_mm": 0.023653308121065825,
+  "ori_rad": 5.5107641066286264e-05
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 10.343485,
+  "tier": "mixed",
+  "success": 0.9765625,
+  "pos_mm": 0.0008508353303343326,
+  "ori_rad": 1.608734473340458e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 14.347652,
+  "tier": "mixed",
+  "success": 0.9580078125,
+  "pos_mm": 0.0013386162938289964,
+  "ori_rad": 2.2750872576362635e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 16.637154,
+  "tier": "mixed",
+  "success": 1.0,
+  "pos_mm": 0.0405262759058943,
+  "ori_rad": 1.904608576318425e-05
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 16.471798,
+  "tier": "mixed",
+  "success": 0.9921875,
+  "pos_mm": 0.03279243846811276,
+  "ori_rad": 0.00013583150727307185
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 23.810991,
+  "tier": "mixed",
+  "success": 0.9853515625,
+  "pos_mm": 0.03217877810299346,
+  "ori_rad": 0.00013680011660213733
+ }
+]

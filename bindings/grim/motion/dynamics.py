@@ -1,8 +1,8 @@
-"""Rigid-body dynamics from crocket traces, built per robot (``kernels/dynamics/
+"""Rigid-body dynamics from mantis traces, built per robot (``kernels/dynamics/
 ck_dynamics.cu``).
 
-crocket traces RNEA, CRBA, ABA and the analytical RNEA derivatives for one robot into
-straight-line code with the robot's constants folded; GRiM compiles each at crocket's thread,
+mantis traces RNEA, CRBA, ABA and the analytical RNEA derivatives for one robot into
+straight-line code with the robot's constants folded; GRiM compiles each at mantis's thread,
 warp and block variants (one configuration per thread, warp or block), in float or double.
 
 ======== ======================================= =================================
@@ -17,7 +17,7 @@ minv     inverse mass matrix                      q -> M^-1
 fd_du    forward-dynamics derivatives             q, qd, tau -> [dqdd/dq | dqdd/dqd]
 ======== ======================================= =================================
 
-Arguments and results are float32 in the robot's actuated joint order. crocket splits
+Arguments and results are float32 in the robot's actuated joint order. mantis splits
 functions over its statement budget into ``__noinline__`` stages, the guard against ptxas
 miscompiling very large straight-line traces; every build is still validated by the test
 suite. ABA and Pinocchio's derivatives are not defined on mimic-coupled trees, so mimic robots
@@ -36,19 +36,19 @@ import numpy as np
 from . import _build
 from .robot import MotionRobot
 
-# op -> (kernel enum, crocket algorithms it calls)
+# op -> (kernel enum, mantis algorithms it calls)
 _CK_OPS = {"id": ("ID", ("rnea",)), "crba": ("CRBA", ("crba",)), "fd": ("FD", ("aba",)),
            "fd_crba": ("FD_CRBA", ("crba", "rnea")), "id_du": ("ID_DU", ("rnea_derivatives",)),
            "minv": ("MINV", ("crba",)),
            "fd_du": ("FD_DU", ("aba", "rnea_derivatives", "crba"))}
 CK_OPS = tuple(_CK_OPS)
 CK_MIMIC_OPS = ("id", "crba", "fd_crba", "minv")
-CK_BACKENDS = {"crocket-f32": "float", "crocket-f64": "double"}
+CK_BACKENDS = {"mantis-f32": "float", "mantis-f64": "double"}
 CK_TIERS = {"thread": 0, "warp": 1, "block": 2}
 
 
-class CrocketDynamics:
-    """Dynamics of one robot from crocket traces (``kernels/dynamics/ck_dynamics.cu``), in float
+class MantisDynamics:
+    """Dynamics of one robot from mantis traces (``kernels/dynamics/ck_dynamics.cu``), in float
     or double (``backend``), one configuration per thread, warp or block (``tier``): every op of
     GRiD's generated dynamics but its second-order tensors (``idsva_so``).
 
@@ -57,9 +57,9 @@ class CrocketDynamics:
     at ``qdd = fd(q, qd, tau)``.
     """
 
-    def __init__(self, robot: MotionRobot, backend: str = "crocket-f32",
+    def __init__(self, robot: MotionRobot, backend: str = "mantis-f32",
                  ops: tuple[str, ...] | None = None, block_threads: int = 64):
-        import crocket
+        import mantis
         if backend not in CK_BACKENDS:
             raise ValueError(f"unknown backend {backend!r}: one of {sorted(CK_BACKENDS)}")
         has_mimic = bool((robot.mimic_act_idx != -1).any())
@@ -72,21 +72,21 @@ class CrocketDynamics:
         with tempfile.TemporaryDirectory(prefix="grim_dynamics_") as tmp:
             urdf = Path(tmp) / "robot.urdf"
             urdf.write_text(_build.kinematic_urdf(robot.urdf_xml))
-            model = crocket.Robot(urdf, name="robot")
+            model = mantis.Robot(urdf, name="robot")
         if sorted(model.joint_names) != sorted(self.actuated):
-            raise ValueError(f"crocket joints {model.joint_names} do not match actuated joints "
+            raise ValueError(f"mantis joints {model.joint_names} do not match actuated joints "
                              f"{self.actuated}")
         self._to_gen = np.array([self.actuated.index(nm) for nm in model.joint_names])
         self._from_gen = np.argsort(self._to_gen)
         if block_threads not in (32, 64, 128, 256):
-            raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (crocket's block "
+            raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (mantis's block "
                              "tier runs block_threads / 32 warps, one of 1, 2, 4, 8)")
         algs = sorted({a for op in ops for a in _CK_OPS[op][1]})
-        src = crocket.generate(model, {a: {} for a in algs}, name="robot", variants=[
-            crocket.Variant("thread"), crocket.Variant("warp", units=32),
-            crocket.Variant("block", units=block_threads, placement="task")])
+        src = mantis.generate(model, {a: {} for a in algs}, name="robot", variants=[
+            mantis.Variant("thread"), mantis.Variant("warp", units=32),
+            mantis.Variant("block", units=block_threads, placement="task")])
         smem = " ".join(f"R::{a}_warp_smem, R::{a}_block_smem," for a in algs)
-        # crocket's lookup tables, once per block ahead of the configurations' slots, laid out
+        # mantis's lookup tables, once per block ahead of the configurations' slots, laid out
         # per operation (a launch runs one): a region for each of its algorithms, since warps of
         # a block may run different algorithms at once; each padded to 4 elements of real.
         # tab_<tier>_<alg><T>(op) is its offset, tab_<tier>_total<T>(op) the operation's total.
@@ -104,7 +104,7 @@ class CrocketDynamics:
                             for op in ops)
             tabs += (f"template <class T> __host__ __device__ constexpr int tab_{tier}_total(int op) "
                      f"{{ switch (op) {{ {cases}default: return 0; }} }}\n")
-        header = (f"{src}\nnamespace grim::dyn {{\nnamespace R = crocket::robots::robot;\n"
+        header = (f"{src}\nnamespace grim::dyn {{\nnamespace R = mantis::robots::robot;\n"
                   f"constexpr int N = {n};\nconstexpr int BLOCK_THREADS = {block_threads};\n"
                   f"constexpr int SMEM_ALL[] = {{{smem}}};\n"
                   "constexpr int smem_max() { int m = 1; for (int v : SMEM_ALL) m = v > m ? v : m; return m; }\n"

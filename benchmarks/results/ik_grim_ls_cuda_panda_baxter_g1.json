@@ -1,0 +1,101 @@
+[
+ {
+  "method": "grim_ls_cuda",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 2.6998398,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.00016244126926080087,
+  "ori_rad": 3.851308817660858e-07
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 2.87317322,
+  "tier": "thread",
+  "success": 0.9765625,
+  "pos_mm": 0.0007299991686781906,
+  "ori_rad": 1.4475189790074622e-06
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 2.86524672,
+  "tier": "thread",
+  "success": 0.966796875,
+  "pos_mm": 0.0006940864384913001,
+  "ori_rad": 1.4809975987569021e-06
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 2.9781796600000003,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.013360139800095743,
+  "ori_rad": 5.126005082494488e-05
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 3.0277438599999997,
+  "tier": "thread",
+  "success": 0.9765625,
+  "pos_mm": 0.0005393311539016099,
+  "ori_rad": 1.00471163054809e-06
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 2.91952774,
+  "tier": "thread",
+  "success": 0.9619140625,
+  "pos_mm": 0.0005245494985658083,
+  "ori_rad": 9.644390133633202e-07
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 4.3377522399999995,
+  "tier": "warp",
+  "success": 1.0,
+  "pos_mm": 0.04042313937159688,
+  "ori_rad": 1.856378504055584e-05
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 6.873199,
+  "tier": "thread",
+  "success": 0.9921875,
+  "pos_mm": 0.002071166051587644,
+  "ori_rad": 7.801205773195296e-06
+ },
+ {
+  "method": "grim_ls_cuda",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 7.16648038,
+  "tier": "thread",
+  "success": 0.9833984375,
+  "pos_mm": 0.0030958609218383437,
+  "ori_rad": 1.0773076074801206e-05
+ }
+]

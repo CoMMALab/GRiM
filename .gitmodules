@@ -5,7 +5,7 @@
 	path = external/cricket
 	url = https://github.com/saiccoumar/cricket.git
 	branch = cuda_backend-v3
-[submodule "external/crocket"]
-	path = external/crocket
-	url = https://github.com/CoMMALab/crocket.git
+[submodule "external/mantis"]
+	path = external/mantis
+	url = https://github.com/CoMMALab/mantis.git
 	branch = main

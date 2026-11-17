@@ -7,6 +7,6 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 gpu-proof verify --repo external/GRiD --receipt external/GRiD/gpu-proof.json \
   --policy external/GRiD/test/gpu-proof-policy.yaml --expected-skips external/GRiD/test/gpu-proof-expected-skips.txt
-gpu-proof verify --repo external/crocket --receipt external/crocket/gpu-proof.json \
-  --policy external/crocket/tests/gpu-proof-policy.yaml
+gpu-proof verify --repo external/mantis --receipt external/mantis/gpu-proof.json \
+  --policy external/mantis/tests/gpu-proof-policy.yaml
 gpu-proof verify --repo . --receipt gpu-proof.json --policy test/gpu-proof-policy.yaml

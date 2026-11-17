@@ -1,0 +1,101 @@
+[
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 64,
+  "ms": 19.44023767951876,
+  "tier": "ik-beam 64->4",
+  "success": 1.0,
+  "pos_mm": 0.00010883585702331338,
+  "ori_rad": 1.7377590819732272e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 64,
+  "ms": 62.553248738404356,
+  "tier": "ik-beam 64->4",
+  "success": 1.0,
+  "pos_mm": 0.00011972453071604219,
+  "ori_rad": 1.8671006773988433e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 64,
+  "ms": 297.195588639006,
+  "tier": "ik-beam 64->4",
+  "success": 1.0,
+  "pos_mm": 0.00011587211583233411,
+  "ori_rad": 1.8966081829902343e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 64,
+  "ms": 49.46719048079103,
+  "tier": "ik-beam 64->4",
+  "success": 1.0,
+  "pos_mm": 3.8372520227331724e-05,
+  "ori_rad": 1.1542389828584848e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 64,
+  "ms": 179.9404034204781,
+  "tier": "ik-beam 64->4",
+  "success": 0.9921875,
+  "pos_mm": 0.00017248968786168524,
+  "ori_rad": 1.8964636189268304e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 64,
+  "ms": 1104.3388026603498,
+  "tier": "ik-beam 64->4",
+  "success": 0.99609375,
+  "pos_mm": 0.00017243677620486887,
+  "ori_rad": 1.8611544365878127e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 64,
+  "ms": 52.714189919643104,
+  "tier": "ik-beam 64->4",
+  "success": 1.0,
+  "pos_mm": 0.0001106956275412672,
+  "ori_rad": 1.2105760581248948e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 64,
+  "ms": 336.58161744009703,
+  "tier": "ik-beam 64->4",
+  "success": 1.0,
+  "pos_mm": 6.893898004914242e-05,
+  "ori_rad": 1.7377590819732272e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 64,
+  "ms": 2523.289046380669,
+  "tier": "ik-beam 64->4",
+  "success": 0.9990234375,
+  "pos_mm": 7.39586681893345e-05,
+  "ori_rad": 1.6049041769309372e-07
+ }
+]

@@ -19,10 +19,10 @@ each build is specialized to one robot, there is no limit on the number of joint
 | `grim.motion.ik` | Inverse kinematics: Levenberg-Marquardt, SQP with joint limits and collision constraints, coordinate descent, MPPI + L-BFGS, and redundancy-resolved IK |
 | `grim.motion.analytic_ik` | Closed-form IK for the Franka Panda and FR3 |
 | `grim.motion.region_ik` | Sampling joint configurations whose end effector lies in a target region |
-| `grim.motion.trajopt` | Trajectory optimization: SCO, STOMP and CHOMP, crocket-traced with analytic collision gradients |
+| `grim.motion.trajopt` | Trajectory optimization: SCO, STOMP and CHOMP, mantis-traced with analytic collision gradients |
 | `grim.motion.collision` | Self- and world-collision distances and their Jacobians |
 | `grim.motion.costs` | Contact (C3+) numerics for contact-aware trajectory optimization |
-| `grim.motion.dynamics` | Inverse and forward dynamics, mass matrix, and dynamics derivatives, compiled by [crocket](https://github.com/commalab/crocket) |
+| `grim.motion.dynamics` | Inverse and forward dynamics, mass matrix, and dynamics derivatives, compiled by [mantis](https://github.com/commalab/mantis) |
 | `grim.motion.kinematics` | Batched forward kinematics, pose errors, and Jacobians |
 
 Each kernel is tested against a float64 NumPy reference implementation, which is itself tested
@@ -37,6 +37,6 @@ conda-forge is needed for some tests.
 ```shell
 git clone --recursive https://github.com/commalab/GRiM.git
 conda activate <env>
-bash install/motion_install.sh   # installs crocket, GRiM, and jax[cuda13]
+bash install/motion_install.sh   # installs mantis, GRiM, and jax[cuda13]
 python -m pytest test/motion -q
 ```

@@ -68,5 +68,6 @@ def collision_case(robot: MotionRobot, n_per_joint: int = 2, seed: int = 0):
                                     [*(c + span * rng.normal(0, 0.5, 3)), 0.08]]),
                   capsules=np.array([[*(c + [0.3 * span, 0, 0]), *(c + [0.3 * span, 0.4 * span, 0.2]), 0.05]]),
                   boxes=np.array([[*(c + [0, -0.4 * span, 0]), 1, 0, 0, 0, 1, 0, 0, 0, 1, 0.1, 0.05, 0.2]]),
-                  halfspaces=np.array([[0, 0, 1, *(reach[:, :2].mean(0)), float(reach[:, 2].min()) - 0.05]]))
+                  halfspaces=np.array([[0, 0, 1, *(reach[:, :2].mean(0)), float(reach[:, 2].min()) - 0.05]]),
+                  cylinders=np.array([[*(c + [-0.3 * span, 0, 0]), 0.6, 0.0, 0.8, 0.05, 0.2 * span]]))
     return CollisionModel(sph, sj, sc), world

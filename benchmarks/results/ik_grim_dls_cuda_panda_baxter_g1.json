@@ -1,0 +1,101 @@
+[
+ {
+  "method": "grim_dls_cuda",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 0.86757688,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.00936685027425244,
+  "ori_rad": 5.843231538302188e-06
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 0.88400566,
+  "tier": "thread",
+  "success": 0.953125,
+  "pos_mm": 0.002958982647404941,
+  "ori_rad": 7.669861063498901e-06
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 0.91579836,
+  "tier": "thread",
+  "success": 0.9443359375,
+  "pos_mm": 0.002625745961778071,
+  "ori_rad": 6.9754515832507105e-06
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 0.9007269,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.06565160790003623,
+  "ori_rad": 0.00012968781851851744
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 0.9173303799999999,
+  "tier": "thread",
+  "success": 0.9453125,
+  "pos_mm": 0.0029573714258897747,
+  "ori_rad": 5.2112125754000585e-06
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 0.9217082999999999,
+  "tier": "thread",
+  "success": 0.9599609375,
+  "pos_mm": 0.0018358105082376204,
+  "ori_rad": 4.0148265956109285e-06
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 1.8599710600000001,
+  "tier": "thread",
+  "success": 1.0,
+  "pos_mm": 0.030317151330058727,
+  "ori_rad": 0.0007307318640883809
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 1.86551516,
+  "tier": "thread",
+  "success": 0.9765625,
+  "pos_mm": 0.031136342300806745,
+  "ori_rad": 0.0001511696695866062
+ },
+ {
+  "method": "grim_dls_cuda",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 2.2212653,
+  "tier": "thread",
+  "success": 0.9833984375,
+  "pos_mm": 0.025828408869301833,
+  "ori_rad": 0.00013333419138383175
+ }
+]
