@@ -1,6 +1,6 @@
 [
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "panda",
   "batch": 1,
   "seeds": 8,
@@ -11,7 +11,7 @@
   "ori_rad": 4.631025827106496e-06
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "panda",
   "batch": 128,
   "seeds": 8,
@@ -22,7 +22,7 @@
   "ori_rad": 1.2568857911800445e-06
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "panda",
   "batch": 1024,
   "seeds": 8,
@@ -33,7 +33,7 @@
   "ori_rad": 1.4609021148081843e-06
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "baxter",
   "batch": 1,
   "seeds": 8,
@@ -44,7 +44,7 @@
   "ori_rad": 2.062809461117632e-05
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "baxter",
   "batch": 128,
   "seeds": 8,
@@ -55,7 +55,7 @@
   "ori_rad": 7.303116590192312e-07
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "baxter",
   "batch": 1024,
   "seeds": 8,
@@ -66,7 +66,7 @@
   "ori_rad": 1.0139353008547213e-06
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "g1",
   "batch": 1,
   "seeds": 8,
@@ -77,7 +77,7 @@
   "ori_rad": 1.922312169977748e-05
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "g1",
   "batch": 128,
   "seeds": 8,
@@ -88,7 +88,7 @@
   "ori_rad": 9.995094476530232e-06
  },
  {
-  "method": "crocket_ls_f32",
+  "method": "mantis_ls_f32",
   "robot": "g1",
   "batch": 1024,
   "seeds": 8,
