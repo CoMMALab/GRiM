@@ -98,3 +98,11 @@ def pose_jacobian(robot: MotionRobot, q: np.ndarray, ee_joint: int) -> np.ndarra
             col = np.r_[quat_rotate(T[j, :4], tw[:3] / np.linalg.norm(tw[:3])), np.zeros(3)]
         J[:, a] += robot.mimic_mul[j] * col
     return J
+
+
+def sphere_centres(robot: MotionRobot, q, joints, centres):
+    """Float64 world sphere centres; joint -1 is fixed in the world."""
+    poses = frame_poses(robot, q)
+    return np.asarray([np.asarray(c, np.float64) if j < 0 else
+                       quat_rotate(poses[j, :4], np.asarray(c, np.float64)) + poses[j, 4:]
+                       for j, c in zip(joints, centres)], dtype=np.float64).reshape(-1, 3)

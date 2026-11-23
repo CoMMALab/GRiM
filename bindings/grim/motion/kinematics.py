@@ -48,3 +48,31 @@ def solved_columns(robot: MotionRobot, ee_joints, chain_only: bool) -> np.ndarra
     """Actuated indices of the Jacobian columns :func:`kinematics` returns."""
     return np.array(_build.solved_joints(
         robot, _build.Problem(ee_joints=tuple(ee_joints), chain_only=chain_only)), int)
+
+
+def sphere_kinematics(robot: MotionRobot, q, sphere_joint, sphere_centres, *,
+                      traced: bool = False, threads: int = 128):
+    """World sphere centres (B, S, 3), fused into one FK kernel.
+
+    Static geometry is in joint-frame coordinates; joint -1 denotes the world.
+    Output preserves sphere order, including duplicates. Both backends specialize
+    to the requested spheres and their ancestors. Threads controls configurations
+    per block, not work per configuration.
+    """
+    from . import _sphere_fk
+    joints = np.asarray(sphere_joint)
+    centres = np.asarray(sphere_centres, np.float32)
+    if joints.ndim != 1 or centres.shape != (len(joints), 3):
+        raise ValueError("expected sphere_joint (S,) and sphere_centres (S, 3)")
+    if not np.issubdtype(joints.dtype, np.integer) or np.any((joints < -1) | (joints >= robot.n_joints)):
+        raise ValueError("sphere joints must be integer indices in [-1, n_joints)")
+    if not 1 <= threads <= 1024:
+        raise ValueError("threads must be in [1, 1024]")
+    q = jnp.asarray(q, jnp.float32)
+    if q.ndim != 2 or q.shape[1] != robot.n_act:
+        raise ValueError("q must have shape (batch, n_act)")
+    if not len(joints):
+        return jnp.empty((q.shape[0], 0, 3), jnp.float32)
+    name = _sphere_fk.target(robot, joints, centres, traced)
+    return jax.ffi.ffi_call(name, jax.ShapeDtypeStruct(
+        (q.shape[0], len(joints), 3), jnp.float32))(q, threads=np.int32(threads))
