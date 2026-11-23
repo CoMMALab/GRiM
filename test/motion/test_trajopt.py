@@ -115,3 +115,27 @@ def test_deterministic_and_batch_invariant(kind, tier):
     if kind != "stomp":
         r = _run(kind, robot, x[::-1], tc, world, start, goal, **ck)
         assert np.array_equal(r[0][::-1], a[0]) and np.array_equal(r[1][::-1], a[1])
+
+
+SNAP = {"sco": (dict(n_outer_iters=3, n_inner_iters=5), 5, lambda k: dict(n_outer_iters=k // 5, n_inner_iters=5)),
+        "stomp": (dict(n_iters=12), 4, lambda k: dict(n_iters=k)),
+        "chomp": (dict(n_iters=12), 4, lambda k: dict(n_iters=k))}
+
+
+@pytest.mark.parametrize("tier", ["thread", "warp", "block"])
+@pytest.mark.parametrize("kind", OPTIMIZERS)
+def test_debug_snapshots(kind, tier):
+    """snap_every leaves the result bit-identical, and snapshot s is exactly what a run stopped
+    after (s + 1) * snap_every iterations returns (SCO: at outer-iteration boundaries)."""
+    from grim.motion import trajopt
+    robot, x, start, goal, tc, world = _setup("fr3")
+    fn = {"sco": trajopt.sco_trajopt, "stomp": trajopt.stomp_trajopt, "chomp": trajopt.chomp_trajopt}[kind]
+    budget, every, at = SNAP[kind]
+    ck = dict(collision=tc, world=world, start=start, goal=goal, backend="mantis-f32", tier=tier, **W)
+    t0, c0 = fn(robot, x, **budget, **ck)
+    t1, c1, st, sc = fn(robot, x, **budget, **ck, snap_every=every)
+    assert np.array_equal(np.asarray(t0), np.asarray(t1)) and np.array_equal(np.asarray(c0), np.asarray(c1))
+    for s in range(st.shape[0]):
+        ts, cs = fn(robot, x, **at((s + 1) * every), **ck)
+        assert np.array_equal(np.asarray(st[s]), np.asarray(ts)), f"snapshot {s}"
+        np.testing.assert_allclose(np.asarray(sc[s]), np.asarray(cs), rtol=1e-6)

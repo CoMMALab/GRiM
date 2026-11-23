@@ -9,6 +9,12 @@ picks the scalar type, ``"mantis-f32"`` (default) or ``"mantis-f64"``, and ``tie
 trajectory a thread, a warp or a block of ``block_threads`` lanes. ``runtime_rot_joint`` >= 0
 takes that joint's parent rotation per call as ``rot`` (wxyz): the reference rotation of a
 floating base's chart.
+
+Debug snapshots: ``snap_every=k`` (> 0) also returns, after every k-th iteration (SCO: inner
+step, counted across outer iterations), what the optimizer would return if it stopped there,
+written by the kernel into a device buffer: ``(trajs, costs, snap_trajs (S, B, T, n_q),
+snap_costs (S, B))`` with ``S = total iterations // k``; slots past an early stop repeat the
+result. It adds work, so time with it off (0, the default: the plain ``(trajs, costs)``).
 """
 
 from __future__ import annotations
@@ -77,6 +83,21 @@ def _rot_operand(runtime_rot_joint: int, rot) -> tuple:
     return (jnp.asarray(rot, jnp.float32).reshape(4),) if rot is not None else ()
 
 
+def _snaps(snap_every: int, n_total: int, B: int, T: int, n: int):
+    """The snapshot buffer's shape: (S * B * (T * n + 1),), one float when off."""
+    if snap_every < 0:
+        raise ValueError("snap_every must be >= 0")
+    S = n_total // snap_every if snap_every else 0
+    return S, jax.ShapeDtypeStruct((max(1, S * B * (T * n + 1)),), jnp.float32)
+
+
+def _out(trajs, costs, snaps, S, B, T, n):
+    if not S:
+        return trajs, costs
+    snaps = snaps.reshape(S, B, T * n + 1)
+    return trajs, costs, snaps[..., :-1].reshape(S, B, T, n), snaps[..., -1]
+
+
 def _prep(robot, init_trajs, lower, upper, start, goal):
     """Inputs as float32, with every trajectory's endpoints pinned to start / goal."""
     x = jnp.asarray(init_trajs, jnp.float32)
@@ -97,7 +118,7 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
                 w_collision_max: float = 100.0, penalty_scale: float = 3.0,
                 collision_margin: float = 0.01, smooth_min_temperature: float = 0.05,
                 runtime_rot_joint: int = -1, rot=None, backend: str = "mantis-f32",
-                tier: str = "block", block_threads: int | None = None):
+                tier: str = "block", block_threads: int | None = None, snap_every: int = 0):
     """Sequential convex optimization (``kernels/trajopt_mantis/sco_trajopt.cu``) ->
     ``(trajs, costs)``.
 
@@ -117,9 +138,10 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
     name = _ck_target("sco_trajopt", "CkScoTrajoptFfi", robot, prob, backend)
     size = (B * (6 * T * n + T * SCO_MAX_G + T * SCO_MAX_G * n + 2 * m_lbfgs * T * n)
             * (2 if backend.endswith("f64") else 1))
-    trajs, costs, _ = jax.ffi.ffi_call(name, (
+    S, snap = _snaps(snap_every, n_outer_iters * n_inner_iters, B, T, n)
+    trajs, costs, _, snaps = jax.ffi.ffi_call(name, (
         jax.ShapeDtypeStruct((B, T, n), jnp.float32), jax.ShapeDtypeStruct((B,), jnp.float32),
-        jax.ShapeDtypeStruct((size,), jnp.float32)))(
+        jax.ShapeDtypeStruct((size,), jnp.float32), snap))(
         *_rot_operand(runtime_rot_joint, rot), x, *world.arrays(), lo, hi, s, g,
         n_outer_iters=np.int64(n_outer_iters), n_inner_iters=np.int64(n_inner_iters),
         m_lbfgs=np.int64(m_lbfgs), w_smooth=np.float32(w_smooth), w_acc=np.float32(w_acc),
@@ -127,8 +149,8 @@ def sco_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | No
         w_collision=np.float32(w_collision), w_collision_max=np.float32(w_collision_max),
         penalty_scale=np.float32(penalty_scale), collision_margin=np.float32(collision_margin),
         smooth_min_temperature=np.float32(smooth_min_temperature),
-        tier=np.int64(TIERS[tier]), block_threads=np.int64(bt))
-    return trajs, costs
+        tier=np.int64(TIERS[tier]), block_threads=np.int64(bt), snap_every=np.int64(snap_every))
+    return _out(trajs, costs, snaps, S, B, T, n)
 
 
 def stomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | None = None,
@@ -140,7 +162,7 @@ def stomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
                   collision_penalty_scale: float = 1.05, collision_margin: float = 0.01,
                   rng_seed: int = 0, runtime_rot_joint: int = -1, rot=None,
                   backend: str = "mantis-f32",
-                  tier: str = "block", block_threads: int | None = None):
+                  tier: str = "block", block_threads: int | None = None, snap_every: int = 0):
     """STOMP: sample smooth noise around each trajectory, softmax-weight the samples by cost
     and step toward their weighted mean (``kernels/trajopt_mantis/stomp_trajopt.cu``) ->
     ``(trajs, costs)``; the best sampled trajectory is returned, scored with
@@ -154,9 +176,10 @@ def stomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
     _ck_check(backend, tier, bt)
     name = _ck_target("stomp_trajopt", "CkStompTrajoptFfi", robot, prob, backend)
     size = B * (2 * T * n + 1 + 3 * n_samples) * (2 if backend.endswith("f64") else 1)
-    trajs, costs, _ = jax.ffi.ffi_call(name, (
+    S, snap = _snaps(snap_every, n_iters, B, T, n)
+    trajs, costs, _, snaps = jax.ffi.ffi_call(name, (
         jax.ShapeDtypeStruct((B, T, n), jnp.float32), jax.ShapeDtypeStruct((B,), jnp.float32),
-        jax.ShapeDtypeStruct((size,), jnp.float32)))(
+        jax.ShapeDtypeStruct((size,), jnp.float32), snap))(
         *_rot_operand(runtime_rot_joint, rot), x, *world.arrays(), lo, hi, s, g,
         n_iters=np.int64(n_iters), n_samples=np.int64(n_samples),
         noise_scale=np.float32(noise_scale), temperature=np.float32(temperature),
@@ -165,8 +188,8 @@ def stomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
         w_collision=np.float32(w_collision), w_collision_max=np.float32(w_collision_max),
         collision_penalty_scale=np.float32(collision_penalty_scale),
         collision_margin=np.float32(collision_margin), rng_seed=np.int64(rng_seed),
-        tier=np.int64(TIERS[tier]), block_threads=np.int64(bt))
-    return trajs, costs
+        tier=np.int64(TIERS[tier]), block_threads=np.int64(bt), snap_every=np.int64(snap_every))
+    return _out(trajs, costs, snaps, S, B, T, n)
 
 
 def chomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | None = None,
@@ -179,7 +202,7 @@ def chomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
                   grad_clip_norm: float = 10.0, max_delta_per_step: float = 0.05,
                   early_stop_patience: int = 15, min_cost_improve: float = 1e-5,
                   runtime_rot_joint: int = -1, rot=None, backend: str = "mantis-f32",
-                  tier: str = "block", block_threads: int = 64):
+                  tier: str = "block", block_threads: int = 64, snap_every: int = 0):
     """CHOMP: covariant (smoothness-metric) gradient descent with a line search
     (``kernels/trajopt_mantis/chomp_trajopt.cu``) -> ``(trajs, costs)``, scored with
     ``w_collision_max``. At most 64 timesteps."""
@@ -189,9 +212,10 @@ def chomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
     x, lo, hi, s, g = _prep(robot, init_trajs, lower, upper, start, goal)
     B, T, n = x.shape
     size = B * (3 * T * n + 5 * T) * (2 if backend.endswith("f64") else 1)
-    trajs, costs, _ = jax.ffi.ffi_call(name, (
+    S, snap = _snaps(snap_every, n_iters, B, T, n)
+    trajs, costs, _, snaps = jax.ffi.ffi_call(name, (
         jax.ShapeDtypeStruct((B, T, n), jnp.float32), jax.ShapeDtypeStruct((B,), jnp.float32),
-        jax.ShapeDtypeStruct((size,), jnp.float32)))(
+        jax.ShapeDtypeStruct((size,), jnp.float32), snap))(
         *_rot_operand(runtime_rot_joint, rot), x, *world.arrays(), lo, hi, s, g,
         n_iters=np.int64(n_iters), step_size=np.float32(step_size),
         w_smooth=np.float32(w_smooth), w_acc=np.float32(w_acc), w_jerk=np.float32(w_jerk),
@@ -204,5 +228,6 @@ def chomp_trajopt(robot: MotionRobot, init_trajs, *, collision: TrajCollision | 
         max_delta_per_step=np.float32(max_delta_per_step),
         early_stop_patience=np.int64(early_stop_patience),
         min_cost_improve=np.float32(min_cost_improve),
-        tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads))
-    return trajs, costs
+        tier=np.int64(TIERS[tier]), block_threads=np.int64(block_threads),
+        snap_every=np.int64(snap_every))
+    return _out(trajs, costs, snaps, S, B, T, n)

@@ -8,6 +8,10 @@
  * (candidate, timestep) of the line search) into the workspace;
  * after a barrier every lane forms the same totals in the old kernel's serial order, so the
  * control flow (best step, stall count, stop) is group-uniform without broadcasts.
+ *
+ * Debug snapshots (`snap_every` > 0): after every snap_every-th iteration, the trajectory and the
+ * cost the kernel would return there (scored at w_collision_max) go to snaps[s][b] =
+ * (traj T * NA, cost); slots past an early stop repeat the result. Off (0), no extra work.
  */
 
 #include "trajopt_mantis/tk.cuh"
@@ -88,7 +92,8 @@ __global__ void ck_chomp_trajopt_kernel(
     int start_stride, int goal_stride, float* __restrict__ out_trajs, float* __restrict__ out_costs,
     real* __restrict__ workspace, int B, int T, int n_iters, real step_size, real w_smooth, real w_acc,
     real w_jerk, real w_limits, real w_collision, real w_collision_max, real penalty_scale, real margin,
-    int covariant, real reg, real clip, real max_delta, int patience, real min_improve)
+    int covariant, real reg, real clip, real max_delta, int patience, real min_improve,
+    int snap_every, int n_snap, float* __restrict__ snaps)
 {
     const Grp<TIER> grp;
     const int b = group_index<TIER>();
@@ -110,7 +115,23 @@ __global__ void ck_chomp_trajopt_kernel(
     const real ALPHA[LS_N] = {1, real(0.5), real(0.25), 0};
     auto at = [&](int s, int d) { return traj[s * NA + d]; };
     real w_coll = w_collision;
-    int stall = 0;
+    int stall = 0, s_done = 0;
+    // What the kernel returns: traj, and its cost at w_collision_max (cl[0..T) is scratch here).
+    auto result = [&](float* o_traj, float* o_cost) {   // group-uniform
+        for (int t = grp.rank; t < T; t += grp.size) cl[t] = hinge_cost(traj + t * NA, world, margin);
+        grp.sync();
+        for (int i = grp.rank; i < n; i += grp.size) o_traj[i] = (float)traj[i];
+        if (grp.leader()) {
+            real c = chomp_smooth_limits(T, at, lower, upper, w_smooth, w_acc, w_jerk, w_limits);
+            for (int t = 0; t < T; ++t) c += w_collision_max * cl[t];
+            *o_cost = (float)c;
+        }
+        grp.sync();
+    };
+    auto snap = [&](int s) {
+        float* o = snaps + ((size_t)s * B + b) * (n + 1);
+        result(o, o + n);
+    };
 
     for (int it = 0; it < n_iters; ++it) {
         // Smoothness + limits gradient, one element per lane.
@@ -183,17 +204,12 @@ __global__ void ck_chomp_trajopt_kernel(
         stall = best < curr - min_improve ? 0 : stall + 1;
         w_coll = fmin(w_coll * penalty_scale, w_collision_max);
         grp.sync();
+        if (snap_every > 0 && (it + 1) % snap_every == 0 && s_done < n_snap) snap(s_done++);
         if (stall >= patience) break;
     }
 
-    for (int t = grp.rank; t < T; t += grp.size) cl[t] = hinge_cost(traj + t * NA, world, margin);
-    grp.sync();
-    for (int i = grp.rank; i < n; i += grp.size) out_trajs[(size_t)b * n + i] = (float)traj[i];
-    if (grp.leader()) {
-        real c = chomp_smooth_limits(T, at, lower, upper, w_smooth, w_acc, w_jerk, w_limits);
-        for (int t = 0; t < T; ++t) c += w_collision_max * cl[t];
-        out_costs[b] = (float)c;
-    }
+    while (snap_every > 0 && s_done < n_snap) snap(s_done++);
+    result(out_trajs + (size_t)b * n, out_costs + b);
 }
 
 static ffi::Error CkChompTrajoptImpl(
@@ -207,10 +223,11 @@ static ffi::Error CkChompTrajoptImpl(
     int64_t n_iters, float step_size, float w_smooth, float w_acc, float w_jerk, float w_limits,
     float w_collision, float w_collision_max, float penalty_scale, float margin, int64_t covariant,
     float reg, float clip, float max_delta, int64_t patience, float min_improve,
-    int64_t tier, int64_t block_threads,
+    int64_t tier, int64_t block_threads, int64_t snap_every,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_trajs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_costs,
-    ffi::Result<ffi::Buffer<ffi::DataType::F32>> workspace)
+    ffi::Result<ffi::Buffer<ffi::DataType::F32>> workspace,
+    ffi::Result<ffi::Buffer<ffi::DataType::F32>> snaps)
 {
     GRIM_ROT_UPLOAD(stream);
     const int B = (int)init.dimensions()[0], T = (int)init.dimensions()[1];
@@ -222,6 +239,7 @@ static ffi::Error CkChompTrajoptImpl(
     if (workspace->element_count() * sizeof(float) < (size_t)B * chomp_stride(T) * sizeof(real))
         return ffi::Error(ffi::ErrorCode::kInvalidArgument, "chomp_trajopt (mantis): workspace too small");
     if (B == 0) return ffi::Error::Success();
+    const int n_snap = snap_every > 0 ? (int)(snaps->element_count() / ((size_t)B * (T * NA + 1))) : 0;
     const size_t ep = (size_t)B * NA;
     const int ss = start.element_count() >= ep ? NA : 0, gs = goal.element_count() >= ep ? NA : 0;
     const World w = TK_WORLD;
@@ -231,7 +249,8 @@ static ffi::Error CkChompTrajoptImpl(
               goal.typed_data(), ss, gs, out_trajs->typed_data(), out_costs->typed_data(),
               reinterpret_cast<real*>(workspace->typed_data()), B, T, (int)n_iters, step_size,
               w_smooth, w_acc, w_jerk, w_limits, w_collision, w_collision_max, penalty_scale, margin,
-              (int)covariant, reg, clip, max_delta, (int)patience, min_improve);
+              (int)covariant, reg, clip, max_delta, (int)patience, min_improve, (int)snap_every, n_snap,
+              snaps->typed_data());
     const cudaError_t e = cudaGetLastError();
     return e == cudaSuccess ? ffi::Error::Success() : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(e));
 }
@@ -269,6 +288,8 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<float>("min_cost_improve")
         .Attr<int64_t>("tier")
         .Attr<int64_t>("block_threads")
+        .Attr<int64_t>("snap_every")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
         .Ret<ffi::Buffer<ffi::DataType::F32>>()
-        .Ret<ffi::Buffer<ffi::DataType::F32>>());
+        .Ret<ffi::Buffer<ffi::DataType::F32>>()
+        .Ret<ffi::Buffer<ffi::DataType::F32>>());   // snaps (n_snap, B, T * NA + 1); unused when snap_every = 0

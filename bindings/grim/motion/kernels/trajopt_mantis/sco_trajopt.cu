@@ -6,6 +6,11 @@
  * timesteps (t = rank, rank + size, ...); the scalars every lane needs (L-BFGS's rho and alpha)
  * come out of group reductions, so each lane keeps its own copy. Every buffer of the workspace
  * is `real`. The hand-written kernel this replaced is at tag pre-crocket-trajopt.
+ *
+ * Debug snapshots (`snap_every` > 0): after every snap_every-th inner step (counted across outer
+ * iterations), what the kernel would return if it stopped there (this outer iteration's best,
+ * scored with the true cost) goes to snaps[s][b] = (traj T * NA, cost); slots past an early end
+ * repeat the result. Off (0), the kernel does exactly the work it did before.
  */
 
 #include "trajopt_mantis/tk.cuh"
@@ -72,7 +77,8 @@ __global__ void ck_sco_trajopt_kernel(
     int start_stride, int goal_stride, float* __restrict__ out_trajs, float* __restrict__ out_costs,
     real* __restrict__ workspace, int B, int T, int n_outer, int n_inner, int m_lbfgs,
     real w_smooth, real w_acc, real w_jerk, real w_limits, real w_trust, real w_collision,
-    real w_collision_max, real penalty_scale, real margin, real tau)
+    real w_collision_max, real penalty_scale, real margin, real tau, int snap_every, int n_snap,
+    float* __restrict__ snaps)
 {
     const Grp<TIER> grp;
     const int b = group_index<TIER>();
@@ -106,6 +112,28 @@ __global__ void ck_sco_trajopt_kernel(
                            w_trust, w_coll, margin);
         return sum(c);
     };
+
+    // True (nonlinear) cost of trajectory x, group-reduced (every lane gets it).
+    auto true_cost = [&](const real* xs) {
+        real c = 0;
+        for (int t = grp.rank; t < T; t += grp.size) {
+            auto x = [&](int s, int d) { return xs[s * NA + d]; };
+            c += w_collision_max * sdf_cost(xs + t * NA, world, margin);
+            c += smooth_cost_at(t, T, x, w_smooth, w_acc, w_jerk);
+            for (int d = 0; d < NA; ++d) {
+                const real v = limit_viol(x(t, d), lower[d], upper[d]);
+                c += w_limits * v * v;
+            }
+        }
+        return sum(c);
+    };
+    auto snap = [&](int s, const real* xs) {   // group-uniform
+        const real c = true_cost(xs);
+        float* o = snaps + ((size_t)s * B + b) * (n + 1);
+        for (int i = grp.rank; i < n; i += grp.size) o[i] = (float)xs[i];
+        if (grp.leader()) o[n] = (float)c;
+    };
+    int k = 0, s_done = 0;   // inner steps so far, snapshots written
 
     real w_coll = w_collision;
     for (int outer = 0; outer < n_outer; ++outer) {
@@ -213,6 +241,11 @@ __global__ void ck_sco_trajopt_kernel(
                 own([&](int i) { w.best[i] = w.traj[i]; });
                 best = bl;
             }
+            if (snap_every > 0 && ++k % snap_every == 0 && s_done < n_snap) {
+                grp.sync();
+                snap(s_done++, w.best);
+                grp.sync();
+            }
         }
         for (int t = grp.rank; t < T; t += grp.size)
             for (int d = 0; d < NA; ++d) w.traj[t * NA + d] = w.best[t * NA + d];
@@ -221,18 +254,8 @@ __global__ void ck_sco_trajopt_kernel(
         w_coll = fmin(w_coll * penalty_scale, w_collision_max);
     }
 
-    // True (nonlinear) cost of the result.
-    real c = 0;
-    for (int t = grp.rank; t < T; t += grp.size) {
-        auto x = [&](int s, int d) { return w.traj[s * NA + d]; };
-        c += w_collision_max * sdf_cost(w.traj + t * NA, world, margin);
-        c += smooth_cost_at(t, T, x, w_smooth, w_acc, w_jerk);
-        for (int d = 0; d < NA; ++d) {
-            const real v = limit_viol(x(t, d), lower[d], upper[d]);
-            c += w_limits * v * v;
-        }
-    }
-    c = sum(c);
+    const real c = true_cost(w.traj);   // true (nonlinear) cost of the result
+    while (snap_every > 0 && s_done < n_snap) snap(s_done++, w.traj);
     for (int i = grp.rank; i < n; i += grp.size) out_trajs[(size_t)b * n + i] = (float)w.traj[i];
     if (grp.leader()) out_costs[b] = (float)c;
 }
@@ -247,10 +270,11 @@ static ffi::Error CkScoTrajoptImpl(
     ffi::Buffer<ffi::DataType::F32> goal,
     int64_t n_outer, int64_t n_inner, int64_t m_lbfgs, float w_smooth, float w_acc, float w_jerk,
     float w_limits, float w_trust, float w_collision, float w_collision_max, float penalty_scale,
-    float margin, float tau, int64_t tier, int64_t block_threads,
+    float margin, float tau, int64_t tier, int64_t block_threads, int64_t snap_every,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_trajs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_costs,
-    ffi::Result<ffi::Buffer<ffi::DataType::F32>> workspace)
+    ffi::Result<ffi::Buffer<ffi::DataType::F32>> workspace,
+    ffi::Result<ffi::Buffer<ffi::DataType::F32>> snaps)
 {
     GRIM_ROT_UPLOAD(stream);
     const int B = (int)init.dimensions()[0], T = (int)init.dimensions()[1];
@@ -262,6 +286,7 @@ static ffi::Error CkScoTrajoptImpl(
     if (workspace->element_count() * sizeof(float) < (size_t)B * sco_stride(T, (int)m_lbfgs) * sizeof(real))
         return ffi::Error(ffi::ErrorCode::kInvalidArgument, "sco_trajopt (mantis): workspace too small");
     if (B == 0) return ffi::Error::Success();
+    const int n_snap = snap_every > 0 ? (int)(snaps->element_count() / ((size_t)B * (T * NA + 1))) : 0;
     const size_t ep = (size_t)B * NA;
     const int ss = start.element_count() >= ep ? NA : 0, gs = goal.element_count() >= ep ? NA : 0;
     const World w = TK_WORLD;
@@ -271,7 +296,7 @@ static ffi::Error CkScoTrajoptImpl(
               goal.typed_data(), ss, gs, out_trajs->typed_data(), out_costs->typed_data(),
               reinterpret_cast<real*>(workspace->typed_data()), B, T, (int)n_outer, (int)n_inner,
               (int)m_lbfgs, w_smooth, w_acc, w_jerk, w_limits, w_trust, w_collision, w_collision_max,
-              penalty_scale, margin, tau);
+              penalty_scale, margin, tau, (int)snap_every, n_snap, snaps->typed_data());
     const cudaError_t e = cudaGetLastError();
     return e == cudaSuccess ? ffi::Error::Success() : ffi::Error(ffi::ErrorCode::kInternal, cudaGetErrorString(e));
 }
@@ -306,7 +331,9 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<float>("smooth_min_temperature")
         .Attr<int64_t>("tier")
         .Attr<int64_t>("block_threads")
+        .Attr<int64_t>("snap_every")
         .Ret<ffi::Buffer<ffi::DataType::F32>>()  // out_trajs
         .Ret<ffi::Buffer<ffi::DataType::F32>>()  // out_costs
         .Ret<ffi::Buffer<ffi::DataType::F32>>()  // workspace (real)
+        .Ret<ffi::Buffer<ffi::DataType::F32>>()  // snaps (n_snap, B, T * NA + 1); unused when snap_every = 0
 );

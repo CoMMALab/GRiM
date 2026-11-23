@@ -9,6 +9,10 @@
  * the stock kernel does; the thread tier regenerates each noise value where it reads it. The
  * noise itself is the stock kernel's, in float, so a sample is the same in both precisions.
  * Softmax, update and best-tracking read no kinematics and keep their stock shapes, in `real`.
+ *
+ * Debug snapshots (`snap_every` > 0): after every snap_every-th iteration, the best sample so far
+ * and its cost at w_collision_max (what the kernel would return there) go to snaps[s][b] =
+ * (traj T * NA, cost), one small copy kernel each. Off (0), no extra launches.
  */
 
 #include "trajopt_mantis/tk.cuh"
@@ -195,6 +199,16 @@ __global__ void ck_stomp_out_kernel(const real* __restrict__ best, float* __rest
     if (i < n) out[i] = (float)best[i];
 }
 
+/** snaps[b] = (best[b], cost[b]) as float. */
+__global__ void ck_stomp_snap_kernel(const real* __restrict__ best, const float* __restrict__ cost,
+                                     float* __restrict__ snaps, int B, int n)
+{
+    const size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= (size_t)B * (n + 1)) return;
+    const size_t b = i / (n + 1), j = i % (n + 1);
+    snaps[i] = j < (size_t)n ? (float)best[b * n + j] : cost[b];
+}
+
 static int next_pow2(int n) { int p = 1; while (p < n) p <<= 1; return p; }
 
 static ffi::Error CkStompTrajoptImpl(
@@ -208,9 +222,10 @@ static ffi::Error CkStompTrajoptImpl(
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_trajs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> out_costs,
     ffi::Result<ffi::Buffer<ffi::DataType::F32>> workspace,
+    ffi::Result<ffi::Buffer<ffi::DataType::F32>> snaps,
     int64_t n_iters, int64_t n_samples, float noise_scale, float temperature, float step_size,
     float w_smooth, float w_acc, float w_jerk, float w_limits, float w_collision, float w_collision_max,
-    float penalty_scale, float margin, int64_t rng_seed, int64_t tier, int64_t block_threads)
+    float penalty_scale, float margin, int64_t rng_seed, int64_t tier, int64_t block_threads, int64_t snap_every)
 {
     GRIM_ROT_UPLOAD(stream);
     (void)start; (void)goal;   // the launcher pins them into init_trajs, as for the stock kernel
@@ -258,6 +273,15 @@ static ffi::Error CkStompTrajoptImpl(
         ck_stomp_track_best_kernel<<<B, Kb, Kb * (sizeof(real) + sizeof(int)), stream>>>(
             traj, costs_max, best, best_cost, seed, it, noise_scale, K, T);
         w_coll = fmin(w_coll * penalty_scale, (real)w_collision_max);
+        const size_t per = (size_t)B * (n + 1);
+        if (snap_every > 0 && (it + 1) % snap_every == 0 && (size_t)((it + 1) / snap_every) * per <= snaps->element_count()) {
+            // Scored as the result is (below), into out_costs, which the final eval overwrites.
+            TK_LAUNCH(ck_stomp_eval_kernel, tier, B, (int)block_threads, smem, stream,
+                      best, costs, nullptr, out_costs->typed_data(), B, 1, T, seed, 0, noise_scale, w, lo, hi, w_smooth,
+                      w_acc, w_jerk, w_limits, w_collision_max, w_collision_max, margin);
+            ck_stomp_snap_kernel<<<(unsigned)((per + 255) / 256), 256, 0, stream>>>(
+                best, out_costs->typed_data(), snaps->typed_data() + (size_t)((it + 1) / snap_every - 1) * per, B, (int)n);
+        }
     }
     // The best sample, scored without noise (sample 0) at w_collision_max.
     TK_LAUNCH(ck_stomp_eval_kernel, tier, B, (int)block_threads, smem, stream,
@@ -286,6 +310,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ret<ffi::Buffer<ffi::DataType::F32>>()   // out_trajs
         .Ret<ffi::Buffer<ffi::DataType::F32>>()   // out_costs
         .Ret<ffi::Buffer<ffi::DataType::F32>>()   // workspace (real)
+        .Ret<ffi::Buffer<ffi::DataType::F32>>()   // snaps (n_snap, B, T * NA + 1); unused when snap_every = 0
         .Attr<int64_t>("n_iters")
         .Attr<int64_t>("n_samples")
         .Attr<float>("noise_scale")
@@ -301,4 +326,5 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<float>("collision_margin")
         .Attr<int64_t>("rng_seed")
         .Attr<int64_t>("tier")
-        .Attr<int64_t>("block_threads"));
+        .Attr<int64_t>("block_threads")
+        .Attr<int64_t>("snap_every"));
