@@ -5,15 +5,19 @@ Panda (7 DOF), Rethink Baxter (14/15 DOF, two arms) and Unitree G1 with hands (4
 
 ```bash
 bash benchmarks/run_all.sh        # picks a free GPU, runs everything, rewrites the tables below
+bash benchmarks/run_kinematics.sh # or one block: run_kinematics.sh (FK, IK), run_dynamics.sh, run_trajopt.sh
 ```
 
 Setup, running a single benchmark, and the raw result files: see [RUNNING.md](RUNNING.md).
 
 ## Findings
 
-- **FK alone:** mantis gains nothing over GRiM's baked tables (each runs inside the same JAX
-  sphere placement). pRRTC and cuRobo are fastest at B = 16384 (0.19-0.65 ms); pyroki is
-  8-10x slower.
+- **FK sphere output:** GRiM and mantis now fuse FK and sphere placement, pruning unused
+  branches. At B = 16384, mantis's JAX path takes 0.47 / 0.61 / 0.60 ms on
+  Panda / Baxter / G1, versus 0.47 / 1.56 / 2.03 ms in the previous pose-output
+  implementation. G1 is now faster than pRRTC (0.65 ms) and cuRobo (0.77 ms);
+  Panda and Baxter still trail those baselines. Specialization aligns the output
+  workload; it does not make every launch strategy equally fast.
 - **IK:** traced, GRiM's own LS algorithm at GRiM's precision takes 14-24 ms at 1024 x 8 seeds,
   against GRiM's 70-207 ms (4.9-8.7x) and pyroki's 0.8-5.6 s, with GRiM's success in every
   cell. At 1 x 8 the gain is 1.5x on Baxter and g1, and GRiM's block tier is faster on Panda.
@@ -32,8 +36,8 @@ Every method gets the same float32 inputs, cached once in `results/inputs/` (so 
 other conda envs read identical arrays), and is timed the same way (`common.amortized_ms`):
 50 back-to-back asynchronous calls, one sync, divided by 50; the median of 9 such runs after
 3 warm-up calls. That is per-call throughput time with inputs already on the GPU, measured the
-same way for JAX, PyTorch and raw CUDA (the pRRTC harness runs the identical loop with CUDA
-events). All runs use one GPU (RTX A5000).
+with host wall-clock timing for JAX, PyTorch and the C bridge, and CUDA events
+for pRRTC. The C bridge removes Python/JAX dispatch but still includes C launch overhead. All runs use one GPU (RTX A5000).
 
 Every output is checked against Pinocchio in float64 on 65 rows: the first 32, 32 spread over
 the largest batch, and the last row of every batch. JAX runs with
@@ -57,9 +61,9 @@ one `<mimic>` tag on a *fixed* finger joint (meaningless there; pyroki refuses i
 
 ## Methods
 
-**FK** computes the world centre of every collision sphere, `(B, S, 3)`: the one output all five
-produce. pRRTC and cuRobo emit spheres from their kernels; pyroki, GRiM and mantis compute frame
-poses and place the spheres in the same jit (identical placement code for all three).
+**FK** computes the world centre of every collision sphere, `(B, S, 3)`.
+pRRTC, cuRobo, GRiM and mantis emit spheres directly from their kernels; pyroki
+computes frame poses and places spheres in the same JIT.
 
 - **pRRTC** `fk<Robot>` from its robot headers, launched as `pRRTC.cu` launches it (64 threads,
   16 configurations per block, shared-memory output), by `fk/prrtc/harness.cu`. Panda and Baxter
@@ -76,9 +80,13 @@ poses and place the spheres in the same jit (identical placement code for all th
 - **cuRobo** (v0.8 dev) `Kinematics.compute_kinematics` with the URDF's own spheres (not
   cuRobo's yml spheres) and one tool frame. cuRobo drops joints that move no sphere.
 - **pyroki** `Robot.forward_kinematics`.
-- **GRiD/GRiM** `grim.motion.kinematics(traced=False)`: GRiM's FK kernel over GRiD-style baked
-  tables, poses only (no end-effector Jacobian).
-- **mantis** the same call with `traced=True`: mantis's straight-line FK.
+- **GRiD/GRiM** `grim.motion.kinematics.sphere_kinematics(traced=False)`: specialized
+  baked-table FK over only the requested spheres' ancestor joints, fused with placement.
+- **mantis** the same call with `traced=True`: traces sphere centres directly, allowing
+  elimination of unused frames and intermediate poses. Both use one thread per configuration,
+  128 threads per block, and write only sphere centres; no pose buffer or second launch.
+  The C bridge replays that identical single kernel. The general pose-output API remains
+  available but is not used in these FK rows. Results identify this as `fused-spheres-v1`.
 
 **Fused FK + collision** is deprecated: it checked robot spheres against oriented boxes only, with
 no self-collision and no other primitive type, so it did not measure the full collision task. Its
@@ -125,48 +133,48 @@ Spheres per robot: panda 59, baxter 75, g1 68. Time per call in ms (lower is bet
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.076 | 0.094 | 0.155 |
-| cuRobo | 0.144 | 0.139 | 0.140 |
-| pyroki | 0.271 | 0.820 | 0.974 |
-| GRiD/GRiM (baked tables) | 0.046 | 0.105 | 0.166 |
-| mantis (traced) | 0.045 | 0.066 | 0.130 |
-| GRiD/GRiM (baked tables), C bridge | 0.040 | 0.101 | 0.163 |
-| mantis (traced), C bridge | 0.023 | 0.063 | 0.126 |
+| cuRobo | 0.140 | 0.150 | 0.151 |
+| pyroki | 0.275 | 0.825 | 0.983 |
+| GRiD/GRiM (baked tables) | 0.035 | 0.068 | 0.158 |
+| mantis (traced) | 0.062 | 0.038 | 0.063 |
+| GRiD/GRiM (baked tables), C bridge | 0.026 | 0.064 | 0.154 |
+| mantis (traced), C bridge | 0.009 | 0.013 | 0.060 |
 
 **B = 128**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.075 | 0.093 | 0.152 |
-| cuRobo | 0.139 | 0.139 | 0.143 |
-| pyroki | 0.352 | 1.112 | 1.329 |
-| GRiD/GRiM (baked tables) | 0.096 | 0.290 | 0.408 |
-| mantis (traced) | 0.104 | 0.370 | 0.505 |
-| GRiD/GRiM (baked tables), C bridge | 0.091 | 0.285 | 0.394 |
-| mantis (traced), C bridge | 0.098 | 0.364 | 0.490 |
+| cuRobo | 0.137 | 0.148 | 0.140 |
+| pyroki | 0.353 | 1.115 | 1.332 |
+| GRiD/GRiM (baked tables) | 0.131 | 0.193 | 0.273 |
+| mantis (traced) | 0.119 | 0.152 | 0.189 |
+| GRiD/GRiM (baked tables), C bridge | 0.126 | 0.185 | 0.268 |
+| mantis (traced), C bridge | 0.114 | 0.146 | 0.185 |
 
 **B = 1024**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.075 | 0.093 | 0.153 |
-| cuRobo | 0.142 | 0.143 | 0.142 |
-| pyroki | 0.344 | 1.058 | 1.270 |
-| GRiD/GRiM (baked tables) | 0.108 | 0.323 | 0.425 |
-| mantis (traced) | 0.117 | 0.406 | 0.531 |
-| GRiD/GRiM (baked tables), C bridge | 0.098 | 0.292 | 0.399 |
-| mantis (traced), C bridge | 0.105 | 0.372 | 0.504 |
+| cuRobo | 0.137 | 0.152 | 0.145 |
+| pyroki | 0.346 | 1.060 | 1.272 |
+| GRiD/GRiM (baked tables) | 0.130 | 0.188 | 0.263 |
+| mantis (traced) | 0.119 | 0.151 | 0.186 |
+| GRiD/GRiM (baked tables), C bridge | 0.126 | 0.183 | 0.258 |
+| mantis (traced), C bridge | 0.114 | 0.146 | 0.181 |
 
 **B = 16384**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.346 | 0.501 | 0.653 |
-| cuRobo | 0.145 | 0.498 | 0.772 |
-| pyroki | 1.532 | 4.885 | 5.961 |
-| GRiD/GRiM (baked tables) | 0.466 | 1.346 | 1.760 |
-| mantis (traced) | 0.469 | 1.506 | 1.967 |
-| GRiD/GRiM (baked tables), C bridge | 0.376 | 1.067 | 1.282 |
-| mantis (traced), C bridge | 0.380 | 1.226 | 1.487 |
+| cuRobo | 0.148 | 0.499 | 0.773 |
+| pyroki | 1.571 | 5.011 | 6.091 |
+| GRiD/GRiM (baked tables) | 0.486 | 0.644 | 0.706 |
+| mantis (traced) | 0.472 | 0.609 | 0.598 |
+| GRiD/GRiM (baked tables), C bridge | 0.480 | 0.639 | 0.702 |
+| mantis (traced), C bridge | 0.467 | 0.602 | 0.592 |
 
 **Max sphere-centre error vs Pinocchio float64 (m), over all batches**
 
@@ -176,107 +184,104 @@ Spheres per robot: panda 59, baxter 75, g1 68. Time per call in ms (lower is bet
 | cuRobo | 2.0e-07 | 3.1e-07 | 1.6e-07 |
 | pyroki | 2.8e-07 | 4.9e-07 | 3.3e-07 |
 | GRiD/GRiM (baked tables) | 2.9e-07 | 6.1e-07 | 3.2e-07 |
-| mantis (traced) | 2.0e-07 | 2.4e-07 | 1.7e-07 |
+| mantis (traced) | 2.2e-07 | 2.7e-07 | 1.9e-07 |
 | GRiD/GRiM (baked tables), C bridge | 2.9e-07 | 6.1e-07 | 3.2e-07 |
-| mantis (traced), C bridge | 2.0e-07 | 2.4e-07 | 1.4e-07 |
+| mantis (traced), C bridge | 2.2e-07 | 2.7e-07 | 1.9e-07 |
 
 ### Global IK: one end-effector pose from random seeds
 
-GRiM: 8 seeds, 60 iterations max, fastest tier; pyroki, cuRobo and frax as their own benchmarks configure them (frax runs on the CPU). Time per call in ms, then success rate (position < 1 mm, orientation < 0.01 rad, within the URDF limits; Pinocchio float64).
+GRiM: 32 seeds, 60 iterations max, fastest tier; pyroki and cuRobo as their own benchmarks configure them. Time per call in ms, then success rate (position < 1 mm, orientation < 0.01 rad, within the URDF limits; Pinocchio float64).
 
 **1 problem**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| GRiM LS IK | 2.71 (100.0%, thread) | 2.99 (100.0%, thread) | 4.35 (100.0%, warp) |
-| GRiM DLS IK | 0.88 (100.0%, thread) | 0.91 (100.0%, thread) | 1.87 (100.0%, thread) |
-| GRiM SQP IK | 10.86 (100.0%, thread) | 10.46 (100.0%, thread) | 29.80 (100.0%, warp) |
-| GRiM HJCD IK (coarse CD -> LM) | 2.89 (100.0%, thread) | 2.82 (100.0%, thread) | 5.21 (100.0%, block) |
-| GRiM MPPI IK (MPPI -> L-BFGS) | 2.84 (100.0%, thread) | 3.82 (100.0%, block) | 10.59 (100.0%, thread) |
-| GRiM LS IK, C bridge | 2.70 (100.0%, thread) | 2.98 (100.0%, thread) | 4.34 (100.0%, warp) |
-| GRiM DLS IK, C bridge | 0.87 (100.0%, thread) | 0.90 (100.0%, thread) | 1.86 (100.0%, thread) |
-| GRiM SQP IK, C bridge | 10.85 (100.0%, thread) | 10.44 (100.0%, thread) | 29.79 (100.0%, warp) |
-| GRiM HJCD IK, C bridge | 2.88 (100.0%, thread) | 2.81 (100.0%, thread) | 5.20 (100.0%, block) |
-| GRiM MPPI IK, C bridge | 2.83 (100.0%, thread) | 3.80 (100.0%, block) | 10.58 (100.0%, thread) |
-| pyroki IK-Beam (analytic Jacobian; own 64->4 seeds) | 19.44 (100.0%, ik-beam 64->4) | 49.47 (100.0%, ik-beam 64->4) | 52.71 (100.0%, ik-beam 64->4) |
-| cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds) | 4.52 (100.0%, lbfgs+lm-seed) | 4.51 (100.0%, lbfgs+lm-seed) | 4.69 (100.0%, lbfgs+lm-seed) |
-| frax GlobalIKSolver (multi-start diff-IK SQP, ElastiQP; 32 starts; CPU float64) | — | — | — |
+| GRiM LS IK | 2.79 (100.0%, thread) | 3.05 (100.0%, thread) | 4.34 (100.0%, warp) |
+| GRiM DLS IK | 0.88 (100.0%, thread) | 0.92 (100.0%, thread) | 1.88 (100.0%, thread) |
+| GRiM SQP IK | 11.10 (100.0%, thread) | 10.88 (100.0%, thread) | 31.03 (100.0%, warp) |
+| GRiM HJCD IK (coarse CD -> LM) | 2.94 (100.0%, thread) | 2.96 (100.0%, thread) | 5.21 (100.0%, block) |
+| GRiM MPPI IK (MPPI -> L-BFGS) | 2.92 (100.0%, thread) | 3.81 (100.0%, block) | 10.77 (100.0%, thread) |
+| GRiM LS IK, C bridge | 2.78 (100.0%, thread) | 3.04 (100.0%, thread) | 4.34 (100.0%, warp) |
+| GRiM DLS IK, C bridge | 0.87 (100.0%, thread) | 0.91 (100.0%, thread) | 1.87 (100.0%, thread) |
+| GRiM SQP IK, C bridge | 11.09 (100.0%, thread) | 10.86 (100.0%, thread) | 31.02 (100.0%, warp) |
+| GRiM HJCD IK, C bridge | 2.93 (100.0%, thread) | 2.95 (100.0%, thread) | 5.20 (100.0%, block) |
+| GRiM MPPI IK, C bridge | 2.91 (100.0%, thread) | 3.80 (100.0%, block) | 10.77 (100.0%, thread) |
+| pyroki IK-Beam (analytic Jacobian; own 64->4 seeds) | 19.79 (100.0%, ik-beam 64->4) | 48.91 (100.0%, ik-beam 64->4) | 55.44 (100.0%, ik-beam 64->4) |
+| cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds) | 4.45 (100.0%, lbfgs+lm-seed) | 4.46 (100.0%, lbfgs+lm-seed) | 4.56 (100.0%, lbfgs+lm-seed) |
 
 **128 problems**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| GRiM LS IK | 2.88 (97.7%, thread) | 3.04 (97.7%, thread) | 6.88 (99.2%, thread) |
-| GRiM DLS IK | 0.89 (95.3%, thread) | 0.93 (94.5%, thread) | 1.88 (97.7%, thread) |
-| GRiM SQP IK | 11.10 (99.2%, thread) | 11.11 (99.2%, thread) | 44.90 (100.0%, thread) |
-| GRiM HJCD IK (coarse CD -> LM) | 2.94 (90.6%, thread) | 2.97 (84.4%, thread) | 6.49 (97.7%, thread) |
-| GRiM MPPI IK (MPPI -> L-BFGS) | 2.94 (98.4%, thread) | 4.50 (96.1%, thread) | 10.96 (100.0%, thread) |
-| GRiM LS IK, C bridge | 2.87 (97.7%, thread) | 3.03 (97.7%, thread) | 6.87 (99.2%, thread) |
-| GRiM DLS IK, C bridge | 0.88 (95.3%, thread) | 0.92 (94.5%, thread) | 1.87 (97.7%, thread) |
-| GRiM SQP IK, C bridge | 11.09 (99.2%, thread) | 11.10 (99.2%, thread) | 44.88 (100.0%, thread) |
-| GRiM HJCD IK, C bridge | 2.93 (90.6%, thread) | 2.96 (84.4%, thread) | 6.48 (97.7%, thread) |
-| GRiM MPPI IK, C bridge | 2.93 (98.4%, thread) | 4.49 (96.1%, thread) | 10.96 (100.0%, thread) |
-| pyroki IK-Beam (analytic Jacobian; own 64->4 seeds) | 62.55 (100.0%, ik-beam 64->4) | 179.94 (99.2%, ik-beam 64->4) | 336.58 (100.0%, ik-beam 64->4) |
-| cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds) | 8.81 (100.0%, lbfgs+lm-seed) | 8.95 (100.0%, lbfgs+lm-seed) | 10.13 (100.0%, lbfgs+lm-seed) |
-| frax GlobalIKSolver (multi-start diff-IK SQP, ElastiQP; 32 starts; CPU float64) | — | — | — |
+| GRiM LS IK | 2.83 (100.0%, thread) | 2.93 (100.0%, thread) | 6.81 (100.0%, thread) |
+| GRiM DLS IK | 0.89 (100.0%, thread) | 0.92 (100.0%, thread) | 1.97 (100.0%, thread) |
+| GRiM SQP IK | 11.09 (100.0%, thread) | 10.97 (100.0%, thread) | 44.89 (100.0%, thread) |
+| GRiM HJCD IK (coarse CD -> LM) | 2.92 (96.9%, thread) | 2.96 (91.4%, thread) | 6.57 (99.2%, thread) |
+| GRiM MPPI IK (MPPI -> L-BFGS) | 2.92 (100.0%, thread) | 4.70 (100.0%, thread) | 13.12 (100.0%, thread) |
+| GRiM LS IK, C bridge | 2.82 (100.0%, thread) | 2.92 (100.0%, thread) | 6.80 (100.0%, thread) |
+| GRiM DLS IK, C bridge | 0.88 (100.0%, thread) | 0.91 (100.0%, thread) | 1.96 (100.0%, thread) |
+| GRiM SQP IK, C bridge | 11.08 (100.0%, thread) | 10.96 (100.0%, thread) | 44.83 (100.0%, thread) |
+| GRiM HJCD IK, C bridge | 2.91 (96.9%, thread) | 2.95 (91.4%, thread) | 6.56 (99.2%, thread) |
+| GRiM MPPI IK, C bridge | 2.91 (100.0%, thread) | 4.69 (100.0%, thread) | 13.06 (100.0%, thread) |
+| pyroki IK-Beam (analytic Jacobian; own 64->4 seeds) | 62.24 (100.0%, ik-beam 64->4) | 179.05 (99.2%, ik-beam 64->4) | 333.84 (100.0%, ik-beam 64->4) |
+| cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds) | 8.72 (100.0%, lbfgs+lm-seed) | 8.87 (100.0%, lbfgs+lm-seed) | 10.07 (100.0%, lbfgs+lm-seed) |
 
 **1024 problems**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| GRiM LS IK | 2.81 (96.7%, thread) | 2.93 (96.2%, thread) | 7.18 (98.3%, thread) |
-| GRiM DLS IK | 0.90 (94.4%, thread) | 0.93 (96.0%, thread) | 2.23 (98.3%, thread) |
-| GRiM SQP IK | 11.43 (99.3%, thread) | 11.40 (99.3%, thread) | 46.43 (100.0%, thread) |
-| GRiM HJCD IK (coarse CD -> LM) | 2.95 (90.2%, thread) | 3.01 (86.6%, thread) | 7.08 (96.4%, thread) |
-| GRiM MPPI IK (MPPI -> L-BFGS) | 3.07 (97.8%, thread) | 5.29 (97.5%, thread) | 16.76 (99.8%, thread) |
-| GRiM LS IK, C bridge | 2.87 (96.7%, thread) | 2.92 (96.2%, thread) | 7.17 (98.3%, thread) |
-| GRiM DLS IK, C bridge | 0.92 (94.4%, thread) | 0.92 (96.0%, thread) | 2.22 (98.3%, thread) |
-| GRiM SQP IK, C bridge | 11.42 (99.3%, thread) | 11.39 (99.3%, thread) | 46.41 (100.0%, thread) |
-| GRiM HJCD IK, C bridge | 2.94 (90.2%, thread) | 2.99 (86.6%, thread) | 7.07 (96.4%, thread) |
-| GRiM MPPI IK, C bridge | 3.05 (97.8%, thread) | 5.28 (97.5%, thread) | 16.87 (99.8%, thread) |
-| pyroki IK-Beam (analytic Jacobian; own 64->4 seeds) | 297.20 (100.0%, ik-beam 64->4) | 1104.34 (99.6%, ik-beam 64->4) | 2523.29 (99.9%, ik-beam 64->4) |
-| cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds) | 79.05 (100.0%, lbfgs+lm-seed) | 43.73 (100.0%, lbfgs+lm-seed) | 52.72 (100.0%, lbfgs+lm-seed) |
-| frax GlobalIKSolver (multi-start diff-IK SQP, ElastiQP; 32 starts; CPU float64) | — | — | — |
+| GRiM LS IK | 7.20 (99.9%, thread) | 7.34 (99.9%, thread) | 18.36 (100.0%, thread) |
+| GRiM DLS IK | 2.42 (99.9%, thread) | 2.48 (99.9%, thread) | 6.24 (100.0%, thread) |
+| GRiM SQP IK | 25.74 (100.0%, thread) | 25.73 (100.0%, thread) | 132.71 (100.0%, thread) |
+| GRiM HJCD IK (coarse CD -> LM) | 5.69 (97.2%, thread) | 7.57 (93.8%, thread) | 17.88 (98.8%, thread) |
+| GRiM MPPI IK (MPPI -> L-BFGS) | 7.08 (100.0%, thread) | 15.39 (99.9%, thread) | 46.98 (100.0%, thread) |
+| GRiM LS IK, C bridge | 7.18 (99.9%, thread) | 7.35 (99.9%, thread) | 19.11 (100.0%, thread) |
+| GRiM DLS IK, C bridge | 2.56 (99.9%, thread) | 2.60 (99.9%, thread) | 6.52 (100.0%, thread) |
+| GRiM SQP IK, C bridge | 25.98 (100.0%, thread) | 26.06 (100.0%, thread) | 133.00 (100.0%, thread) |
+| GRiM HJCD IK, C bridge | 5.62 (97.2%, thread) | 7.60 (93.8%, thread) | 18.24 (98.8%, thread) |
+| GRiM MPPI IK, C bridge | 7.19 (100.0%, thread) | 15.96 (99.9%, thread) | 48.37 (100.0%, thread) |
+| pyroki IK-Beam (analytic Jacobian; own 64->4 seeds) | 294.20 (100.0%, ik-beam 64->4) | 1097.39 (99.6%, ik-beam 64->4) | 8883.43 (99.9%, ik-beam 64->4) |
+| cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds) | 42.00 (100.0%, lbfgs+lm-seed) | 43.29 (100.0%, lbfgs+lm-seed) | 52.77 (100.0%, lbfgs+lm-seed) |
 
 ### Supplementary: mantis IK steps
 
-mantis's traced IK steps in the benchmark's own minimal CUDA loops (one seed per thread, 8 seeds, 60 iterations), across precisions. A profile of the trace, not a comparison with the solvers above.
+mantis's traced IK steps in the benchmark's own minimal CUDA loops (one seed per thread, 32 seeds, 60 iterations), across precisions. A profile of the trace, not a comparison with the solvers above.
 
 **1 problem**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| mantis `ik_lm_step` (6x6 LM) | 1.54 (100.0%, thread) | 1.66 (100.0%, thread) | 2.16 (100.0%, thread) |
-| mantis `ik_ls_step`, float | 2.98 (100.0%, f32) | 3.20 (100.0%, f32) | 4.25 (100.0%, f32) |
-| mantis `ik_ls_step`, float system / double solve | 10.19 (100.0%, mixed) | 10.36 (100.0%, mixed) | 16.64 (100.0%, mixed) |
-| mantis `ik_ls_step`, double | 24.42 (100.0%, f64) | 25.31 (100.0%, f64) | 36.33 (100.0%, f64) |
-| mantis SQP step, float | 18.70 (100.0%, f32) | 18.47 (100.0%, f32) | 34.29 (100.0%, f32) |
-| mantis SQP step, float FK / double QP | 84.11 (100.0%, mixed) | 83.33 (100.0%, mixed) | 161.50 (100.0%, mixed) |
-| mantis SQP step, double | 103.98 (100.0%, f64) | 102.10 (100.0%, f64) | 188.06 (100.0%, f64) |
+| mantis `ik_lm_step` (6x6 LM) | 1.54 (100.0%, thread) | 1.67 (100.0%, thread) | 2.29 (100.0%, thread) |
+| mantis `ik_ls_step`, float | 3.13 (100.0%, f32) | 3.23 (100.0%, f32) | 4.68 (100.0%, f32) |
+| mantis `ik_ls_step`, float system / double solve | 10.22 (100.0%, mixed) | 10.38 (100.0%, mixed) | 16.67 (100.0%, mixed) |
+| mantis `ik_ls_step`, double | 24.49 (100.0%, f64) | 25.37 (100.0%, f64) | 36.38 (100.0%, f64) |
+| mantis SQP step, float | 19.07 (100.0%, f32) | 18.88 (100.0%, f32) | 35.34 (100.0%, f32) |
+| mantis SQP step, float FK / double QP | 84.56 (100.0%, mixed) | 85.65 (100.0%, mixed) | 163.96 (100.0%, mixed) |
+| mantis SQP step, double | 104.68 (100.0%, f64) | 104.56 (100.0%, f64) | 190.79 (100.0%, f64) |
 
 **128 problems**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| mantis `ik_lm_step` (6x6 LM) | 1.53 (96.1%, thread) | 1.67 (95.3%, thread) | 2.30 (97.7%, thread) |
-| mantis `ik_ls_step`, float | 3.21 (96.9%, f32) | 3.30 (96.9%, f32) | 4.67 (99.2%, f32) |
-| mantis `ik_ls_step`, float system / double solve | 10.24 (97.7%, mixed) | 10.34 (97.7%, mixed) | 16.47 (99.2%, mixed) |
-| mantis `ik_ls_step`, double | 24.51 (97.7%, f64) | 25.38 (97.7%, f64) | 36.37 (99.2%, f64) |
-| mantis SQP step, float | 19.10 (99.2%, f32) | 19.12 (99.2%, f32) | 34.93 (100.0%, f32) |
-| mantis SQP step, float FK / double QP | 84.60 (99.2%, mixed) | 86.33 (99.2%, mixed) | 163.55 (100.0%, mixed) |
-| mantis SQP step, double | 104.81 (99.2%, f64) | 105.39 (99.2%, f64) | 191.12 (100.0%, f64) |
+| mantis `ik_lm_step` (6x6 LM) | 1.52 (100.0%, thread) | 1.68 (100.0%, thread) | 2.38 (100.0%, thread) |
+| mantis `ik_ls_step`, float | 3.08 (100.0%, f32) | 3.14 (99.2%, f32) | 4.51 (100.0%, f32) |
+| mantis `ik_ls_step`, float system / double solve | 10.90 (100.0%, mixed) | 11.02 (100.0%, mixed) | 17.80 (100.0%, mixed) |
+| mantis `ik_ls_step`, double | 29.24 (100.0%, f64) | 30.26 (100.0%, f64) | 42.62 (100.0%, f64) |
+| mantis SQP step, float | 18.94 (100.0%, f32) | 18.90 (100.0%, f32) | 34.81 (100.0%, f32) |
+| mantis SQP step, float FK / double QP | 89.93 (100.0%, mixed) | 91.83 (100.0%, mixed) | 172.34 (100.0%, mixed) |
+| mantis SQP step, double | 114.08 (100.0%, f64) | 114.77 (100.0%, f64) | 205.27 (100.0%, f64) |
 
 **1024 problems**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| mantis `ik_lm_step` (6x6 LM) | 1.57 (94.6%, thread) | 1.83 (95.5%, thread) | 2.80 (98.4%, thread) |
-| mantis `ik_ls_step`, float | 3.06 (96.3%, f32) | 3.15 (96.2%, f32) | 4.52 (98.3%, f32) |
-| mantis `ik_ls_step`, float system / double solve | 14.29 (96.2%, mixed) | 14.35 (95.8%, mixed) | 23.81 (98.5%, mixed) |
-| mantis `ik_ls_step`, double | 47.55 (96.2%, f64) | 49.66 (95.8%, f64) | 67.49 (98.5%, f64) |
-| mantis SQP step, float | 19.00 (99.3%, f32) | 19.00 (99.2%, f32) | 35.01 (100.0%, f32) |
-| mantis SQP step, float FK / double QP | 117.97 (99.3%, mixed) | 120.12 (99.4%, mixed) | 223.19 (100.0%, mixed) |
-| mantis SQP step, double | 158.42 (99.3%, f64) | 159.64 (99.4%, f64) | 275.20 (100.0%, f64) |
+| mantis `ik_lm_step` (6x6 LM) | 3.62 (100.0%, thread) | 2.92 (99.9%, thread) | 6.56 (100.0%, thread) |
+| mantis `ik_ls_step`, float | 5.68 (99.9%, f32) | 5.80 (99.8%, f32) | 11.85 (100.0%, f32) |
+| mantis `ik_ls_step`, float system / double solve | 50.93 (100.0%, mixed) | 50.04 (99.7%, mixed) | 81.81 (100.0%, mixed) |
+| mantis `ik_ls_step`, double | 188.90 (100.0%, f64) | 197.38 (99.7%, f64) | 267.94 (100.0%, f64) |
+| mantis SQP step, float | 44.03 (100.0%, f32) | 43.98 (100.0%, f32) | 77.37 (100.0%, f32) |
+| mantis SQP step, float FK / double QP | 448.61 (100.0%, mixed) | 448.30 (100.0%, mixed) | 840.72 (100.0%, mixed) |
+| mantis SQP step, double | 614.33 (100.0%, f64) | 618.88 (100.0%, f64) | 1062.57 (100.0%, f64) |
 
 ### Dynamics: GRiD's release protocol
 
@@ -287,32 +292,32 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.012 | 0.021 | 0.089 |
-| ID (RNEA) · mantis (JAX) | 0.154 | 0.181 | 0.256 |
+| ID (RNEA) · mantis (JAX) | 0.136 | 0.154 | 0.239 |
 | ID (RNEA) · GRiD (C++ bridge) | 0.034 | 0.053 | 0.127 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.206 | 0.229 | 0.321 |
-| ID (RNEA) · frax | 0.254 | 0.408 | 0.837 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.004 | 0.004 | 0.005 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.182 | 0.223 | 0.302 |
+| ID (RNEA) · frax | 0.254 | 0.401 | 0.819 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.003 | 0.004 | 0.006 |
 | ID (RNEA) · RBDL (CPU, float64) | 0.004 | 0.004 | 0.007 |
 | M (CRBA) · mantis (C bridge) | 0.012 | 0.020 | 0.198 |
-| M (CRBA) · mantis (JAX) | 0.143 | 0.135 | 0.347 |
+| M (CRBA) · mantis (JAX) | 0.135 | 0.127 | 0.349 |
 | M (CRBA) · GRiD (C++ bridge) | 0.032 | 0.051 | 0.139 |
-| M (CRBA) · GRiD (JAX FFI) | 0.160 | 0.189 | 0.290 |
-| M (CRBA) · frax | 0.246 | 0.424 | 0.854 |
+| M (CRBA) · GRiD (JAX FFI) | 0.160 | 0.199 | 0.286 |
+| M (CRBA) · frax | 0.230 | 0.404 | 0.829 |
 | M (CRBA) · Pinocchio codegen (CPU) | 0.004 | 0.005 | 0.009 |
 | M (CRBA) · RBDL (CPU, float64) | 0.004 | 0.005 | 0.009 |
-| FD · mantis (C bridge) | 0.016 | 0.051 | 0.183 |
-| FD · mantis (JAX) | 0.158 | 0.212 | 0.340 |
-| FD · GRiD (C++ bridge) | 0.053 | 0.088 | 0.263 |
-| FD · GRiD (JAX FFI) | 0.229 | 0.260 | 0.444 |
-| FD · frax | 0.367 | 0.526 | 1.026† |
-| FD · Pinocchio codegen (CPU) | 0.004 | 0.006 | 0.015 |
+| FD · mantis (C bridge) | 0.016 | 0.050 | 0.183 |
+| FD · mantis (JAX) | 0.127 | 0.191 | 0.329 |
+| FD · GRiD (C++ bridge) | 0.053 | 0.088 | 0.262 |
+| FD · GRiD (JAX FFI) | 0.227 | 0.264 | 0.452 |
+| FD · frax | 0.369 | 0.510 | 1.026† |
+| FD · Pinocchio codegen (CPU) | 0.004 | 0.006 | 0.016 |
 | FD · RBDL (CPU, float64) | 0.005 | 0.006 | 0.013 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.076 | 0.170 | 1.259 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.243 | 0.328 | 1.467 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.076 | 0.170 | 1.260 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.226 | 0.321 | 1.431 |
 | ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.049 | 0.086 | 0.405 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.244 | 0.267 | 0.589 |
-| ∂ID/∂(q, q̇) · frax | 0.441 | 0.722 | 2.009 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.006 | 0.009 | 0.028 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.218 | 0.244 | 0.596 |
+| ∂ID/∂(q, q̇) · frax | 0.427 | 0.689 | 2.020 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.006 | 0.009 | 0.026 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 16**
@@ -320,32 +325,32 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.012 | 0.021 | 0.084 |
-| ID (RNEA) · mantis (JAX) | 0.170 | 0.138 | 0.272 |
+| ID (RNEA) · mantis (JAX) | 0.140 | 0.137 | 0.240 |
 | ID (RNEA) · GRiD (C++ bridge) | 0.033 | 0.053 | 0.126 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.164 | 0.232 | 0.313 |
-| ID (RNEA) · frax | 0.270 | 0.416 | 0.855 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.008 | 0.014 | 0.036 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.013 | 0.025 | 0.067 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.189 | 0.220 | 0.293 |
+| ID (RNEA) · frax | 0.262 | 0.404 | 0.853 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.008 | 0.015 | 0.036 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.014 | 0.026 | 0.068 |
 | M (CRBA) · mantis (C bridge) | 0.012 | 0.020 | 0.199 |
-| M (CRBA) · mantis (JAX) | 0.143 | 0.177 | 0.383 |
+| M (CRBA) · mantis (JAX) | 0.168 | 0.136 | 0.342 |
 | M (CRBA) · GRiD (C++ bridge) | 0.032 | 0.050 | 0.139 |
-| M (CRBA) · GRiD (JAX FFI) | 0.149 | 0.203 | 0.289 |
-| M (CRBA) · frax | 0.265 | 0.453 | 0.910 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.010 | 0.022 | 0.083 |
-| M (CRBA) · RBDL (CPU, float64) | 0.014 | 0.025 | 0.101 |
+| M (CRBA) · GRiD (JAX FFI) | 0.143 | 0.194 | 0.288 |
+| M (CRBA) · frax | 0.242 | 0.419 | 0.856 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.011 | 0.023 | 0.085 |
+| M (CRBA) · RBDL (CPU, float64) | 0.014 | 0.026 | 0.100 |
 | FD · mantis (C bridge) | 0.015 | 0.051 | 0.183 |
-| FD · mantis (JAX) | 0.149 | 0.229 | 0.350 |
+| FD · mantis (JAX) | 0.166 | 0.204 | 0.341 |
 | FD · GRiD (C++ bridge) | 0.053 | 0.088 | 0.258 |
-| FD · GRiD (JAX FFI) | 0.235 | 0.260 | 0.449 |
-| FD · frax | 0.370 | 0.535 | 1.181† |
-| FD · Pinocchio codegen (CPU) | 0.019 | 0.039 | 0.142 |
-| FD · RBDL (CPU, float64) | 0.026 | 0.050 | 0.118 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.076 | 0.166 | 1.268 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.234 | 0.323 | 1.460 |
+| FD · GRiD (JAX FFI) | 0.215 | 0.257 | 0.434 |
+| FD · frax | 0.366 | 0.517 | 1.185† |
+| FD · Pinocchio codegen (CPU) | 0.019 | 0.039 | 0.146 |
+| FD · RBDL (CPU, float64) | 0.027 | 0.052 | 0.132 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.076 | 0.166 | 1.267 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.229 | 0.319 | 1.454 |
 | ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.049 | 0.086 | 0.403 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.236 | 0.256 | 0.625 |
-| ∂ID/∂(q, q̇) · frax | 0.511 | 0.902 | 3.021 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.033 | 0.077 | 0.176 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.223 | 0.262 | 0.600 |
+| ∂ID/∂(q, q̇) · frax | 0.499 | 0.892 | 3.045 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.033 | 0.079 | 0.172 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 32**
@@ -353,65 +358,65 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.012 | 0.021 | 0.085 |
-| ID (RNEA) · mantis (JAX) | 0.168 | 0.148 | 0.237 |
+| ID (RNEA) · mantis (JAX) | 0.151 | 0.147 | 0.232 |
 | ID (RNEA) · GRiD (C++ bridge) | 0.033 | 0.053 | 0.126 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.213 | 0.241 | 0.316 |
-| ID (RNEA) · frax | 0.281 | 0.420 | 0.874 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.012 | 0.025 | 0.068 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.024 | 0.047 | 0.126 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.202 | 0.226 | 0.307 |
+| ID (RNEA) · frax | 0.269 | 0.407 | 0.864 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.013 | 0.026 | 0.069 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.024 | 0.048 | 0.127 |
 | M (CRBA) · mantis (C bridge) | 0.012 | 0.020 | 0.202 |
-| M (CRBA) · mantis (JAX) | 0.148 | 0.160 | 0.371 |
+| M (CRBA) · mantis (JAX) | 0.125 | 0.133 | 0.362 |
 | M (CRBA) · GRiD (C++ bridge) | 0.032 | 0.050 | 0.139 |
-| M (CRBA) · GRiD (JAX FFI) | 0.141 | 0.204 | 0.304 |
-| M (CRBA) · frax | 0.262 | 0.453 | 0.870 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.017 | 0.041 | 0.134 |
-| M (CRBA) · RBDL (CPU, float64) | 0.025 | 0.048 | 0.125 |
-| FD · mantis (C bridge) | 0.016 | 0.051 | 0.184 |
-| FD · mantis (JAX) | 0.175 | 0.211 | 0.351 |
+| M (CRBA) · GRiD (JAX FFI) | 0.145 | 0.193 | 0.294 |
+| M (CRBA) · frax | 0.248 | 0.425 | 0.856 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.018 | 0.042 | 0.144 |
+| M (CRBA) · RBDL (CPU, float64) | 0.025 | 0.048 | 0.129 |
+| FD · mantis (C bridge) | 0.015 | 0.051 | 0.184 |
+| FD · mantis (JAX) | 0.141 | 0.199 | 0.335 |
 | FD · GRiD (C++ bridge) | 0.053 | 0.088 | 0.258 |
-| FD · GRiD (JAX FFI) | 0.234 | 0.272 | 0.448 |
-| FD · frax | 0.391 | 0.550 | 1.221† |
-| FD · Pinocchio codegen (CPU) | 0.034 | 0.073 | 0.155 |
-| FD · RBDL (CPU, float64) | 0.049 | 0.098 | 0.141 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.076 | 0.167 | 1.297 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.240 | 0.350 | 1.499 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.049 | 0.086 | 0.404 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.228 | 0.264 | 0.601 |
-| ∂ID/∂(q, q̇) · frax | 0.630 | 1.004 | 3.860 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.062 | 0.138 | 0.207 |
+| FD · GRiD (JAX FFI) | 0.217 | 0.258 | 0.447 |
+| FD · frax | 0.365 | 0.524 | 1.209† |
+| FD · Pinocchio codegen (CPU) | 0.035 | 0.075 | 0.181 |
+| FD · RBDL (CPU, float64) | 0.051 | 0.102 | 0.142 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.076 | 0.167 | 1.295 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.224 | 0.319 | 1.483 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.049 | 0.086 | 0.403 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.220 | 0.250 | 0.598 |
+| ∂ID/∂(q, q̇) · frax | 0.596 | 0.999 | 3.791 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.063 | 0.144 | 0.295 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 64**
 
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
-| ID (RNEA) · mantis (C bridge) | 0.012 | 0.022 | 0.086 |
-| ID (RNEA) · mantis (JAX) | 0.169 | 0.173 | 0.257 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.033 | 0.053 | 0.126 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.205 | 0.237 | 0.312 |
-| ID (RNEA) · frax | 0.279 | 0.436 | 0.961 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.022 | 0.046 | 0.129 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.045 | 0.091 | 0.129 |
-| M (CRBA) · mantis (C bridge) | 0.012 | 0.020 | 0.240 |
-| M (CRBA) · mantis (JAX) | 0.146 | 0.151 | 0.421 |
-| M (CRBA) · GRiD (C++ bridge) | 0.032 | 0.050 | 0.139 |
-| M (CRBA) · GRiD (JAX FFI) | 0.161 | 0.199 | 0.300 |
-| M (CRBA) · frax | 0.272 | 0.459 | 0.887 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.031 | 0.079 | 0.160 |
-| M (CRBA) · RBDL (CPU, float64) | 0.047 | 0.093 | 0.150 |
+| ID (RNEA) · mantis (C bridge) | 0.012 | 0.022 | 0.085 |
+| ID (RNEA) · mantis (JAX) | 0.146 | 0.169 | 0.235 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.033 | 0.053 | 0.125 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.204 | 0.231 | 0.306 |
+| ID (RNEA) · frax | 0.265 | 0.413 | 0.948 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.022 | 0.047 | 0.134 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.046 | 0.093 | 0.142 |
+| M (CRBA) · mantis (C bridge) | 0.012 | 0.020 | 0.241 |
+| M (CRBA) · mantis (JAX) | 0.130 | 0.129 | 0.403 |
+| M (CRBA) · GRiD (C++ bridge) | 0.031 | 0.050 | 0.139 |
+| M (CRBA) · GRiD (JAX FFI) | 0.153 | 0.193 | 0.299 |
+| M (CRBA) · frax | 0.251 | 0.419 | 0.888 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.032 | 0.080 | 0.169 |
+| M (CRBA) · RBDL (CPU, float64) | 0.047 | 0.094 | 0.147 |
 | FD · mantis (C bridge) | 0.016 | 0.053 | 0.196 |
-| FD · mantis (JAX) | 0.155 | 0.217 | 0.361 |
+| FD · mantis (JAX) | 0.123 | 0.204 | 0.350 |
 | FD · GRiD (C++ bridge) | 0.053 | 0.088 | 0.256 |
-| FD · GRiD (JAX FFI) | 0.231 | 0.269 | 0.443 |
-| FD · frax | 0.391 | 0.555† | 1.315† |
-| FD · Pinocchio codegen (CPU) | 0.064 | 0.136 | 0.226 |
-| FD · RBDL (CPU, float64) | 0.096 | 0.126 | 0.199 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.078 | 0.170 | 1.353 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.267 | 0.326 | 1.582 |
+| FD · GRiD (JAX FFI) | 0.223 | 0.266 | 0.430 |
+| FD · frax | 0.367 | 0.538† | 1.283† |
+| FD · Pinocchio codegen (CPU) | 0.066 | 0.142 | 0.273 |
+| FD · RBDL (CPU, float64) | 0.100 | 0.133 | 0.173 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.078 | 0.170 | 1.352 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.243 | 0.334 | 1.582 |
 | ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.049 | 0.086 | 0.409 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.241 | 0.276 | 0.626 |
-| ∂ID/∂(q, q̇) · frax | 0.616 | 1.274 | 5.444 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.120 | 0.149 | 0.394 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.225 | 0.261 | 0.639 |
+| ∂ID/∂(q, q̇) · frax | 0.596 | 1.179 | 5.515 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.124 | 0.160 | 0.502 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 128**
@@ -419,32 +424,32 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.012 | 0.024 | 0.131 |
-| ID (RNEA) · mantis (JAX) | 0.176 | 0.165 | 0.319 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.037 | 0.061 | 0.154 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.211 | 0.252 | 0.339 |
-| ID (RNEA) · frax | 0.287 | 0.486 | 0.995 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.040 | 0.089 | 0.156 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.087 | 0.131 | 0.149 |
+| ID (RNEA) · mantis (JAX) | 0.133 | 0.138 | 0.283 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.036 | 0.061 | 0.154 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.194 | 0.229 | 0.345 |
+| ID (RNEA) · frax | 0.278 | 0.465 | 0.997 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.041 | 0.091 | 0.162 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.089 | 0.125 | 0.166 |
 | M (CRBA) · mantis (C bridge) | 0.013 | 0.024 | 0.286 |
-| M (CRBA) · mantis (JAX) | 0.141 | 0.160 | 0.483 |
+| M (CRBA) · mantis (JAX) | 0.130 | 0.180 | 0.471 |
 | M (CRBA) · GRiD (C++ bridge) | 0.034 | 0.058 | 0.167 |
-| M (CRBA) · GRiD (JAX FFI) | 0.133 | 0.204 | 0.345 |
-| M (CRBA) · frax | 0.275 | 0.466 | 0.953 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.058 | 0.128 | 0.193 |
-| M (CRBA) · RBDL (CPU, float64) | 0.091 | 0.122 | 0.230 |
+| M (CRBA) · GRiD (JAX FFI) | 0.182 | 0.201 | 0.322 |
+| M (CRBA) · frax | 0.244 | 0.442 | 0.916 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.060 | 0.148 | 0.203 |
+| M (CRBA) · RBDL (CPU, float64) | 0.092 | 0.126 | 0.215 |
 | FD · mantis (C bridge) | 0.016 | 0.059 | 0.233 |
-| FD · mantis (JAX) | 0.156 | 0.205 | 0.401 |
-| FD · GRiD (C++ bridge) | 0.057 | 0.097 | 0.290 |
-| FD · GRiD (JAX FFI) | 0.243 | 0.298 | 0.493 |
-| FD · frax | 0.387 | 0.605† | 1.387† |
-| FD · Pinocchio codegen (CPU) | 0.124 | 0.150 | 0.289 |
-| FD · RBDL (CPU, float64) | 0.121 | 0.146 | 0.300 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.092 | 0.195 | 1.817 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.261 | 0.363 | 2.146 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.055 | 0.099 | 0.807 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.237 | 0.284 | 1.058 |
-| ∂ID/∂(q, q̇) · frax | 0.706 | 1.499 | 8.245 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.139 | 0.198 | 0.672 |
+| FD · mantis (JAX) | 0.138 | 0.204 | 0.400 |
+| FD · GRiD (C++ bridge) | 0.057 | 0.096 | 0.290 |
+| FD · GRiD (JAX FFI) | 0.228 | 0.272 | 0.471 |
+| FD · frax | 0.375 | 0.585† | 1.366† |
+| FD · Pinocchio codegen (CPU) | 0.129 | 0.165 | 0.458 |
+| FD · RBDL (CPU, float64) | 0.135 | 0.162 | 0.314 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.092 | 0.195 | 1.873 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.239 | 0.362 | 2.129 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.055 | 0.099 | 0.806 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.240 | 0.283 | 1.051 |
+| ∂ID/∂(q, q̇) · frax | 0.671 | 1.502 | 8.246 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.162 | 0.207 | 0.841 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 256**
@@ -452,65 +457,65 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.012 | 0.024 | 0.131 |
-| ID (RNEA) · mantis (JAX) | 0.149 | 0.150 | 0.307 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.045 | 0.081 | 0.221 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.232 | 0.275 | 0.409 |
-| ID (RNEA) · frax | 0.336 | 0.503 | 1.084 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.077 | 0.127 | 0.194 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.119 | 0.133 | 0.247 |
+| ID (RNEA) · mantis (JAX) | 0.144 | 0.186 | 0.283 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.044 | 0.081 | 0.221 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.219 | 0.260 | 0.404 |
+| ID (RNEA) · frax | 0.317 | 0.499 | 1.077 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.080 | 0.145 | 0.204 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.128 | 0.142 | 0.274 |
 | M (CRBA) · mantis (C bridge) | 0.013 | 0.024 | 0.288 |
-| M (CRBA) · mantis (JAX) | 0.175 | 0.144 | 0.510 |
-| M (CRBA) · GRiD (C++ bridge) | 0.064 | 0.078 | 0.387 |
-| M (CRBA) · GRiD (JAX FFI) | 0.217 | 0.236 | 0.562 |
-| M (CRBA) · frax | 0.280 | 0.483 | 1.027 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.113 | 0.150 | 0.348 |
-| M (CRBA) · RBDL (CPU, float64) | 0.120 | 0.146 | 0.348 |
+| M (CRBA) · mantis (JAX) | 0.126 | 0.168 | 0.504 |
+| M (CRBA) · GRiD (C++ bridge) | 0.063 | 0.078 | 0.387 |
+| M (CRBA) · GRiD (JAX FFI) | 0.206 | 0.223 | 0.559 |
+| M (CRBA) · frax | 0.276 | 0.469 | 0.999 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.117 | 0.165 | 0.319 |
+| M (CRBA) · RBDL (CPU, float64) | 0.126 | 0.153 | 0.360 |
 | FD · mantis (C bridge) | 0.016 | 0.059 | 0.234 |
-| FD · mantis (JAX) | 0.152 | 0.221 | 0.398 |
-| FD · GRiD (C++ bridge) | 0.066 | 0.119 | 0.613 |
-| FD · GRiD (JAX FFI) | 0.255 | 0.308 | 0.825 |
-| FD · frax | 0.441 | 0.628† | 1.519† |
-| FD · Pinocchio codegen (CPU) | 0.143 | 0.192 | 0.643 |
-| FD · RBDL (CPU, float64) | 0.138 | 0.236 | 0.375 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.092 | 0.260 | 1.958 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.257 | 0.443 | 2.254 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.071 | 0.141 | 1.600 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.283 | 0.345 | 1.898 |
-| ∂ID/∂(q, q̇) · frax | 0.874 | 2.231 | 14.836 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.178 | 0.260 | 0.928 |
+| FD · mantis (JAX) | 0.153 | 0.201 | 0.394 |
+| FD · GRiD (C++ bridge) | 0.066 | 0.118 | 0.613 |
+| FD · GRiD (JAX FFI) | 0.235 | 0.293 | 0.812 |
+| FD · frax | 0.426 | 0.621† | 1.520† |
+| FD · Pinocchio codegen (CPU) | 0.150 | 0.198 | 0.730 |
+| FD · RBDL (CPU, float64) | 0.159 | 0.275 | 0.512 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.092 | 0.260 | 1.955 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.236 | 0.426 | 2.256 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.070 | 0.140 | 1.597 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.242 | 0.334 | 1.897 |
+| ∂ID/∂(q, q̇) · frax | 0.839 | 2.203 | 14.677 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.175 | 0.432 | 0.946 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 1024**
 
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
-| ID (RNEA) · mantis (C bridge) | 0.013 | 0.024 | 0.124 |
-| ID (RNEA) · mantis (JAX) | 0.163 | 0.151 | 0.281 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.143 | 0.223 | 0.791 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.339 | 0.424 | 0.999 |
-| ID (RNEA) · frax | 0.396 | 0.635 | 1.425 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.141 | 0.210 | 0.384 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.163 | 0.313 | 0.593 |
-| M (CRBA) · mantis (C bridge) | 0.013 | 0.024 | 0.334 |
-| M (CRBA) · mantis (JAX) | 0.129 | 0.189 | 0.664 |
-| M (CRBA) · GRiD (C++ bridge) | 0.168 | 0.226 | 1.139 |
-| M (CRBA) · GRiD (JAX FFI) | 0.329 | 0.391 | 1.356 |
-| M (CRBA) · frax | 0.332 | 0.616 | 1.471 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.158 | 0.321 | 0.779 |
-| M (CRBA) · RBDL (CPU, float64) | 0.214 | 0.308 | 1.020 |
-| FD · mantis (C bridge) | 0.016 | 0.059 | 0.225 |
-| FD · mantis (JAX) | 0.168 | 0.216 | 0.409 |
-| FD · GRiD (C++ bridge) | 0.227 | 0.341 | 1.933 |
-| FD · GRiD (JAX FFI) | 0.428 | 0.549 | 2.167 |
-| FD · frax | 0.558 | 0.855† | 2.530† |
-| FD · Pinocchio codegen (CPU) | 0.298 | 0.447 | 1.552† |
-| FD · RBDL (CPU, float64) | 0.323 | 0.511 | 1.303 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.087 | 0.296 | 1.911 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.260 | 0.529 | 2.463 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.229 | 0.451 | 6.323 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.435 | 0.696 | 6.814 |
-| ∂ID/∂(q, q̇) · frax | 1.668 | 6.740 | 52.557 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.467 | 0.737 | 3.194 |
+| ID (RNEA) · mantis (C bridge) | 0.012 | 0.024 | 0.124 |
+| ID (RNEA) · mantis (JAX) | 0.136 | 0.138 | 0.279 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.143 | 0.222 | 0.792 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.331 | 0.414 | 0.993 |
+| ID (RNEA) · frax | 0.400 | 0.623 | 1.408 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.154 | 0.280 | 0.529 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.218 | 0.330 | 0.699 |
+| M (CRBA) · mantis (C bridge) | 0.013 | 0.024 | 0.333 |
+| M (CRBA) · mantis (JAX) | 0.129 | 0.172 | 0.660 |
+| M (CRBA) · GRiD (C++ bridge) | 0.168 | 0.225 | 1.138 |
+| M (CRBA) · GRiD (JAX FFI) | 0.315 | 0.379 | 1.332 |
+| M (CRBA) · frax | 0.324 | 0.597 | 1.437 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.183 | 0.367 | 0.824 |
+| M (CRBA) · RBDL (CPU, float64) | 0.244 | 0.376 | 0.952 |
+| FD · mantis (C bridge) | 0.016 | 0.059 | 0.224 |
+| FD · mantis (JAX) | 0.132 | 0.202 | 0.394 |
+| FD · GRiD (C++ bridge) | 0.227 | 0.340 | 1.933 |
+| FD · GRiD (JAX FFI) | 0.419 | 0.530 | 2.187 |
+| FD · frax | 0.535 | 0.850† | 2.506† |
+| FD · Pinocchio codegen (CPU) | 0.318 | 0.608 | 1.626† |
+| FD · RBDL (CPU, float64) | 0.360 | 0.640 | 1.341 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.087 | 0.297 | 1.909 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.247 | 0.499 | 2.482 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.228 | 0.451 | 6.315 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.430 | 0.672 | 6.857 |
+| ∂ID/∂(q, q̇) · frax | 1.648 | 6.662 | 52.577 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.487 | 0.795 | 3.344 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 16384**
@@ -518,32 +523,32 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.016 | 0.029 | 0.186 |
-| ID (RNEA) · mantis (JAX) | 0.169 | 0.211 | 0.426 |
+| ID (RNEA) · mantis (JAX) | 0.136 | 0.192 | 0.395 |
 | ID (RNEA) · GRiD (C++ bridge) | 1.745 | 2.608 | OOM |
-| ID (RNEA) · GRiD (JAX FFI) | 2.172 | 3.055 | 11.406 |
-| ID (RNEA) · frax | 1.437 | 2.976 | 9.899 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.743 | 1.610 | 4.740 |
-| ID (RNEA) · RBDL (CPU, float64) | 1.497 | 3.390 | 8.019 |
-| M (CRBA) · mantis (C bridge) | 0.020 | 0.056 | 0.772 |
-| M (CRBA) · mantis (JAX) | 0.217 | 0.451 | 11.781 |
-| M (CRBA) · GRiD (C++ bridge) | 2.042 | 2.925 | OOM |
-| M (CRBA) · GRiD (JAX FFI) | 2.330 | 3.218 | 17.098 |
-| M (CRBA) · frax | 1.346 | 3.057 | 11.008 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.984 | 2.651 | 12.605 |
-| M (CRBA) · RBDL (CPU, float64) | 1.543 | 3.342 | 15.116 |
-| FD · mantis (C bridge) | 0.023 | 0.077 | 0.425 |
-| FD · mantis (JAX) | 0.154 | 0.250 | 0.652 |
-| FD · GRiD (C++ bridge) | 3.162 | 4.505 | OOM |
-| FD · GRiD (JAX FFI) | 3.605 | 5.003 | 29.377 |
-| FD · frax | 2.483 | 5.287† | 25.611† |
-| FD · Pinocchio codegen (CPU) | 2.093 | 4.969 | 18.745† |
-| FD · RBDL (CPU, float64) | 3.301 | 6.610 | 16.254 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.154 | 0.529 | 4.013 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.438 | 1.424 | 26.792 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 3.263 | 6.304 | OOM |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 3.868 | 7.034 | OOM |
-| ∂ID/∂(q, q̇) · frax | 19.930 | 97.997 | OOM |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 3.945 | 10.207 | 42.835 |
+| ID (RNEA) · GRiD (JAX FFI) | 2.155 | 3.048 | 11.397 |
+| ID (RNEA) · frax | 1.398 | 2.897 | 9.891 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 1.017 | 1.675 | 4.956 |
+| ID (RNEA) · RBDL (CPU, float64) | 1.761 | 3.529 | 8.072 |
+| M (CRBA) · mantis (C bridge) | 0.020 | 0.056 | 0.783 |
+| M (CRBA) · mantis (JAX) | 0.188 | 0.451 | 11.779 |
+| M (CRBA) · GRiD (C++ bridge) | 2.041 | 2.924 | OOM |
+| M (CRBA) · GRiD (JAX FFI) | 2.327 | 3.212 | 17.099 |
+| M (CRBA) · frax | 1.295 | 3.052 | 10.757 |
+| M (CRBA) · Pinocchio codegen (CPU) | 1.101 | 2.854 | 14.210 |
+| M (CRBA) · RBDL (CPU, float64) | 1.919 | 3.611 | 16.232 |
+| FD · mantis (C bridge) | 0.023 | 0.077 | 0.424 |
+| FD · mantis (JAX) | 0.167 | 0.248 | 0.639 |
+| FD · GRiD (C++ bridge) | 3.162 | 4.502 | OOM |
+| FD · GRiD (JAX FFI) | 3.571 | 4.992 | 29.366 |
+| FD · frax | 2.419 | 5.258† | 25.107† |
+| FD · Pinocchio codegen (CPU) | 2.301 | 5.138 | 20.577† |
+| FD · RBDL (CPU, float64) | 3.575 | 7.182 | 16.706 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.157 | 0.526 | 3.883 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.436 | 1.424 | 26.796 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 3.350 | 6.190 | OOM |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 3.798 | 6.969 | OOM |
+| ∂ID/∂(q, q̇) · frax | 19.690 | 98.408 | OOM |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 4.319 | 11.192 | 44.760 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 #### Host to host (host arrays in and out, including transfers)
@@ -554,65 +559,65 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.017 | 0.026 | 0.099 |
-| ID (RNEA) · mantis (JAX) | 0.798 | 0.766 | 0.835 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.046 | 0.066 | 0.139 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.767 | 0.798 | 0.896 |
-| ID (RNEA) · frax | 0.807 | 0.966 | 1.309 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.004 | 0.004 | 0.005 |
+| ID (RNEA) · mantis (JAX) | 0.656 | 0.673 | 0.774 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.045 | 0.065 | 0.139 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.738 | 0.733 | 0.857 |
+| ID (RNEA) · frax | 0.733 | 0.916 | 1.282 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.003 | 0.004 | 0.006 |
 | ID (RNEA) · RBDL (CPU, float64) | 0.004 | 0.004 | 0.007 |
 | M (CRBA) · mantis (C bridge) | 0.017 | 0.026 | 0.206 |
-| M (CRBA) · mantis (JAX) | 0.491 | 0.509 | 0.711 |
-| M (CRBA) · GRiD (C++ bridge) | 0.040 | 0.058 | 0.147 |
-| M (CRBA) · GRiD (JAX FFI) | 0.487 | 0.572 | 0.639 |
-| M (CRBA) · frax | 0.796 | 0.947 | 1.327 |
+| M (CRBA) · mantis (JAX) | 0.455 | 0.459 | 0.646 |
+| M (CRBA) · GRiD (C++ bridge) | 0.039 | 0.058 | 0.147 |
+| M (CRBA) · GRiD (JAX FFI) | 0.483 | 0.533 | 0.653 |
+| M (CRBA) · frax | 0.757 | 0.846 | 1.223 |
 | M (CRBA) · Pinocchio codegen (CPU) | 0.004 | 0.005 | 0.009 |
 | M (CRBA) · RBDL (CPU, float64) | 0.004 | 0.005 | 0.009 |
 | FD · mantis (C bridge) | 0.026 | 0.058 | 0.189 |
-| FD · mantis (JAX) | 0.702 | 0.788 | 0.929 |
-| FD · GRiD (C++ bridge) | 0.064 | 0.099 | 0.274 |
-| FD · GRiD (JAX FFI) | 0.790 | 0.794 | 1.003 |
-| FD · frax | 0.877 | 1.083 | 1.557† |
-| FD · Pinocchio codegen (CPU) | 0.004 | 0.006 | 0.015 |
+| FD · mantis (JAX) | 0.673 | 0.707 | 0.850 |
+| FD · GRiD (C++ bridge) | 0.064 | 0.099 | 0.273 |
+| FD · GRiD (JAX FFI) | 0.808 | 0.773 | 0.965 |
+| FD · frax | 0.869 | 1.011 | 1.456† |
+| FD · Pinocchio codegen (CPU) | 0.004 | 0.006 | 0.016 |
 | FD · RBDL (CPU, float64) | 0.005 | 0.006 | 0.013 |
 | ∂ID/∂(q, q̇) · mantis (C bridge) | 0.083 | 0.181 | 1.265 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.794 | 0.872 | 2.044 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.099 | 0.419 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.771 | 0.831 | 1.144 |
-| ∂ID/∂(q, q̇) · frax | 0.990 | 1.197 | 2.274 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.006 | 0.009 | 0.028 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.741 | 0.846 | 2.004 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.098 | 0.418 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.728 | 0.800 | 1.093 |
+| ∂ID/∂(q, q̇) · frax | 0.942 | 1.158 | 2.301 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.006 | 0.009 | 0.026 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 16**
 
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
-| ID (RNEA) · mantis (C bridge) | 0.017 | 0.026 | 0.092 |
-| ID (RNEA) · mantis (JAX) | 0.767 | 0.744 | 0.830 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.046 | 0.066 | 0.140 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.738 | 0.836 | 0.842 |
-| ID (RNEA) · frax | 0.822 | 0.986 | 1.376 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.008 | 0.014 | 0.036 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.013 | 0.025 | 0.067 |
-| M (CRBA) · mantis (C bridge) | 0.017 | 0.025 | 0.210 |
-| M (CRBA) · mantis (JAX) | 0.522 | 0.554 | 0.742 |
+| ID (RNEA) · mantis (C bridge) | 0.017 | 0.026 | 0.091 |
+| ID (RNEA) · mantis (JAX) | 0.659 | 0.679 | 0.783 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.045 | 0.065 | 0.138 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.685 | 0.731 | 0.899 |
+| ID (RNEA) · frax | 0.758 | 0.935 | 1.312 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.008 | 0.015 | 0.036 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.014 | 0.026 | 0.068 |
+| M (CRBA) · mantis (C bridge) | 0.017 | 0.025 | 0.209 |
+| M (CRBA) · mantis (JAX) | 0.462 | 0.451 | 0.646 |
 | M (CRBA) · GRiD (C++ bridge) | 0.039 | 0.058 | 0.150 |
-| M (CRBA) · GRiD (JAX FFI) | 0.516 | 0.567 | 0.657 |
-| M (CRBA) · frax | 0.769 | 0.929 | 1.329 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.010 | 0.022 | 0.083 |
-| M (CRBA) · RBDL (CPU, float64) | 0.014 | 0.025 | 0.101 |
+| M (CRBA) · GRiD (JAX FFI) | 0.476 | 0.515 | 0.596 |
+| M (CRBA) · frax | 0.704 | 0.895 | 1.252 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.011 | 0.023 | 0.085 |
+| M (CRBA) · RBDL (CPU, float64) | 0.014 | 0.026 | 0.100 |
 | FD · mantis (C bridge) | 0.026 | 0.058 | 0.190 |
-| FD · mantis (JAX) | 0.774 | 0.747 | 0.869 |
-| FD · GRiD (C++ bridge) | 0.064 | 0.099 | 0.270 |
-| FD · GRiD (JAX FFI) | 0.844 | 0.806 | 1.017 |
-| FD · frax | 0.949 | 1.108 | 1.672† |
-| FD · Pinocchio codegen (CPU) | 0.019 | 0.039 | 0.142 |
-| FD · RBDL (CPU, float64) | 0.026 | 0.050 | 0.118 |
+| FD · mantis (JAX) | 0.682 | 0.798 | 0.853 |
+| FD · GRiD (C++ bridge) | 0.064 | 0.099 | 0.269 |
+| FD · GRiD (JAX FFI) | 0.733 | 0.749 | 0.951 |
+| FD · frax | 0.836 | 1.004 | 1.688† |
+| FD · Pinocchio codegen (CPU) | 0.019 | 0.039 | 0.146 |
+| FD · RBDL (CPU, float64) | 0.027 | 0.052 | 0.132 |
 | ∂ID/∂(q, q̇) · mantis (C bridge) | 0.083 | 0.175 | 1.284 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.798 | 0.876 | 2.065 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.100 | 0.424 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.819 | 0.814 | 1.191 |
-| ∂ID/∂(q, q̇) · frax | 1.060 | 1.409 | 3.191 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.033 | 0.077 | 0.176 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.769 | 0.802 | 2.040 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.099 | 0.423 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.751 | 0.766 | 1.171 |
+| ∂ID/∂(q, q̇) · frax | 1.002 | 1.314 | 3.215 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.033 | 0.079 | 0.172 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 32**
@@ -620,65 +625,65 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.017 | 0.025 | 0.092 |
-| ID (RNEA) · mantis (JAX) | 0.717 | 0.762 | 0.835 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.046 | 0.066 | 0.140 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.754 | 0.819 | 0.878 |
-| ID (RNEA) · frax | 0.806 | 0.994 | 1.374 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.012 | 0.025 | 0.068 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.024 | 0.047 | 0.126 |
-| M (CRBA) · mantis (C bridge) | 0.016 | 0.026 | 0.215 |
-| M (CRBA) · mantis (JAX) | 0.539 | 0.518 | 0.720 |
-| M (CRBA) · GRiD (C++ bridge) | 0.040 | 0.058 | 0.155 |
-| M (CRBA) · GRiD (JAX FFI) | 0.553 | 0.555 | 0.731 |
-| M (CRBA) · frax | 0.819 | 0.964 | 1.336 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.017 | 0.041 | 0.134 |
-| M (CRBA) · RBDL (CPU, float64) | 0.025 | 0.048 | 0.125 |
+| ID (RNEA) · mantis (JAX) | 0.665 | 0.683 | 0.749 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.046 | 0.065 | 0.139 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.744 | 0.739 | 0.849 |
+| ID (RNEA) · frax | 0.788 | 0.919 | 1.390 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.013 | 0.026 | 0.069 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.024 | 0.048 | 0.127 |
+| M (CRBA) · mantis (C bridge) | 0.016 | 0.026 | 0.214 |
+| M (CRBA) · mantis (JAX) | 0.475 | 0.459 | 0.693 |
+| M (CRBA) · GRiD (C++ bridge) | 0.039 | 0.057 | 0.155 |
+| M (CRBA) · GRiD (JAX FFI) | 0.469 | 0.495 | 0.629 |
+| M (CRBA) · frax | 0.764 | 0.896 | 1.276 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.018 | 0.042 | 0.144 |
+| M (CRBA) · RBDL (CPU, float64) | 0.025 | 0.048 | 0.129 |
 | FD · mantis (C bridge) | 0.026 | 0.058 | 0.190 |
-| FD · mantis (JAX) | 0.689 | 0.817 | 0.983 |
-| FD · GRiD (C++ bridge) | 0.064 | 0.100 | 0.271 |
-| FD · GRiD (JAX FFI) | 0.793 | 0.820 | 1.003 |
-| FD · frax | 0.915 | 1.153 | 1.726† |
-| FD · Pinocchio codegen (CPU) | 0.034 | 0.073 | 0.155 |
-| FD · RBDL (CPU, float64) | 0.049 | 0.098 | 0.141 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.083 | 0.175 | 1.324 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.822 | 0.910 | 2.173 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.062 | 0.099 | 0.435 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.767 | 0.811 | 1.227 |
-| ∂ID/∂(q, q̇) · frax | 1.165 | 1.498 | 4.000 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.062 | 0.138 | 0.207 |
+| FD · mantis (JAX) | 0.664 | 0.700 | 0.891 |
+| FD · GRiD (C++ bridge) | 0.064 | 0.099 | 0.270 |
+| FD · GRiD (JAX FFI) | 0.732 | 0.815 | 0.958 |
+| FD · frax | 0.880 | 1.048 | 1.668† |
+| FD · Pinocchio codegen (CPU) | 0.035 | 0.075 | 0.181 |
+| FD · RBDL (CPU, float64) | 0.051 | 0.102 | 0.142 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.083 | 0.175 | 1.323 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.752 | 0.814 | 2.115 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.099 | 0.433 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.782 | 0.775 | 1.178 |
+| ∂ID/∂(q, q̇) · frax | 1.100 | 1.446 | 3.989 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.063 | 0.144 | 0.295 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 64**
 
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
-| ID (RNEA) · mantis (C bridge) | 0.016 | 0.028 | 0.099 |
-| ID (RNEA) · mantis (JAX) | 0.737 | 0.801 | 0.883 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.046 | 0.066 | 0.139 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.769 | 0.804 | 0.887 |
-| ID (RNEA) · frax | 0.857 | 0.977 | 1.465 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.022 | 0.046 | 0.129 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.045 | 0.091 | 0.129 |
+| ID (RNEA) · mantis (C bridge) | 0.016 | 0.033 | 0.099 |
+| ID (RNEA) · mantis (JAX) | 0.651 | 0.676 | 0.752 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.046 | 0.066 | 0.138 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.756 | 0.739 | 0.800 |
+| ID (RNEA) · frax | 0.800 | 0.885 | 1.406 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.022 | 0.047 | 0.134 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.046 | 0.093 | 0.142 |
 | M (CRBA) · mantis (C bridge) | 0.016 | 0.027 | 0.264 |
-| M (CRBA) · mantis (JAX) | 0.520 | 0.499 | 0.824 |
+| M (CRBA) · mantis (JAX) | 0.480 | 0.506 | 0.773 |
 | M (CRBA) · GRiD (C++ bridge) | 0.039 | 0.059 | 0.164 |
-| M (CRBA) · GRiD (JAX FFI) | 0.551 | 0.570 | 0.674 |
-| M (CRBA) · frax | 0.822 | 1.013 | 1.334 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.031 | 0.079 | 0.160 |
-| M (CRBA) · RBDL (CPU, float64) | 0.047 | 0.093 | 0.150 |
+| M (CRBA) · GRiD (JAX FFI) | 0.506 | 0.543 | 0.614 |
+| M (CRBA) · frax | 0.715 | 0.895 | 1.292 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.032 | 0.080 | 0.169 |
+| M (CRBA) · RBDL (CPU, float64) | 0.047 | 0.094 | 0.147 |
 | FD · mantis (C bridge) | 0.026 | 0.058 | 0.215 |
-| FD · mantis (JAX) | 0.786 | 0.812 | 0.999 |
-| FD · GRiD (C++ bridge) | 0.064 | 0.100 | 0.270 |
-| FD · GRiD (JAX FFI) | 0.819 | 0.832 | 1.045 |
-| FD · frax | 0.995 | 1.122† | 1.886† |
-| FD · Pinocchio codegen (CPU) | 0.064 | 0.136 | 0.226 |
-| FD · RBDL (CPU, float64) | 0.096 | 0.126 | 0.199 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.083 | 0.178 | 1.405 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.813 | 0.930 | 2.333 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.102 | 0.459 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.835 | 0.867 | 1.291 |
-| ∂ID/∂(q, q̇) · frax | 1.197 | 1.660 | 5.704 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.120 | 0.149 | 0.394 |
+| FD · mantis (JAX) | 0.675 | 0.692 | 0.884 |
+| FD · GRiD (C++ bridge) | 0.064 | 0.100 | 0.269 |
+| FD · GRiD (JAX FFI) | 0.747 | 0.799 | 0.980 |
+| FD · frax | 0.925 | 1.095† | 1.748† |
+| FD · Pinocchio codegen (CPU) | 0.066 | 0.142 | 0.273 |
+| FD · RBDL (CPU, float64) | 0.100 | 0.133 | 0.173 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.083 | 0.177 | 1.405 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.765 | 0.862 | 2.236 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.061 | 0.102 | 0.458 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.756 | 0.829 | 1.206 |
+| ∂ID/∂(q, q̇) · frax | 1.086 | 1.600 | 5.699 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.124 | 0.160 | 0.502 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 128**
@@ -686,32 +691,32 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.016 | 0.034 | 0.148 |
-| ID (RNEA) · mantis (JAX) | 0.750 | 0.731 | 0.911 |
+| ID (RNEA) · mantis (JAX) | 0.710 | 0.679 | 0.797 |
 | ID (RNEA) · GRiD (C++ bridge) | 0.048 | 0.074 | 0.169 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.796 | 0.814 | 0.898 |
-| ID (RNEA) · frax | 0.854 | 1.039 | 1.551 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.040 | 0.089 | 0.156 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.087 | 0.131 | 0.149 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.771 | 0.785 | 0.898 |
+| ID (RNEA) · frax | 0.808 | 0.906 | 1.428 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.041 | 0.091 | 0.162 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.089 | 0.125 | 0.166 |
 | M (CRBA) · mantis (C bridge) | 0.017 | 0.037 | 0.332 |
-| M (CRBA) · mantis (JAX) | 0.558 | 0.498 | 0.972 |
-| M (CRBA) · GRiD (C++ bridge) | 0.042 | 0.070 | 0.220 |
-| M (CRBA) · GRiD (JAX FFI) | 0.556 | 0.576 | 0.801 |
-| M (CRBA) · frax | 0.810 | 0.977 | 1.544 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.058 | 0.128 | 0.193 |
-| M (CRBA) · RBDL (CPU, float64) | 0.091 | 0.122 | 0.230 |
-| FD · mantis (C bridge) | 0.026 | 0.067 | 0.249 |
-| FD · mantis (JAX) | 0.839 | 0.775 | 1.006 |
-| FD · GRiD (C++ bridge) | 0.069 | 0.110 | 0.306 |
-| FD · GRiD (JAX FFI) | 0.799 | 0.851 | 1.026 |
-| FD · frax | 0.969 | 1.180† | 1.935† |
-| FD · Pinocchio codegen (CPU) | 0.124 | 0.150 | 0.289 |
-| FD · RBDL (CPU, float64) | 0.121 | 0.146 | 0.300 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.100 | 0.215 | 1.776 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.825 | 0.940 | 3.035 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.069 | 0.121 | 0.895 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.829 | 0.900 | 1.859 |
-| ∂ID/∂(q, q̇) · frax | 1.213 | 1.994 | 8.775 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.139 | 0.198 | 0.672 |
+| M (CRBA) · mantis (JAX) | 0.455 | 0.511 | 0.883 |
+| M (CRBA) · GRiD (C++ bridge) | 0.041 | 0.070 | 0.219 |
+| M (CRBA) · GRiD (JAX FFI) | 0.523 | 0.534 | 0.759 |
+| M (CRBA) · frax | 0.752 | 0.899 | 1.426 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.060 | 0.148 | 0.203 |
+| M (CRBA) · RBDL (CPU, float64) | 0.092 | 0.126 | 0.215 |
+| FD · mantis (C bridge) | 0.025 | 0.067 | 0.249 |
+| FD · mantis (JAX) | 0.661 | 0.694 | 0.929 |
+| FD · GRiD (C++ bridge) | 0.069 | 0.109 | 0.305 |
+| FD · GRiD (JAX FFI) | 0.761 | 0.800 | 1.021 |
+| FD · frax | 0.908 | 1.130† | 1.838† |
+| FD · Pinocchio codegen (CPU) | 0.129 | 0.165 | 0.458 |
+| FD · RBDL (CPU, float64) | 0.135 | 0.162 | 0.314 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.100 | 0.214 | 1.783 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.771 | 0.899 | 2.981 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.069 | 0.121 | 0.894 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.798 | 0.838 | 1.820 |
+| ∂ID/∂(q, q̇) · frax | 1.154 | 1.987 | 8.763 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.162 | 0.207 | 0.841 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 256**
@@ -719,97 +724,134 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
 | ID (RNEA) · mantis (C bridge) | 0.017 | 0.042 | 0.151 |
-| ID (RNEA) · mantis (JAX) | 0.775 | 0.766 | 0.930 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.058 | 0.095 | 0.242 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.818 | 0.837 | 1.009 |
-| ID (RNEA) · frax | 0.861 | 1.091 | 1.552 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.077 | 0.127 | 0.194 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.119 | 0.133 | 0.247 |
+| ID (RNEA) · mantis (JAX) | 0.691 | 0.660 | 0.804 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.057 | 0.094 | 0.242 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.766 | 0.802 | 0.966 |
+| ID (RNEA) · frax | 0.847 | 1.020 | 1.474 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.080 | 0.145 | 0.204 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.128 | 0.142 | 0.274 |
 | M (CRBA) · mantis (C bridge) | 0.018 | 0.042 | 0.377 |
-| M (CRBA) · mantis (JAX) | 0.569 | 0.586 | 1.070 |
-| M (CRBA) · GRiD (C++ bridge) | 0.073 | 0.102 | 0.477 |
-| M (CRBA) · GRiD (JAX FFI) | 0.616 | 0.603 | 1.115 |
-| M (CRBA) · frax | 0.813 | 1.054 | 1.688 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.113 | 0.150 | 0.348 |
-| M (CRBA) · RBDL (CPU, float64) | 0.120 | 0.146 | 0.348 |
-| FD · mantis (C bridge) | 0.026 | 0.075 | 0.250 |
-| FD · mantis (JAX) | 0.722 | 0.843 | 1.035 |
-| FD · GRiD (C++ bridge) | 0.079 | 0.131 | 0.634 |
-| FD · GRiD (JAX FFI) | 0.834 | 0.846 | 1.421 |
-| FD · frax | 0.982 | 1.272† | 2.013† |
-| FD · Pinocchio codegen (CPU) | 0.143 | 0.192 | 0.643 |
-| FD · RBDL (CPU, float64) | 0.138 | 0.236 | 0.375 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.103 | 0.296 | 2.133 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.824 | 1.069 | 3.385 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.088 | 0.172 | 1.768 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.832 | 0.975 | 2.954 |
-| ∂ID/∂(q, q̇) · frax | 1.417 | 2.783 | 15.534 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.178 | 0.260 | 0.928 |
+| M (CRBA) · mantis (JAX) | 0.457 | 0.449 | 1.027 |
+| M (CRBA) · GRiD (C++ bridge) | 0.073 | 0.102 | 0.476 |
+| M (CRBA) · GRiD (JAX FFI) | 0.577 | 0.534 | 1.073 |
+| M (CRBA) · frax | 0.761 | 0.925 | 1.594 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.117 | 0.165 | 0.319 |
+| M (CRBA) · RBDL (CPU, float64) | 0.126 | 0.153 | 0.360 |
+| FD · mantis (C bridge) | 0.026 | 0.075 | 0.249 |
+| FD · mantis (JAX) | 0.678 | 0.764 | 0.973 |
+| FD · GRiD (C++ bridge) | 0.077 | 0.130 | 0.633 |
+| FD · GRiD (JAX FFI) | 0.752 | 0.828 | 1.368 |
+| FD · frax | 0.961 | 1.145† | 2.003† |
+| FD · Pinocchio codegen (CPU) | 0.150 | 0.198 | 0.730 |
+| FD · RBDL (CPU, float64) | 0.159 | 0.275 | 0.512 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.102 | 0.296 | 2.132 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.759 | 1.000 | 3.222 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.087 | 0.171 | 1.765 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.771 | 0.873 | 2.896 |
+| ∂ID/∂(q, q̇) · frax | 1.354 | 2.773 | 15.419 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.175 | 0.432 | 0.946 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 1024**
 
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
-| ID (RNEA) · mantis (C bridge) | 0.027 | 0.045 | 0.164 |
-| ID (RNEA) · mantis (JAX) | 0.780 | 0.767 | 1.267 |
-| ID (RNEA) · GRiD (C++ bridge) | 0.161 | 0.247 | 0.839 |
-| ID (RNEA) · GRiD (JAX FFI) | 0.906 | 1.014 | 1.631 |
-| ID (RNEA) · frax | 1.001 | 1.271 | 2.032 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.141 | 0.210 | 0.384 |
-| ID (RNEA) · RBDL (CPU, float64) | 0.163 | 0.313 | 0.593 |
-| M (CRBA) · mantis (C bridge) | 0.033 | 0.076 | 0.660 |
-| M (CRBA) · mantis (JAX) | 0.573 | 0.683 | 1.967 |
-| M (CRBA) · GRiD (C++ bridge) | 0.193 | 0.278 | 1.456 |
-| M (CRBA) · GRiD (JAX FFI) | 0.723 | 0.882 | 2.644 |
-| M (CRBA) · frax | 0.889 | 1.246 | 2.964 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.158 | 0.321 | 0.779 |
-| M (CRBA) · RBDL (CPU, float64) | 0.214 | 0.308 | 1.020 |
-| FD · mantis (C bridge) | 0.035 | 0.078 | 0.262 |
-| FD · mantis (JAX) | 0.732 | 0.867 | 1.304 |
-| FD · GRiD (C++ bridge) | 0.242 | 0.362 | 2.012 |
-| FD · GRiD (JAX FFI) | 1.058 | 1.161 | 2.957 |
-| FD · frax | 1.143 | 1.490† | 3.122† |
-| FD · Pinocchio codegen (CPU) | 0.298 | 0.447 | 1.552† |
-| FD · RBDL (CPU, float64) | 0.323 | 0.511 | 1.303 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.119 | 0.377 | 2.554 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 0.915 | 1.444 | 4.952 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.261 | 0.545 | 6.950 |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 1.039 | 1.502 | 9.088 |
-| ∂ID/∂(q, q̇) · frax | 2.165 | 7.348 | 53.808 |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.467 | 0.737 | 3.194 |
+| ID (RNEA) · mantis (C bridge) | 0.027 | 0.044 | 0.164 |
+| ID (RNEA) · mantis (JAX) | 0.703 | 0.797 | 1.125 |
+| ID (RNEA) · GRiD (C++ bridge) | 0.160 | 0.246 | 0.839 |
+| ID (RNEA) · GRiD (JAX FFI) | 0.891 | 0.995 | 1.552 |
+| ID (RNEA) · frax | 0.949 | 1.106 | 1.926 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 0.154 | 0.280 | 0.529 |
+| ID (RNEA) · RBDL (CPU, float64) | 0.218 | 0.330 | 0.699 |
+| M (CRBA) · mantis (C bridge) | 0.032 | 0.076 | 0.657 |
+| M (CRBA) · mantis (JAX) | 0.507 | 0.620 | 1.780 |
+| M (CRBA) · GRiD (C++ bridge) | 0.192 | 0.278 | 1.458 |
+| M (CRBA) · GRiD (JAX FFI) | 0.647 | 0.805 | 2.580 |
+| M (CRBA) · frax | 0.795 | 1.221 | 2.976 |
+| M (CRBA) · Pinocchio codegen (CPU) | 0.183 | 0.367 | 0.824 |
+| M (CRBA) · RBDL (CPU, float64) | 0.244 | 0.376 | 0.952 |
+| FD · mantis (C bridge) | 0.035 | 0.077 | 0.262 |
+| FD · mantis (JAX) | 0.751 | 0.819 | 1.256 |
+| FD · GRiD (C++ bridge) | 0.241 | 0.359 | 1.982 |
+| FD · GRiD (JAX FFI) | 0.975 | 1.118 | 2.824 |
+| FD · frax | 1.069 | 1.391† | 3.034† |
+| FD · Pinocchio codegen (CPU) | 0.318 | 0.608 | 1.626† |
+| FD · RBDL (CPU, float64) | 0.360 | 0.640 | 1.341 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.115 | 0.377 | 2.554 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 0.781 | 1.200 | 4.879 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 0.260 | 0.545 | 6.941 |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 0.945 | 1.399 | 8.901 |
+| ∂ID/∂(q, q̇) · frax | 2.143 | 7.210 | 53.983 |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 0.487 | 0.795 | 3.344 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
 **B = 16384**
 
 | op · method | panda | baxter | g1 |
 |---|---|---|---|
-| ID (RNEA) · mantis (C bridge) | 0.101 | 0.187 | 0.634 |
-| ID (RNEA) · mantis (JAX) | 1.121 | 2.023 | 6.842 |
-| ID (RNEA) · GRiD (C++ bridge) | 1.850 | 2.807 | OOM |
-| ID (RNEA) · GRiD (JAX FFI) | 2.974 | 4.223 | 13.623 |
-| ID (RNEA) · frax | 2.145 | 3.842 | 11.419 |
-| ID (RNEA) · Pinocchio codegen (CPU) | 0.743 | 1.610 | 4.740 |
-| ID (RNEA) · RBDL (CPU, float64) | 1.497 | 3.390 | 8.019 |
-| M (CRBA) · mantis (C bridge) | 0.166 | 0.712 | 5.730 |
-| M (CRBA) · mantis (JAX) | 1.017 | 2.624 | 81.316 |
-| M (CRBA) · GRiD (C++ bridge) | 2.225 | 3.611 | OOM |
-| M (CRBA) · GRiD (JAX FFI) | 3.181 | 5.211 | 138.182 |
-| M (CRBA) · frax | 2.219 | 5.199 | 126.947 |
-| M (CRBA) · Pinocchio codegen (CPU) | 0.984 | 2.651 | 12.605 |
-| M (CRBA) · RBDL (CPU, float64) | 1.543 | 3.342 | 15.116 |
-| FD · mantis (C bridge) | 0.110 | 0.240 | 0.876 |
-| FD · mantis (JAX) | 1.062 | 1.726 | 6.984 |
-| FD · GRiD (C++ bridge) | 3.245 | 4.667 | OOM |
-| FD · GRiD (JAX FFI) | 4.363 | 6.256 | 31.773 |
-| FD · frax | 3.136 | 6.239† | 27.186† |
-| FD · Pinocchio codegen (CPU) | 2.093 | 4.969 | 18.745† |
-| FD · RBDL (CPU, float64) | 3.301 | 6.610 | 16.254 |
-| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.486 | 1.859 | 13.622 |
-| ∂ID/∂(q, q̇) · mantis (JAX) | 2.241 | 8.145 | 186.533 |
-| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 3.593 | 7.362 | OOM |
-| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 5.234 | 10.394 | OOM |
-| ∂ID/∂(q, q̇) · frax | 21.226 | 100.605 | OOM |
-| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 3.945 | 10.207 | 42.835 |
+| ID (RNEA) · mantis (C bridge) | 0.101 | 0.187 | 0.632 |
+| ID (RNEA) · mantis (JAX) | 0.963 | 1.669 | 6.350 |
+| ID (RNEA) · GRiD (C++ bridge) | 1.846 | 2.806 | OOM |
+| ID (RNEA) · GRiD (JAX FFI) | 2.888 | 4.002 | 13.039 |
+| ID (RNEA) · frax | 1.992 | 3.710 | 10.840 |
+| ID (RNEA) · Pinocchio codegen (CPU) | 1.017 | 1.675 | 4.956 |
+| ID (RNEA) · RBDL (CPU, float64) | 1.761 | 3.529 | 8.072 |
+| M (CRBA) · mantis (C bridge) | 0.166 | 0.711 | 5.753 |
+| M (CRBA) · mantis (JAX) | 0.881 | 2.538 | 76.009 |
+| M (CRBA) · GRiD (C++ bridge) | 2.224 | 3.609 | OOM |
+| M (CRBA) · GRiD (JAX FFI) | 3.013 | 5.026 | 137.336 |
+| M (CRBA) · frax | 2.204 | 4.824 | 125.583 |
+| M (CRBA) · Pinocchio codegen (CPU) | 1.101 | 2.854 | 14.210 |
+| M (CRBA) · RBDL (CPU, float64) | 1.919 | 3.611 | 16.232 |
+| FD · mantis (C bridge) | 0.110 | 0.240 | 0.875 |
+| FD · mantis (JAX) | 0.962 | 1.622 | 6.496 |
+| FD · GRiD (C++ bridge) | 3.243 | 4.659 | OOM |
+| FD · GRiD (JAX FFI) | 4.383 | 5.882 | 31.534 |
+| FD · frax | 2.955 | 6.020† | 26.618† |
+| FD · Pinocchio codegen (CPU) | 2.301 | 5.138 | 20.577† |
+| FD · RBDL (CPU, float64) | 3.575 | 7.182 | 16.706 |
+| ∂ID/∂(q, q̇) · mantis (C bridge) | 0.485 | 1.852 | 13.624 |
+| ∂ID/∂(q, q̇) · mantis (JAX) | 1.849 | 6.069 | 253.090 |
+| ∂ID/∂(q, q̇) · GRiD (C++ bridge) | 3.619 | 7.322 | OOM |
+| ∂ID/∂(q, q̇) · GRiD (JAX FFI) | 5.144 | 10.764 | OOM |
+| ∂ID/∂(q, q̇) · frax | 20.687 | 100.577 | OOM |
+| ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 4.319 | 11.192 | 44.760 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
+
+### Kinematic trajectory optimization: MotionBenchMaker (Panda)
+
+> **Placeholder, written by hand (2026-11-23); results pending.** The trajopt procedure changed and
+> the full run has not been made yet. `python tables.py` replaces this section with the generated
+> one once `results/trajopt_*_trace250_s0.json` exist for every method. The earlier
+> 25 / 50 / 100 / 200-iteration results (`results/trajopt_*_i<N>_s0.json`, the CDF figure
+> `trajopt_success_cdf.png`) are **superseded**: they predate the current start selection (lowest
+> cost among the starts that pass each method's own GPU collision check) and the trace procedure.
+> Don't quote them.
+
+**Procedure** (`bash run_trajopt.sh`, `bench_trajopt.py --trace`): 800 MBM problems, seed 0, one
+problem per call, 32 waypoints. GRiM (CHOMP, STOMP, SCO), pyroki and cuRobo start from the same 64
+starts per problem (the straight line and 63 sine-bump perturbations of it, solved as one batch;
+pyroki runs 6 iterations on all 64, then the rest on its best 4, its paper's IK beam). TrajOpt and
+Drake (CPU) start from the straight line. Every method runs **once to 250 of its own iterations**
+and reports, every 10 iterations, the answer it would return if stopped there: its own pick over
+its starts, checked with its own collision code. Each answer is graded in float64 on the shared
+sphere model (collision-free including dense interpolation, endpoints within 1e-3 rad,
+`trajopt/mbm.py`) and stamped with the wall time reached:
+
+| method | 250 iterations | clock |
+|---|---|---|
+| GRiM CHOMP / STOMP / SCO | kernel iterations (SCO: 25 inner x 10 outer L-BFGS steps) | kernel snapshots (`snap_every`); time split evenly by iteration within the one launch, plus that checkpoint's own check |
+| pyroki | jaxls LM steps (6 + 244) | jaxls snapshots (`external_patches/jaxls_snapshots.py`); each beam phase timed, split evenly by iteration |
+| cuRobo v2 | L-BFGS steps (225 trajopt + 25 time-optimal finetune), one attempt, no RRT | its debug recorder with a timestamp per iteration (CUDA graphs off) |
+| TrajOpt (Tesseract) | SQP iterations | the harness's per-iteration iterates and times |
+| Drake (SNOPT) | major iterations, per solve | every 10th function evaluation (its bundled SNOPT reports no major iterations) |
+
+**Outputs** (`python tables.py trace`):
+- a table at 250 iterations: success %, median path length and smoothness over the solved problems, median time;
+- `results/trajopt_trace_over_time.png`: solved-by-time-t and median path length against time, as step curves;
+- `results/trajopt_trace_pareto.png`: time vs success and time vs path length, with the frontier.
+
+Tuned rows (`--tuned`, parameters frozen on the MπNets tuning set; RUNNING.md, "Trajopt tuning")
+are GRiM STOMP, TrajOpt and Drake.
+
 <!-- /tables -->

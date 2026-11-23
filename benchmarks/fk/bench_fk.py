@@ -1,7 +1,8 @@
 """FK: world centres of every collision sphere of the robot's spherized URDF, (B, S, 3).
 
 That is the one FK output every method can produce: pRRTC's and cuRobo's kernels emit spheres
-natively; pyroki, GRiM and mantis compute frame poses and place the spheres in the same jit.
+natively; GRiM and mantis emit spheres in a single specialized kernel; pyroki places
+spheres in its FK jit.
 GRiM (``traced=False``, GRiD-style baked tables) and mantis (``traced=True``) share everything
 but the FK backend. Accuracy is the max error against Pinocchio in float64.
 
@@ -64,37 +65,34 @@ def run_pyroki(robot, q):
 
 
 def _grim_fk(robot, q, traced):
-    """GRiM's FK (``traced``: mantis's) as (poses fn, sphere table, q in GRiM's joint order)."""
+    """GRiM's FK (``traced``: mantis's) as (sphere fn, q in GRiM's joint order)."""
     import jax.numpy as jnp
     from grim.motion import MotionRobot
-    from grim.motion.kinematics import kinematics
+    from grim.motion.kinematics import sphere_kinematics
     urdf = common.FK_URDF[robot]
     m = MotionRobot.from_urdf(str(urdf))
     root = m.link_names[int(np.flatnonzero(m.link_parent_joint < 0)[0])]
     idx, centres = _sphere_table(urdf, lambda l: -1 if l == root else m.link_joint(l))
     perm = [common.joint_names(urdf).index(n) for n in m.actuated_names]
-    # no end-effector: poses only, no residual or Jacobian
-    return (lambda x: kinematics(m, x, traced=traced)[0]), idx, centres, jnp.asarray(q[:, perm])
+    # Fused world sphere centres, with no intermediate pose output.
+    return (lambda x: sphere_kinematics(m, x, idx, centres, traced=traced)), jnp.asarray(q[:, perm])
 
 
 def run_grim(robot, q, traced):
-    poses, idx, centres, qj = _grim_fk(robot, q, traced)
-    return jax_timer(lambda x: _place(poses(x), idx, centres), qj)
+    spheres, qj = _grim_fk(robot, q, traced)
+    return jax_timer(spheres, qj)
 
 
 def run_grim_cuda(robot, q, traced):
-    """``run_grim`` through the C bridge: GRiM's kinematics call replayed from C, then
-    ``_place`` (runtime.cu ``gb_place``); output checked against the JAX row's."""
+    """Replay the same single fused FK call from C."""
     import grim_bridge
-    poses, idx, centres, qj = _grim_fk(robot, q, traced)
+    spheres, qj = _grim_fk(robot, q, traced)
     with grim_bridge.record() as calls:
-        ref = np.asarray(_place(poses(qj), idx, centres))
-    (B, S) = ref.shape[:2]
-    prog = grim_bridge.Program(calls, [("gb_place", [("call", 0, 0), idx.astype(np.int32), centres.astype(np.float32)],
-                                        [], ((B, S, 3), np.float32))])
+        ref = np.asarray(spheres(qj))
+    prog = grim_bridge.Program(calls)
     try:
         prog.run()
-        out = prog.extra_out[0].get()
+        out = prog.results[0][0].get()
         grim_bridge.check(out, ref, f"fk {robot}")
         return prog.time_ms(common.K, common.REPS, common.WARMUP), out
     finally:
@@ -169,7 +167,9 @@ def main():
             ms, out = RUNNERS[method](robot, q)
             rows_, pos = common.checked(data, batch)
             err = match(out[rows_].astype(np.float64), data["ref"][pos])
-            rows.append({"method": method, "robot": robot, "batch": batch, "ms": ms, "max_err": err})
+            rows.append({"method": method, "robot": robot, "batch": batch, "ms": ms, "max_err": err,
+                         "implementation": "fused-spheres-v1" if method in
+                         ("grim", "mantis", "grim_cuda", "mantis_cuda") else method})
             print(f"{method:8s} {robot:7s} B={batch:6d} {ms:9.4f} ms  err {err:.2e}", flush=True)
     common.save(f"fk_{method}_{'_'.join(robots)}", rows)
 

@@ -3,84 +3,96 @@
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 1,
-  "ms": 0.022646540000000003,
-  "max_err": 4.54068929678364e-08
+  "ms": 0.00923792,
+  "max_err": 4.382864754459703e-08,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 128,
-  "ms": 0.09831258,
-  "max_err": 2.0242253073732286e-07
+  "ms": 0.11390784,
+  "max_err": 2.2274537347932721e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 1024,
-  "ms": 0.10473274,
-  "max_err": 2.0242253073732286e-07
+  "ms": 0.11390542,
+  "max_err": 2.2274537347932721e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 16384,
-  "ms": 0.37959466,
-  "max_err": 2.0242253073732286e-07
+  "ms": 0.4665719,
+  "max_err": 2.2274537347932721e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 1,
-  "ms": 0.06316416,
-  "max_err": 1.2953153505357307e-07
+  "ms": 0.01324112,
+  "max_err": 1.5648437234894175e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 128,
-  "ms": 0.36350014,
-  "max_err": 2.417752689165553e-07
+  "ms": 0.14644394,
+  "max_err": 2.6379219031369416e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 1024,
-  "ms": 0.37158226,
-  "max_err": 2.417752689165553e-07
+  "ms": 0.14641928,
+  "max_err": 2.6379219031369416e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 16384,
-  "ms": 1.22583276,
-  "max_err": 2.417752689165553e-07
+  "ms": 0.60208772,
+  "max_err": 2.666271083917593e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 1,
-  "ms": 0.12649702,
-  "max_err": 7.4309265796213e-08
+  "ms": 0.05957118,
+  "max_err": 7.4309265796213e-08,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 128,
-  "ms": 0.48996668,
-  "max_err": 1.3076617899621112e-07
+  "ms": 0.18476462000000002,
+  "max_err": 1.8564127546305542e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 1024,
-  "ms": 0.5038394,
-  "max_err": 1.3076617899621112e-07
+  "ms": 0.18112892,
+  "max_err": 1.8564127546305542e-07,
+  "implementation": "fused-spheres-v1"
  },
  {
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 16384,
-  "ms": 1.48682358,
-  "max_err": 1.4481418549039393e-07
+  "ms": 0.59211962,
+  "max_err": 1.8564127546305542e-07,
+  "implementation": "fused-spheres-v1"
  }
 ]

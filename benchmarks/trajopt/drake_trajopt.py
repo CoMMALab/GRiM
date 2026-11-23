@@ -94,15 +94,31 @@ def problem(diagram, plant, p: dict):
     return trajopt, prog, [(coll, s) for s in np.linspace(0, 1, COLLISION_SAMPLES)]
 
 
-def solve(trajopt, prog, collision, max_iters: int | None = None, samples: int = 100) -> tuple[np.ndarray, bool]:
+def solve(trajopt, prog, collision, max_iters: int | None = None, samples: int = 100,
+          record: list | None = None) -> tuple[np.ndarray, bool]:
     """The demo's two solves: without collisions, then with ``collision`` (problem()'s constraint
     and path points) from that solution. ``max_iters``: SNOPT's major-iteration limit of each solve
-    (the benchmark's budget); None: SNOPT's default."""
+    (the benchmark's budget); None: SNOPT's default.
+
+    ``record`` (debug; adds a host callback, so time without it): a list that gets
+    ``(phase, perf_counter, control points (n, CONTROL_POINTS))`` at every evaluation SNOPT makes
+    (Drake's visualization callback: every function evaluation, line-search trials included, not
+    only major iterations), phase 0 / 1 for the collision-free / collision solve; iterates() samples
+    them like the result."""
     from pydrake.solvers import SnoptSolver, Solve, SolverOptions
     opts = SolverOptions()
     if max_iters is not None:
         opts.SetOption(SnoptSolver().solver_id(), "Major iterations limit", int(max_iters))
+    if record is not None:
+        import time
+        cps = trajopt.control_points()
+        phase = [0]
+        prog.AddVisualizationCallback(
+            lambda x: record.append((phase[0], time.perf_counter(), np.asarray(x).reshape(cps.shape, order="F").copy())),
+            cps.reshape(-1, order="F"))
     result = Solve(prog, solver_options=opts)
+    if record is not None:
+        phase[0] = 1
     trajopt.SetInitialGuess(trajopt.ReconstructTrajectory(result))
     for c, s in collision:
         trajopt.AddPathPositionConstraint(c, s)
@@ -110,3 +126,15 @@ def solve(trajopt, prog, collision, max_iters: int | None = None, samples: int =
     traj = trajopt.ReconstructTrajectory(result)
     ts = np.linspace(traj.start_time(), traj.end_time(), samples)
     return np.array([traj.value(t).ravel() for t in ts]), bool(result.is_success())
+
+
+def iterates(trajopt, record: list, samples: int = 100) -> list[np.ndarray]:
+    """solve()'s recorded control points as trajectories (samples, n), sampled as its result is
+    (uniform in the path parameter: the recorded points carry no duration, which only rescales time)."""
+    from pydrake.trajectories import BsplineTrajectory
+    out = []
+    for _, _, cp in record:
+        traj = BsplineTrajectory(trajopt.basis(), [cp[:, [j]] for j in range(cp.shape[1])])
+        ts = np.linspace(traj.start_time(), traj.end_time(), samples)
+        out.append(np.array([traj.value(t).ravel() for t in ts]))
+    return out

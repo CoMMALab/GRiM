@@ -19,8 +19,7 @@ IK = {"grim_ls": "GRiM LS IK", "grim_dls": "GRiM DLS IK", "grim_sqp": "GRiM SQP 
       "grim_hjcd": "GRiM HJCD IK (coarse CD -> LM)", "grim_mppi": "GRiM MPPI IK (MPPI -> L-BFGS)",
       **{f"grim_{k}_cuda": f"GRiM {k.upper()} IK, C bridge" for k in ("ls", "dls", "sqp", "hjcd", "mppi")},
       "pyroki": "pyroki IK-Beam (analytic Jacobian; own 64->4 seeds)",
-      "curobo": "cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds)",
-      "frax": "frax GlobalIKSolver (multi-start diff-IK SQP, ElastiQP; 32 starts; CPU float64)"}
+      "curobo": "cuRobo v2 IKSolver (LM-seeded L-BFGS; own seeds)"}
 # Supplementary: mantis's traced IK steps in minimal benchmark loops (profile, not a comparison).
 IK_STEP = {"mantis": "mantis `ik_lm_step` (6x6 LM)",
            "mantis_ls_f32": "mantis `ik_ls_step`, float", "mantis_ls_mixed": "mantis `ik_ls_step`, float system / double solve",
@@ -79,14 +78,15 @@ def ik_tables(rows, methods: dict) -> list[str]:
 
 def ik_section() -> str:
     rows = load("ik")
+    S = max(r["seeds"] for r in rows if r["method"] == "grim_ls")   # the shared seed count of this run
     return "\n".join([
         "### Global IK: one end-effector pose from random seeds\n",
-        "GRiM: 8 seeds, 60 iterations max, fastest tier; pyroki, cuRobo and frax as their own benchmarks "
-        "configure them (frax runs on the CPU). Time per call in ms, then success rate (position < 1 mm, "
+        f"GRiM: {S} seeds, 60 iterations max, fastest tier; pyroki and cuRobo as their own benchmarks "
+        "configure them. Time per call in ms, then success rate (position < 1 mm, "
         "orientation < 0.01 rad, within the URDF limits; Pinocchio float64).",
         *ik_tables(rows, IK),
         "\n### Supplementary: mantis IK steps\n",
-        "mantis's traced IK steps in the benchmark's own minimal CUDA loops (one seed per thread, 8 seeds, "
+        f"mantis's traced IK steps in the benchmark's own minimal CUDA loops (one seed per thread, {S} seeds, "
         "60 iterations), across precisions. A profile of the trace, not a comparison with the solvers above.",
         *ik_tables(rows, IK_STEP)])
 
@@ -125,8 +125,8 @@ def dyn_section() -> str:
     return "\n".join(parts)
 
 
-TRAJ = {"grim_chomp": "GRiM CHOMP", "grim_stomp": "GRiM STOMP", "grim_sco": "GRiM SCO",
-        "pyroki": "pyroki (jaxls, augmented Lagrangian)", "curobo": "cuRobo v2 MotionPlanner ‡",
+TRAJ = {"grim_chomp": "GRiM CHOMP (64 starts)", "grim_stomp": "GRiM STOMP (64 starts)", "grim_sco": "GRiM SCO (64 starts)",
+        "pyroki": "pyroki (jaxls, augmented Lagrangian, 64 starts)", "curobo": "cuRobo v2 MotionPlanner (64 starts, no RRT) ‡",
         "trajopt": "TrajOpt (Tesseract, CPU)", "drake": "Drake KinematicTrajectoryOptimization (SNOPT, CPU)"}
 
 
@@ -145,11 +145,11 @@ def _boot(rows, stat, rng):
 
 
 def traj_section(suffix: str = "") -> str:
-    """MBM trajopt: every method at each iteration budget (cuRobo: its planner, one point), 5 seeds.
+    """MBM trajopt: every method at each iteration budget (cuRobo: its planner, one point), seed 0.
     Files trajopt_<method>[_params][_i<N>]<suffix>_s<seed>.json; suffix "" is the full MBM run (not
     the --tune set, scene subsets or --limit runs), e.g. "_table_pick_panda_n1" for a smoke run."""
     from scipy.stats import binomtest
-    pat = re.compile(r"^trajopt_(?!.*_tune)(.+?)(_i\d+)?" + re.escape(suffix) + r"_s\d+\.json$")
+    pat = re.compile(r"^trajopt_(?!.*_tune)(?!.*_trace)(.+?)(_i\d+)?" + re.escape(suffix) + r"_s0\.json$")   # seed 0 only
     files = [p for p in sorted(common.RESULTS.glob("trajopt_*_s*.json")) if pat.match(p.name)
              and (suffix or not re.search(r"_n\d+_s\d+\.json$|_panda", p.name))]
     rows = [r for p in files for r in json.loads(p.read_text())]
@@ -173,8 +173,10 @@ def traj_section(suffix: str = "") -> str:
         return f"{succ(rs):.0f} [{a:.0f}, {b:.0f}] / {med(rs):.0f} [{c:.0f}, {d:.0f}] ms"
 
     out = ["### Kinematic trajectory optimization: MotionBenchMaker (Panda)\n",
-           f"{len({(r['scene'], r['index']) for r in rows})} MBM problems x {seeds} seeds, one problem per call, "
-           "from the same straight-line seed of 32 waypoints, every method at the same safety margin (1 cm) except "
+           f"{len({(r['scene'], r['index']) for r in rows})} MBM problems" + (f" x {seeds} seeds" if seeds > 1 else "") + ", one problem per call, "
+           "32 waypoints; GRiM, pyroki and cuRobo from the same 64 starts per problem (the straight line and 63 "
+           "sine-bump perturbations of it, solved as one batch; pyroki keeps its best 4 after a few iterations, "
+           "its paper's IK beam), TrajOpt and Drake (CPU) from the straight line alone; every method at the same safety margin (1 cm) except "
            "cuRobo (‡); graded in float64 on the shared sphere model, collision-free including dense "
            "interpolation, endpoints within 1e-3 rad (benchmarks/trajopt/mbm.py). A budget of N iterations is N "
            "of the solver's own steps (CHOMP / STOMP / pyroki LM / TrajOpt SQP / Drake SNOPT major iterations, "
@@ -182,10 +184,11 @@ def traj_section(suffix: str = "") -> str:
            "(the figure). Each method runs with its library's defaults; tuned rows use the parameters chosen "
            "on a disjoint MπNets tuning set (RUNNING.md, \"Trajopt tuning\"). Cells: success % / median time per "
            "problem, with 95% intervals from a bootstrap over problems (seeds kept together).\n",
-           "‡ cuRobo runs as designed: its MotionPlanner.plan_cspace (IK-free joint goal, 4 trajopt seeds, RRT "
-           "fallback, up to 20 attempts, time optimization) with its own benchmark's settings, including its "
+           "‡ cuRobo runs as designed: its MotionPlanner.plan_cspace (IK-free joint goal, the shared 64 starts as its "
+           "trajopt seeds, one attempt, no RRT fallback, time optimization) with its own benchmark's settings, including its "
            "2.5 mm activation distance; it has no iteration budget, so it is one point (every column).\n",
            "![success vs time](results/trajopt_success_vs_time" + suffix + ".png)\n",
+           "![success within a time budget](results/trajopt_success_cdf" + suffix + ".png)\n",
            "| method | " + " | ".join(f"{b} iterations" for b in budgets) + " |", "|---|" + "---|" * len(budgets)]
     for v in variants:
         out.append(f"| {label(*v)} | " + " | ".join(cell(pick(v, b)) for b in budgets) + " |")
@@ -252,15 +255,139 @@ def traj_section(suffix: str = "") -> str:
     ax.grid(alpha=0.3)
     fig.tight_layout()
     fig.savefig(common.RESULTS / f"trajopt_success_vs_time{suffix}.png", dpi=150)
+
+    # Success within time t, per problem, from the budgets already run: given t, a method runs the
+    # largest budget that finished within t on that problem, and that run's success counts (no
+    # oracle choice of budget). cuRobo, one run to completion, is its own time to solve.
+    grid_t = np.logspace(0, np.log10(max(r["ms"] for r in rows)) + 0.05, 400)
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    for v in variants:
+        runs = {}
+        for b_ in [x for x in budgets if pick(v, x)] if v[0] != "curobo" else budgets[:1]:
+            for r in pick(v, b_):
+                runs.setdefault((r["scene"], r["index"], r["seed"]), []).append((r["ms"], r["success"]))
+        frac = np.zeros_like(grid_t)
+        for rs in runs.values():
+            ms, ok = np.array(rs, float).T
+            last = np.where(ms[None] <= grid_t[:, None], np.arange(len(ms)), -1).max(1)   # largest budget done by t
+            frac += np.where(last >= 0, ok[np.maximum(last, 0)], 0)
+        ax.step(grid_t, 100 * frac / len(runs), where="post", ls="--" if v[1] else "-", label=label(*v))
+    ax.set_xscale("log")
+    ax.set_xlabel("time budget per problem (ms, log)")
+    ax.set_ylabel("solved within budget (%)")
+    ax.set_title("MBM Panda: solved within a time budget (25 / 50 / 100 / 200 iteration runs)", fontsize=10)
+    ax.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5))
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(common.RESULTS / f"trajopt_success_cdf{suffix}.png", dpi=150)
+    return "\n".join(out)
+
+
+def trace_section(suffix: str = "") -> str:
+    """MBM trajopt, trace mode (bench_trajopt.py --trace): every method once to 250 iterations, a
+    checkpoint every 10 (its answer if stopped there, at the wall time reached). Files
+    trajopt_<method>[_params]_trace250<suffix>_s0.json. Writes the success and path-length curves
+    over time and the Pareto plot of the 250-iteration results."""
+    pat = re.compile(r"^trajopt_(?!.*_tune)(.+?)_trace\d+" + re.escape(suffix) + r"_s0\.json$")
+    rows = [r for p in sorted(common.RESULTS.glob("trajopt_*_trace*_s0.json")) if pat.match(p.name)
+            for r in json.loads(p.read_text())]
+    if not rows:
+        return ""
+    var = lambda r: (r["method"], bool(r.get("params")))
+    variants = [(m, t) for m in TRAJ for t in (False, True) if any(var(r) == (m, t) for r in rows)]
+    label = lambda m, t: TRAJ[m] + (" (tuned)" if t else "")
+    color = {v: f"C{list(TRAJ).index(v[0])}" for v in variants}   # one color per method in every figure
+    runs = {v: {} for v in variants}   # per problem: its checkpoints in time order
+    for r in rows:
+        runs[var(r)].setdefault((r["scene"], r["index"]), []).append(r)
+    for v in variants:
+        for cps in runs[v].values():
+            cps.sort(key=lambda r: (r["ms"], r["final"]))
+    n_prob = len({(r["scene"], r["index"]) for r in rows})
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    grid_t = np.logspace(np.log10(min(r["ms"] for r in rows)) - 0.05, np.log10(max(r["ms"] for r in rows)) + 0.05, 500)
+
+    def at_time(cps):   # (G,) index of the latest checkpoint reached by each time, -1 before the first
+        ms = np.array([r["ms"] for r in cps])
+        return np.where(ms[None] <= grid_t[:, None], np.arange(len(ms)), -1).max(1)
+
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 4.5))
+    for v in variants:
+        ok = np.zeros(len(grid_t))
+        length = [[] for _ in grid_t]
+        for cps in runs[v].values():
+            idx = at_time(cps)
+            for g, i in enumerate(idx):
+                if i >= 0 and cps[i]["success"]:
+                    ok[g] += 1
+                    length[g].append(cps[i]["path_length"])
+        ls = "--" if v[1] else "-"
+        a1.step(grid_t, 100 * ok / len(runs[v]), where="post", ls=ls, color=color[v], label=label(*v))
+        a2.step(grid_t, [np.median(x) if x else np.nan for x in length], where="post", ls=ls, color=color[v], label=label(*v))
+    for a, y in ((a1, "solved by time t (%)"), (a2, "median path length of the solved (rad)")):
+        a.set_xscale("log")
+        a.set_xlabel("time per problem (ms, log)")
+        a.set_ylabel(y)
+        a.grid(alpha=0.3)
+    a1.set_title("Success over time (a checkpoint every 10 iterations)", fontsize=10)
+    a2.set_title("Path quality over time", fontsize=10)
+    a2.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5))
+    fig.tight_layout()
+    fig.savefig(common.RESULTS / f"trajopt_trace_over_time{suffix}.png", dpi=150)
+
+    final = {v: [cps[-1] for cps in runs[v].values()] for v in variants}
+    stat = {}
+    out = ["### Trajectory optimization at 250 iterations (trace run)\n",
+           f"{n_prob} MBM problems; each method's result after 250 of its own iterations. Path length and "
+           "smoothness: medians over the problems that method solved; time: median per problem.\n",
+           f"![over time](results/trajopt_trace_over_time{suffix}.png)\n",
+           f"![Pareto](results/trajopt_trace_pareto{suffix}.png)\n",
+           "| method | success % | path length (rad) | smoothness | median time (ms) |", "|---|---|---|---|---|"]
+    for v in variants:
+        rs, sol = final[v], [r for r in final[v] if r["success"]]
+        stat[v] = (float(np.median([r["ms"] for r in rs])), 100 * len(sol) / len(rs),
+                   float(np.median([r["path_length"] for r in sol])) if sol else np.nan)
+        out.append(f"| {label(*v)} | {stat[v][1]:.1f} | {stat[v][2]:.3f} | "
+                   + (f"{np.median([r['smoothness'] for r in sol]):.4f}" if sol else "—") + f" | {stat[v][0]:.1f} |")
+
+    # Pareto: faster and more successful (left panel), faster and shorter (right panel)
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 4.5))
+    for a, k, better in ((a1, 1, max), (a2, 2, min)):
+        pts = sorted((stat[v][0], stat[v][k], v) for v in variants)
+        front, best = [], None
+        for t, y, v in pts:   # by increasing time: on the front if it beats everything faster
+            if best is None or better(y, best) != best:
+                front.append((t, y))
+                best = y
+        for t, y, v in pts:
+            a.plot(t, y, "o", ms=8, color=color[v], mec="white", mew=1.5, label=label(*v))
+        a.step(*zip(*front), where="post", color="0.5", ls=":", lw=1.5)
+        a.set_xscale("log")
+        a.set_xlabel("median time per problem (ms, log)")
+        a.grid(alpha=0.3)
+    a1.set_ylabel("success %")
+    a2.set_ylabel("median path length of the solved (rad)")
+    a1.set_title("Pareto: time vs success (dotted: frontier)", fontsize=10)
+    a2.set_title("Pareto: time vs path length", fontsize=10)
+    a2.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5))
+    fig.tight_layout()
+    fig.savefig(common.RESULTS / f"trajopt_trace_pareto{suffix}.png", dpi=150)
     return "\n".join(out)
 
 
 def main():
+    if sys.argv[1:2] == ["trace"]:   # only the trace section; README untouched
+        print(trace_section(sys.argv[2] if len(sys.argv) > 2 else ""))
+        return
     if sys.argv[1:2] == ["traj"]:   # only the trajopt section, of the runs with this suffix; README untouched
         print(traj_section(sys.argv[2] if len(sys.argv) > 2 else ""))
         return
     fast = bool(os.environ.get("BENCH_FAST"))   # run_all.sh --fast: print only, README untouched
-    body = "\n\n".join(x for x in [fk_section(), ik_section(), dyn_section(), traj_section("_n1" if fast else "")] if x)
+    body = "\n\n".join(x for x in [fk_section(), ik_section(), dyn_section(), traj_section("_n1" if fast else ""),
+                                       trace_section("_n1" if fast else "")] if x)
     if fast:
         print(body)
         return

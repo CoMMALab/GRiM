@@ -13,13 +13,12 @@ Same targets (FK of random in-limit configurations), seeds, weights (position 50
               (ik/mantis_ik_sqp.py)
 * ``pyroki``  pyroki's IK-Beam as shipped in its benchmark (``pose_cost_analytic_jac`` +
               ``limit_cost``, jaxls dense-Cholesky LM; its own 64->4 seeds, weights and 16 steps)
-* ``frax``    frax 0.2.0 GlobalIKSolver as its parallel_global_ik.py example (diff-IK SQP, 32 starts)
 * ``curobo``  cuRobo v2 IKSolver as configured by cuRobo's benchmark (LM-seeded L-BFGS); curobo env
 
 Success is judged in float64 by Pinocchio on the returned configuration: position < 1 mm,
 orientation < 0.01 rad, inside joint limits.
 
-    python ik/bench_ik.py <prepare|grim_ls|grim_dls|grim_sqp|grim_hjcd|grim_mppi|grim_<kernel>_cuda|mantis|mantis_ls_f32|mantis_ls_f64|mantis_ls_mixed|pyroki|curobo|frax> [robot ...]
+    python ik/bench_ik.py <prepare|grim_ls|grim_dls|grim_sqp|grim_hjcd|grim_mppi|grim_<kernel>_cuda|mantis|mantis_ls_f32|mantis_ls_f64|mantis_ls_mixed|pyroki|curobo> [robot ...]
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ sys.path.insert(0, str(HERE.parent / "bridge"))
 import common  # noqa: E402
 
 BATCHES = (1, 128, 1024)
-SEEDS = 8
+SEEDS = 32
 MAX_ITER = 60
 POS_W, ORI_W = 50.0, 10.0
 EE = {"panda": "panda_grasptarget", "baxter": "right_gripper", "g1": "right_hand_palm_link"}
@@ -208,7 +207,7 @@ def run_pyroki(robot, seeds, target):
                                total_steps - init_steps)
         return sols[jnp.argmin(summary.cost_history[jnp.arange(num_seeds_final), summary.iterations])]
 
-    # pyroki's precision, not run_all.sh's "highest" (kept for frax): IK-Beam is 4.7x slower
+    # pyroki's precision, not run_all.sh's "highest": IK-Beam is 4.7x slower
     # under "highest" on JAX 0.6, and its benchmark runs at the default.
     with jax.default_matmul_precision("default"):
         f = jax.jit(jax.vmap(solve_ik))
@@ -257,60 +256,6 @@ def run_curobo(robot, seeds, target):
     return ms, q, "lbfgs+lm-seed"
 
 
-def frax_ee(urdf, ee: str):
-    """(movable joint carrying ``ee``, the fixed transform from that joint's frame to ``ee``):
-    frax tracks joint frames plus an offset (FrameTask), not URDF links."""
-    import xml.etree.ElementTree as ET
-    from scipy.spatial.transform import Rotation
-    joints = {j.find("child").get("link"): j for j in ET.parse(urdf).getroot().findall("joint")}
-    T, link = np.eye(4), ee
-    while joints[link].get("type") == "fixed":
-        o = joints[link].find("origin")
-        X = np.eye(4)
-        if o is not None:
-            X[:3, :3] = Rotation.from_euler("xyz", [float(v) for v in o.get("rpy", "0 0 0").split()]).as_matrix()
-            X[:3, 3] = [float(v) for v in o.get("xyz", "0 0 0").split()]
-        T, link = X @ T, joints[link].find("parent").get("link")
-    return joints[link].get("name"), T
-
-
-def run_frax(robot, seeds, target):
-    """frax 0.2.0's GlobalIKSolver as frax's examples/ik/parallel_global_ik.py sets it up: diff-IK
-    SQP (ElastiQP) with a pose task (gains 10), a home-pose JointTask (weight 0.01) and
-    JointLimits; 32 starts (home + 31 uniform), 200 iterations, tol 1e-4, lowest cost wins. Our
-    URDF and end-effector (FrameTask on the joint carrying it); home is the limits' midpoint
-    (frax's Panda default_q is not defined for our robots). vmapped over problems; device and
-    float64 follow JAX_PLATFORMS / JAX_ENABLE_X64. The shared seeds are not used."""
-    import jax
-    import jax.numpy as jnp
-    from frax.core.robot import Robot
-    from frax.ik import DiffIKSolver, FrameTask, GlobalIKSolver, JointLimits, JointTask
-    urdf = common.MODEL_URDF[robot]
-    r = Robot(str(urdf))
-    n = r.num_actuated_joints
-    joint, offset = frax_ee(urdf, EE[robot])
-    solver = DiffIKSolver(r, [FrameTask(r, [r.joint_name_to_index[joint]], gain_pos=10.0, gain_rot=10.0,
-                                        offsets=offset),
-                              JointTask(r, np.arange(n), "q_home", gain=1.0, weight=0.01)],
-                          [JointLimits(r)])
-    global_ik = GlobalIKSolver(solver)
-    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-    lo, hi = np.asarray(r.actuated_joint_lower_limits), np.asarray(r.actuated_joint_upper_limits)
-    home = jnp.asarray((lo + hi) / 2, dtype)
-    P = len(target)
-    from scipy.spatial.transform import Rotation
-    refs = {"frame_pos": jnp.asarray(target[:, None, 4:], dtype),
-            "frame_rmat": jnp.asarray(Rotation.from_quat(target[:, [1, 2, 3, 0]]).as_matrix()[:, None], dtype),
-            "q_home": jnp.broadcast_to(home, (P, n))}
-    keys = jax.random.split(jax.random.key(0), P)
-    f = jax.jit(jax.vmap(lambda ref, key: global_ik.solve(home, ref, key).q))
-    out = f(refs, keys)
-    ms = common.amortized_ms(lambda: f(refs, keys), jax.block_until_ready)
-    names = list(common.load_inputs("ik", robot)["joint_names"])
-    inv = np.argsort([names.index(j) for j in r.joint_names])
-    return ms, np.asarray(out, np.float64)[:, None][..., inv], f"global-ik 32 ({jax.default_backend()})"
-
-
 def run_mantis(robot, seeds, target):
     import mantis_ik
     return mantis_ik.run(robot, seeds, target, EE[robot], MAX_ITER, POS_W, ORI_W)
@@ -337,7 +282,7 @@ RUNNERS = {**{f"grim_{k}": (lambda r, s, t, k=k: run_grim(r, s, t, k))
            "mantis_ls_f32": run_mantis_ls("f32"), "mantis_ls_f64": run_mantis_ls("f64"),
            "mantis_ls_mixed": run_mantis_ls("mixed"),
            **{f"mantis_sqp_{p}": run_mantis_sqp(p) for p in ("f32", "f64", "mixed")},
-           "pyroki": run_pyroki, "curobo": run_curobo, "frax": run_frax}
+           "pyroki": run_pyroki, "curobo": run_curobo}
 
 
 def main():
@@ -368,7 +313,7 @@ def main():
         for P in BATCHES:
             seeds, target = data["seeds"][:P], data["target"][:P]
             ms, q, tier = RUNNERS[method](robot, seeds, target)
-            S = {"pyroki": 64, "curobo": 2, "frax": 32}.get(method, SEEDS)  # seeds itself (curobo: 2 L-BFGS after 32 LM)
+            S = {"pyroki": 64, "curobo": 2}.get(method, SEEDS)  # seeds itself (curobo: 2 L-BFGS after 32 LM)
             row = {"method": method, "robot": robot, "batch": P, "seeds": S, "ms": ms, "tier": tier}
             if graded:
                 row.update(score(robot, q, target))

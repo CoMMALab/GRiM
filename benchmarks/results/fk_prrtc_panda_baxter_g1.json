@@ -3,84 +3,96 @@
   "method": "prrtc",
   "robot": "panda",
   "batch": 1,
-  "ms": 0.075796,
-  "max_err": 5.407807569246526e-07
+  "ms": 0.075735,
+  "max_err": 5.407807569246526e-07,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "panda",
   "batch": 128,
-  "ms": 0.075469,
-  "max_err": 7.478175986785907e-07
+  "ms": 0.075428,
+  "max_err": 7.478175986785907e-07,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "panda",
   "batch": 1024,
-  "ms": 0.074977,
-  "max_err": 7.478175986785907e-07
+  "ms": 0.074957,
+  "max_err": 7.478175986785907e-07,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "panda",
   "batch": 16384,
-  "ms": 0.345969,
-  "max_err": 8.437748206802098e-07
+  "ms": 0.34644,
+  "max_err": 8.437748206802098e-07,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "baxter",
   "batch": 1,
-  "ms": 0.093757,
-  "max_err": 6.26452346552675e-07
+  "ms": 0.093778,
+  "max_err": 6.26452346552675e-07,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "baxter",
   "batch": 128,
-  "ms": 0.09271,
-  "max_err": 1.2662482151704069e-06
+  "ms": 0.092713,
+  "max_err": 1.2662482151704069e-06,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "baxter",
   "batch": 1024,
-  "ms": 0.092631,
-  "max_err": 1.2662482151704069e-06
+  "ms": 0.092672,
+  "max_err": 1.2662482151704069e-06,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "baxter",
   "batch": 16384,
-  "ms": 0.500961,
-  "max_err": 1.2662482151704069e-06
+  "ms": 0.500797,
+  "max_err": 1.2662482151704069e-06,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "g1",
   "batch": 1,
-  "ms": 0.155341,
-  "max_err": 9.271732383658859e-07
+  "ms": 0.155361,
+  "max_err": 9.271732383658859e-07,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "g1",
   "batch": 128,
-  "ms": 0.152412,
-  "max_err": 1.023213361234232e-06
+  "ms": 0.15241,
+  "max_err": 1.023213361234232e-06,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "g1",
   "batch": 1024,
-  "ms": 0.152513,
-  "max_err": 1.023213361234232e-06
+  "ms": 0.152678,
+  "max_err": 1.023213361234232e-06,
+  "implementation": "prrtc"
  },
  {
   "method": "prrtc",
   "robot": "g1",
   "batch": 16384,
-  "ms": 0.652841,
-  "max_err": 1.1460537549523586e-06
+  "ms": 0.652657,
+  "max_err": 1.1460537549523586e-06,
+  "implementation": "prrtc"
  }
 ]

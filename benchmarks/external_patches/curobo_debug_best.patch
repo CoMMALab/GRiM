@@ -1,0 +1,41 @@
+diff --git a/curobo/_src/optim/components/debug_recorder.py b/curobo/_src/optim/components/debug_recorder.py
+index 3fcce6b..d2a055e 100644
+--- a/curobo/_src/optim/components/debug_recorder.py
++++ b/curobo/_src/optim/components/debug_recorder.py
+@@ -22,6 +22,8 @@ class DebugRecorder:
+         self.line_search_indices: List[torch.Tensor] = []
+         self.line_search_statuses: List[torch.Tensor] = []
+         self.curvature_update_valid: List[torch.Tensor] = []
++        self.best_actions: List[torch.Tensor] = []
++        self.best_costs: List[torch.Tensor] = []
+ 
+     def record(
+         self,
+@@ -34,6 +36,11 @@ class DebugRecorder:
+         self.actions.append(action)
+         if iteration_state.cost is not None:
+             self.costs.append(iteration_state.cost.clone())
++        # What the optimizer returns if stopped here (return_best_action): the best so far.
++        if iteration_state.best_action is not None:
++            self.best_actions.append(iteration_state.best_action.view(-1, action_horizon, action_dim).clone())
++        if iteration_state.best_cost is not None:
++            self.best_costs.append(iteration_state.best_cost.clone())
+         for value, storage in (
+             (iteration_state.line_search_index, self.line_search_indices),
+             (iteration_state.line_search_status, self.line_search_statuses),
+@@ -49,6 +56,8 @@ class DebugRecorder:
+         self.line_search_indices = []
+         self.line_search_statuses = []
+         self.curvature_update_valid = []
++        self.best_actions = []
++        self.best_costs = []
+ 
+     def get_trace(self) -> Dict[str, Any]:
+         """Return recorded history as a dict."""
+@@ -58,4 +67,6 @@ class DebugRecorder:
+             "debug_line_search_index": self.line_search_indices,
+             "debug_line_search_status": self.line_search_statuses,
+             "debug_curvature_update_valid": self.curvature_update_valid,
++            "debug_best": self.best_actions,
++            "debug_best_cost": self.best_costs,
+         }

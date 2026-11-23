@@ -48,8 +48,9 @@ note once GRiD bumps GLASS (tracked in `OPEN_TASKS.md`).
 - `test/motion/` — read `test/motion/TESTING.md` before touching a kernel.
 - `benchmarks/` — the suite against external libraries (pRRTC, cuRobo, pyroki, GRiD, frax,
   Pinocchio, RBDL, TrajOpt, Drake): FK + collision, IK, dynamics, trajopt, timing GRiM's kernels
-  built on mantis traces; moved here from mantis. `bash benchmarks/run_all.sh`; setup in
-  `benchmarks/RUNNING.md`.
+  built on mantis traces; moved here from mantis. `bash benchmarks/run_all.sh` (which calls
+  `run_kinematics.sh`, `run_dynamics.sh`, `run_trajopt.sh`; shared setup in `bench_env.sh`);
+  setup from a fresh clone in `benchmarks/RUNNING.md`.
 - `install/motion_install.sh` — conda-env install: mantis, GRiD and GRiM editable, jax[cuda13].
 
 ## Test

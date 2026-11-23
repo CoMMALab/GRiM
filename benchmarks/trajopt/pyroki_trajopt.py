@@ -56,6 +56,15 @@ def capsule_cylinder(capsule: Capsule, cyl: Cylinder):
 _collision.COLLISION_FUNCTIONS[(Capsule, Cylinder)] = capsule_cylinder
 
 
+def sphere_cylinder(sphere: pk.collision.Sphere, cyl: Cylinder):
+    """The solid cylinder's SDF at the sphere centre, minus its radius (the validity check's spheres)."""
+    p = cyl.pose.inverse().apply(sphere.pose.translation())
+    return _point_to_cylinder_sdf(p, cyl.size[..., 0], cyl.size[..., 1]) - sphere.radius
+
+
+_collision.COLLISION_FUNCTIONS[(pk.collision.Sphere, Cylinder)] = sphere_cylinder
+
+
 def _wxyz(R):
     from scipy.spatial.transform import Rotation
     return Rotation.from_matrix(R).as_quat()[..., [3, 0, 1, 2]]
@@ -115,13 +124,19 @@ def compute_world_coll_residual(
 
 
 def solve(robot, robot_coll, world_coll, start_cfg, end_cfg, timesteps, dt, host=True, max_iters=None,
-          w_smooth=1.0, w_self=5.0):
+          w_smooth=1.0, w_self=5.0, init_traj=None, return_cost=False, verbose=True, linear_solver="conjugate_gradient",
+          snap_every=0):
     """examples/pyroki_snippets/_trajopt.py solve_trajopt, steps 2-4. ``host=False`` returns the
     device array, so the whole solve can sit under ``jax.jit`` (compiled once per shape).
+    ``init_traj``: the start (default: the example's straight line); ``return_cost``: also return the
+    final cost (squared residual norm), to rank starts by.
+    ``snap_every`` > 0 (debug; needs external_patches/jaxls_snapshots.py applied): also the solution
+    and its cost after every k-th outer step, ``(traj, cost, snap_trajs (S, T, n), snap_costs (S,))``.
     ``w_smooth`` / ``w_self``: the example's smoothness and self-collision weights (its values by default)."""
     start_cfg, end_cfg = jnp.asarray(start_cfg), jnp.asarray(end_cfg)
     # 2. Initialize the trajectory through linearly interpolating the start and end poses.
-    init_traj = jnp.linspace(start_cfg, end_cfg, timesteps)
+    if init_traj is None:
+        init_traj = jnp.linspace(start_cfg, end_cfg, timesteps)
 
     # 3. Optimize the trajectory.
     traj_vars = robot.joint_var_cls(jnp.arange(timesteps))
@@ -195,16 +210,19 @@ def solve(robot, robot_coll, world_coll, start_cfg, end_cfg, timesteps, dt, host
         )
 
     # 4. Solve the optimization problem with augmented Lagrangian for constraints.
-    solution = (
-        jaxls.LeastSquaresProblem(
-            costs=costs,
-            variables=[traj_vars],
-        )
-        .analyze()
-        .solve(
-            initial_vals=jaxls.VarValues.make((traj_vars.with_value(init_traj),)),
-            # the benchmark's iteration budget (jaxls's default, 100, when None)
-            **({} if max_iters is None else {"termination": jaxls.TerminationConfig(max_iterations=max_iters)}),
-        )
-    )
-    return onp.array(solution[traj_vars]) if host else solution[traj_vars]
+    problem = jaxls.LeastSquaresProblem(costs=costs, variables=[traj_vars]).analyze()
+    kw = dict(initial_vals=jaxls.VarValues.make((traj_vars.with_value(init_traj),)),
+              verbose=verbose, linear_solver=linear_solver,
+              # the benchmark's iteration budget (jaxls's default, 100, when None)
+              **({} if max_iters is None else {"termination": jaxls.TerminationConfig(max_iterations=max_iters)}))
+    cost = lambda v: jnp.sum(problem.compute_residual_vector(v) ** 2)
+    if snap_every:   # debug: external_patches/jaxls_snapshots.py, applied
+        with jaxls.record_snapshots(snap_every):
+            solution, summary = problem.solve(**kw, return_summary=True)
+        snaps = summary.snapshots
+        return solution[traj_vars], cost(solution), jax.vmap(lambda v: v[traj_vars])(snaps), jax.vmap(cost)(snaps)
+    solution = problem.solve(**kw)
+    traj = onp.array(solution[traj_vars]) if host else solution[traj_vars]
+    if return_cost:
+        return traj, cost(solution)
+    return traj

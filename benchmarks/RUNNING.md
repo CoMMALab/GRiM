@@ -3,9 +3,37 @@
 How to set up, run the benchmarks, and find the numbers. For what is measured and why, see
 [README.md](README.md).
 
+## Quick start: from a fresh clone
+
+```bash
+# 1. GRiM (GLASS pin: temporary, block-tier IK needs its fix; see ../AGENTS.md)
+git clone --recursive git@github.com:commalab/GRiM.git && cd GRiM
+git -C external/GRiD/external/GLASS checkout 9a24f37
+conda create -n grim python=3.12 -y && conda activate grim
+bash install/motion_install.sh               # GRiD, mantis, GRiM editable, jax[cuda13], Pinocchio
+python -m pytest test/motion -q              # optional: kernels build and match the oracle
+
+# 2. Baselines (pinned clones) and the patches trajopt's trace mode needs
+bash benchmarks/external/clone.sh
+bash benchmarks/external_patches/apply.sh    # pyroki jaxls snapshots, cuRobo recorder
+
+# 3. The other envs (section 1 below): curobo, grid-bench + dyn-bench, tesseract-src (build the
+#    TrajOpt harness), tesseract-bench, drake-bench. Kinematics needs grim + curobo, dynamics the
+#    GRiD pair, trajopt all of them.
+
+# 4. Run, on an idle GPU
+nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv
+GPU=0 bash benchmarks/run_all.sh --fast      # minutes: every path, into results/fast, README untouched
+GPU=0 nohup bash benchmarks/run_all.sh > benchmarks/results/run_all.log 2>&1 &   # hours
+```
+
+`nvcc` must be on `PATH`; the kernels compile for the GPU you're on (`MANTIS_ARCH` for another,
+section 1). Results land in `benchmarks/results/` and `run_all.sh` ends by rewriting the tables in
+README.md; section 2 has the per-block scripts and running on a second machine.
+
 ## 1. One-time setup
 
-**Clone the baselines** (pRRTC, cuRobo, pyroki, frax) at the commits we pin:
+**Clone the baselines** (pRRTC, cuRobo, pyroki, frax for dynamics) at the commits we pin:
 
 ```bash
 bash benchmarks/external/clone.sh
@@ -19,7 +47,6 @@ They go to `benchmarks/external/<name>`, which git ignores.
 |---|---|---|
 | `grim` | GRiM, mantis, pyroki, pRRTC, frax dynamics, grading | JAX (CUDA), Pinocchio, GRiM's `install/motion_install.sh` |
 | `curobo` | cuRobo FK, IK and trajopt | PyTorch, and `warp-lang==1.19.0` (the pinned cuRobo calls `wp.kernel(module_options=...)`, which 1.12 lacks). cuRobo is loaded from the clone, so it needs no install. Its own motion benchmark (the calibration) also needs `pip install pin tabulate pandas seaborn` (numpy 2.4.6; robometrics' stale `numpy<2` pin is harmless). |
-| `frax-bench` | frax global IK (CPU) | `pip install -e "benchmarks/external/frax[ik]" pin` |
 | `tesseract-bench` | TrajOpt (trajopt benchmark) | `pip install tesseract-robotics==0.35.0 numpy pyyaml`; set `TESSERACT_RESOURCE_PATH=benchmarks/external/tesseract` |
 | `drake-bench` | Drake (trajopt benchmark) | `pip install drake==1.51.1 numpy pyyaml` |
 | `tesseract-src` | building TrajOpt and its harness from `external/` (trajopt benchmark) | see "TrajOpt build" below |
@@ -97,7 +124,23 @@ one, set `MANTIS_ARCH`, for example `MANTIS_ARCH=-arch=sm_120` for Blackwell, wh
 ```bash
 bash benchmarks/run_all.sh          # picks an idle GPU itself; refuses if every GPU is busy
 GPU=2 bash benchmarks/run_all.sh    # or choose one
-ONLY=trajopt bash benchmarks/run_all.sh   # only some blocks: fk, ik, dynamics, trajopt (comma-separated, e.g. ONLY=fk,ik), then the tables
+ONLY=trajopt bash benchmarks/run_all.sh   # only some blocks: kinematics, dynamics, trajopt (comma-separated), then the tables
+```
+
+`run_all.sh` calls one script per block, each runnable alone with the same flags and `GPU=`
+(shared setup in `bench_env.sh`); `python tables.py` rebuilds the tables afterwards:
+
+| script | what it runs |
+|---|---|
+| `run_kinematics.sh` | FK and global IK, every method, panda / baxter / g1 |
+| `run_dynamics.sh` | dynamics on GRiD's release protocol (GPU methods, then Pinocchio and RBDL on the CPU) |
+| `run_trajopt.sh` | MBM trajopt, trace mode: each method once to 250 iterations, a checkpoint every 10 (needs `external_patches/apply.sh`); `python tables.py trace` for its table and figures. `SERIAL=1` runs the CPU chain after the GPU one instead of alongside it |
+
+On another machine (e.g. a Jetson AGX Thor), keep its results apart and pin the clocks first:
+
+```bash
+sudo nvpmodel -m 0 && sudo jetson_clocks      # Jetson: fixed clocks; note the power mode with the results
+MANTIS_ARCH=-arch=sm_110 GPU=0 SERIAL=1 BENCH_RESULTS=results/thor bash benchmarks/run_all.sh
 ```
 
 Overnight, detached from the terminal (survives logging out):
@@ -109,13 +152,12 @@ cat benchmarks/results/trajopt_failed.log   # trajopt runs that failed (the rest
 ```
 
 The trajopt block runs two chains at once, GPU methods and CPU methods (TrajOpt, Drake), about
-15 h for 5 seeds x 4 budgets x 800 problems. Each run saves `results/trajopt_*_s<S>.json` (graded
-rows) and `_q.npz` (trajectories, regradable with `bench_trajopt.py score`). A failed run can be
+7 h on an RTX A5000 for 800 problems (pyroki ~4 h, STOMP ~2 h of it). Each run saves
+`results/trajopt_*_trace250_s0.json` (a graded row per checkpoint) and `_q.npz` (trajectories, regradable with `bench_trajopt.py score`). A failed run can be
 redone alone with its command from the log, then `python tables.py` rebuilds every table.
 
 This creates the shared inputs, runs every method on all three robots, and rewrites the tables in
-`README.md`. A full run takes hours. frax IK runs on the CPU and is by far the slowest step:
-about 100 s per call at 1024 problems.
+`README.md`. A full run takes hours.
 
 ## 3. Run one benchmark
 
@@ -142,7 +184,7 @@ python dynamics/bench_dynamics.py grid g1
 | benchmark | script | methods |
 |---|---|---|
 | FK | `fk/bench_fk.py` | `prrtc pyroki grim mantis curobo grim_cuda mantis_cuda` |
-| Global IK | `ik/bench_ik.py` | `grim_ls grim_dls grim_sqp grim_hjcd grim_mppi pyroki curobo frax`, and `grim_<kernel>_cuda` |
+| Global IK | `ik/bench_ik.py` | `grim_ls grim_dls grim_sqp grim_hjcd grim_mppi pyroki curobo`, and `grim_<kernel>_cuda` |
 | mantis IK steps (supplementary) | `ik/bench_ik.py` | `mantis mantis_ls_{f32,mixed,f64} mantis_sqp_{f32,mixed,f64}` |
 | Kinematic trajopt (MBM, Panda) | `trajopt/bench_trajopt.py` | `grim_chomp grim_stomp grim_sco pyroki curobo trajopt drake`; flags `--iters N`, `--tuned`, `--tune`, `--params JSON` (see "Trajopt tuning") |
 | Dynamics | `dynamics/bench_dynamics.py` | `grid_cuda grid_jax mantis mantis_cuda frax pinocchio rbdl` |
@@ -172,12 +214,6 @@ first run of each compiles a second copy of every kernel, so it takes about as l
   Each cell runs GRiD's release worker three times (`dynamics/grid_protocol.py`), validates
   against a float64 Pinocchio oracle and keeps the median. One process can take one GPU method
   minutes to compile per robot on first use.
-- **frax IK:** CPU only, with the settings frax recommends:
-  ```bash
-  JAX_PLATFORMS=cpu JAX_ENABLE_X64=1 OPENBLAS_NUM_THREADS=1 \
-  XLA_FLAGS="--xla_cpu_multi_thread_eigen=false --xla_cpu_scheduler_type=CPU_SCHEDULER_TYPE_MEMORY_OPTIMIZED" \
-    ~/miniconda3/envs/frax-bench/bin/python ik/bench_ik.py frax
-  ```
 
 ### Trajopt tuning
 

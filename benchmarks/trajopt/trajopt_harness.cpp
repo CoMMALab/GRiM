@@ -12,7 +12,7 @@
 //   trajopt_harness <urdf> <srdf> <problems.json> <first> <last> <T> <max_iter|0> <margin|-1> <out.jsonl> [iterates]
 //
 // With a tenth argument (any value), each row also carries "iterates": the joint values at the
-// start of every SQP iteration of the timed solve (sco's own optimizer callback), for convergence views.
+// start of every SQP iteration of the timed solve (sco's own optimizer callback), and "iterate_ms": when each was taken.
 //
 // Problems [first, last) of the JSON mbm.load caches. Per problem: the environment and the
 // straight-line seed (generateInterpolatedProgram, exactly T states) are built untimed, and so is
@@ -166,8 +166,11 @@ int main(int argc, char** argv)
   if (coeff > 0 && !(profile_env != nullptr && std::string(profile_env) == "example"))
     composite_profile->collision_constraint_config.collision_coeff_data = trajopt_common::CollisionCoeffData(coeff);
   std::vector<std::vector<double>> iterates;
+  std::vector<double> iterate_ms;   // when each iterate was taken, from the solve's t0
+  std::chrono::steady_clock::time_point t0;
   if (argc == 11)   // the joint variables come first in TrajOpt's problem: T x 7, row-major
-    solver_profile->callbacks.emplace_back([&iterates, T](sco::OptProb*, sco::OptResults& r) {
+    solver_profile->callbacks.emplace_back([&iterates, &iterate_ms, &t0, T](sco::OptProb*, sco::OptResults& r) {
+      iterate_ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
       iterates.emplace_back(r.x.begin(), r.x.begin() + T * 7);
     });
   auto profiles = std::make_shared<tesseract::common::ProfileDictionary>();
@@ -234,7 +237,8 @@ int main(int argc, char** argv)
       Solve(planner, request).optimize();   // warm-up: plugin loading and first-call costs, untimed
     const Solve solve(planner, request);   // the SQP problem, untimed
     iterates.clear();
-    const auto t0 = std::chrono::steady_clock::now();
+    iterate_ms.clear();
+    t0 = std::chrono::steady_clock::now();
     const bool successful = solve.optimize();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
@@ -263,6 +267,10 @@ int main(int argc, char** argv)
         its.append(q);
       }
       row["iterates"] = its;
+      Json::Value its_ms(Json::arrayValue);
+      for (double v : iterate_ms)
+        its_ms.append(v);
+      row["iterate_ms"] = its_ms;
     }
     Json::StreamWriterBuilder w;
     w["indentation"] = "";
