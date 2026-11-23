@@ -1,10 +1,6 @@
 [submodule "external/GRiD"]
 	path = external/GRiD
 	url = https://github.com/A2R-Lab/GRiD.git
-[submodule "external/cricket"]
-	path = external/cricket
-	url = https://github.com/saiccoumar/cricket.git
-	branch = cuda_backend-v3
 [submodule "external/mantis"]
 	path = external/mantis
 	url = https://github.com/CoMMALab/mantis.git

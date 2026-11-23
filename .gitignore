@@ -147,3 +147,7 @@ benchmarks/results/*
 benchmarks/**/.build/
 view_trajopt.py
 anneal_trajopt.py
+
+# paper development
+paper/
+
