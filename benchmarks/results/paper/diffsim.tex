@@ -1,0 +1,18 @@
+\begin{table}[t]
+  \centering
+  \caption{Differentiable simulator forward rollouts (50 steps, float64): environment steps per second, end to end. Higher is better.}
+  \label{tab:diffsim}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{rrrr}
+    \toprule
+    $B$ & JAX (XLA) & Mantis & Speedup \\
+    \midrule
+    1 & 140 & \textbf{638} & 4.6$\times$ \\
+    64 & 7.66\,k & \textbf{40.4\,k} & 5.3$\times$ \\
+    1024 & 50.6\,k & \textbf{565\,k} & 11.2$\times$ \\
+    4096 & 66.1\,k & \textbf{1.06\,M} & 16.0$\times$ \\
+    16384 & 78.2\,k & \textbf{1.12\,M} & 14.3$\times$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}

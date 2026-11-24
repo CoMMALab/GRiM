@@ -1,0 +1,20 @@
+\begin{table}[h]
+  \centering
+  \caption{FK sphere centers: time per call (ms). Bold marks the lowest latency per robot and batch size.}
+  \label{tab:app:fk}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lcccccc}
+    \toprule
+    & \multicolumn{3}{c}{$B = 1$} & \multicolumn{3}{c}{$B = 16384$} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}
+    Method & Panda & Baxter & G1 & Panda & Baxter & G1 \\
+    \midrule
+    pRRTC & 0.076 & 0.094 & 0.155 & 0.346 & 0.501 & 0.653 \\
+    cuRobo & 0.136 & 0.135 & 0.134 & 0.148 & 0.493 & 0.771 \\
+    PyRoki & 0.271 & 0.824 & 0.979 & 1.528 & 4.883 & 5.915 \\
+    GRiD tables & 0.026 & 0.064 & 0.155 & 0.084 & 0.228 & 0.623 \\
+    GRiM (Mantis) & \textbf{0.009} & \textbf{0.014} & \textbf{0.062} & \textbf{0.056} & \textbf{0.108} & \textbf{0.301} \\
+    \bottomrule
+  \end{tabular}
+\end{table}

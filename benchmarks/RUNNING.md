@@ -159,6 +159,15 @@ redone alone with its command from the log, then `python tables.py` rebuilds eve
 This creates the shared inputs, runs every method on all three robots, and rewrites the tables in
 `README.md`. A full run takes hours.
 
+## Paper tables and figures
+
+`python benchmarks/paper_tables.py` regenerates every table and figure in the paper from
+`results/`: `ik.tex`, `dynamics.tex`, `did.tex` (∂RNEA), `diffsim.tex`, `fk.tex` and
+`trajopt_success_cdf.pdf`, into `results/paper/`. `--paper <overleaf clone>` also copies them to the
+paper's `tables/` and `images/`. The differentiable-simulator numbers are a copy of
+unconventional-differentiable-simulator's `benchmarks/jax_vs_mantis.json` in
+`results/diffsim_jax_vs_mantis.json`.
+
 ## 3. Run one benchmark
 
 Run from `benchmarks/`. These need the same environment variables `run_all.sh` sets: copy the

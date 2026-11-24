@@ -1,0 +1,32 @@
+\begin{table*}[t]
+  \centering
+  \caption{Rigid-body dynamics: time per call (ms) at batch sizes $B$. Lower is better; bold marks the lowest latency within each algorithm and robot/batch combination. $\dagger$: float32 result within relative $L_2$ error $10^{-3}$ but outside the strict entrywise tolerance, kept as in GRiD's release tables. OOM: out of GPU memory.}
+  \label{tab:dynamics}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{llccccccccc}
+    \toprule
+    & & \multicolumn{3}{c}{$B = 1$} & \multicolumn{3}{c}{$B = 1024$} & \multicolumn{3}{c}{$B = 16384$} \\
+    \cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+    & Method & Panda & Baxter & G1 & Panda & Baxter & G1 & Panda & Baxter & G1 \\
+    \midrule
+    \multirow{4}{*}{RNEA}
+      & GRiM (Mantis) & 0.012 & 0.021 & 0.089 & \textbf{0.012} & \textbf{0.024} & \textbf{0.124} & \textbf{0.016} & \textbf{0.029} & \textbf{0.186} \\
+      & GRiD & 0.034 & 0.053 & 0.127 & 0.143 & 0.222 & 0.792 & 1.745 & 2.608 & OOM \\
+      & FRaX & 0.254 & 0.401 & 0.819 & 0.400 & 0.623 & 1.408 & 1.398 & 2.897 & 9.891 \\
+      & Pinocchio (CPU) & \textbf{0.003} & \textbf{0.004} & \textbf{0.006} & 0.154 & 0.280 & 0.529 & 1.017 & 1.675 & 4.956 \\
+    \midrule
+    \multirow{4}{*}{CRBA}
+      & GRiM (Mantis) & 0.012 & 0.020 & 0.198 & \textbf{0.013} & \textbf{0.024} & \textbf{0.333} & \textbf{0.020} & \textbf{0.056} & \textbf{0.783} \\
+      & GRiD & 0.032 & 0.051 & 0.139 & 0.168 & 0.225 & 1.138 & 2.041 & 2.924 & OOM \\
+      & FRaX & 0.230 & 0.404 & 0.829 & 0.324 & 0.597 & 1.437 & 1.295 & 3.052 & 10.757 \\
+      & Pinocchio (CPU) & \textbf{0.004} & \textbf{0.005} & \textbf{0.009} & 0.183 & 0.367 & 0.824 & 1.101 & 2.854 & 14.210 \\
+    \midrule
+    \multirow{4}{*}{ABA}
+      & GRiM (Mantis) & 0.016 & 0.050 & 0.183 & \textbf{0.016} & \textbf{0.059} & \textbf{0.224} & \textbf{0.023} & \textbf{0.077} & \textbf{0.424} \\
+      & GRiD & 0.053 & 0.088 & 0.262 & 0.227 & 0.340 & 1.933 & 3.162 & 4.502 & OOM \\
+      & FRaX & 0.369 & 0.510 & 1.026$^\dagger$ & 0.535 & 0.850$^\dagger$ & 2.506$^\dagger$ & 2.419 & 5.258$^\dagger$ & 25.107$^\dagger$ \\
+      & Pinocchio (CPU) & \textbf{0.004} & \textbf{0.006} & \textbf{0.016} & 0.318 & 0.608 & 1.626$^\dagger$ & 2.301 & 5.138 & 20.577$^\dagger$ \\
+    \bottomrule
+  \end{tabular}
+\end{table*}

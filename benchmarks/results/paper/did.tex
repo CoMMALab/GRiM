@@ -1,0 +1,22 @@
+\begin{table*}[t]
+  \centering
+  \caption{Inverse-dynamics derivatives $\partial\tau/\partial(q,\dot q)$: time per call (ms). GRiM (analytic) traces Mantis's analytical RNEA derivatives; GRiM (Forward AD) and (Reverse AD) compile Mantis's ahead-of-time forward- and reverse-mode differentiation of the RNEA trace; FRaX is \texttt{jax.jacfwd} of its RNEA. Bold marks the lowest latency per robot and batch size. OOM: out of GPU memory.}
+  \label{tab:did}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{llccccccccc}
+    \toprule
+    & & \multicolumn{3}{c}{$B = 1$} & \multicolumn{3}{c}{$B = 1024$} & \multicolumn{3}{c}{$B = 16384$} \\
+    \cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+    & Method & Panda & Baxter & G1 & Panda & Baxter & G1 & Panda & Baxter & G1 \\
+    \midrule
+    \multirow{6}{*}{$\partial$RNEA}
+      & GRiM (analytic) & 0.076 & 0.170 & 1.260 & \textbf{0.087} & 0.297 & \textbf{1.909} & \textbf{0.157} & 0.526 & \textbf{3.883} \\
+      & GRiM (Forward AD) & 0.077 & 0.158 & --- & 0.090 & \textbf{0.281} & --- & 0.164 & \textbf{0.515} & --- \\
+      & GRiM (Reverse AD) & --- & --- & --- & --- & --- & --- & --- & --- & --- \\
+      & GRiD & 0.049 & 0.086 & 0.405 & 0.228 & 0.451 & 6.315 & 3.350 & 6.190 & OOM \\
+      & FRaX & 0.427 & 0.689 & 2.020 & 1.648 & 6.662 & 52.577 & 19.690 & 98.408 & OOM \\
+      & Pinocchio (CPU) & \textbf{0.006} & \textbf{0.009} & \textbf{0.026} & 0.487 & 0.795 & 3.344 & 4.319 & 11.192 & 44.760 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
