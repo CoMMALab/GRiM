@@ -3,7 +3,7 @@
   "method": "curobo",
   "robot": "panda",
   "batch": 1,
-  "ms": 0.14018846210092306,
+  "ms": 0.1362602412700653,
   "max_err": 3.861329517240719e-08,
   "implementation": "curobo"
  },
@@ -11,7 +11,7 @@
   "method": "curobo",
   "robot": "panda",
   "batch": 128,
-  "ms": 0.13741462025791407,
+  "ms": 0.13666640035808086,
   "max_err": 2.0242253073732286e-07,
   "implementation": "curobo"
  },
@@ -19,7 +19,7 @@
   "method": "curobo",
   "robot": "panda",
   "batch": 1024,
-  "ms": 0.13745227828621864,
+  "ms": 0.1387393195182085,
   "max_err": 2.0242253073732286e-07,
   "implementation": "curobo"
  },
@@ -27,7 +27,7 @@
   "method": "curobo",
   "robot": "panda",
   "batch": 16384,
-  "ms": 0.1482493570074439,
+  "ms": 0.1478419778868556,
   "max_err": 2.0242253073732286e-07,
   "implementation": "curobo"
  },
@@ -35,7 +35,7 @@
   "method": "curobo",
   "robot": "baxter",
   "batch": 1,
-  "ms": 0.15029704198241234,
+  "ms": 0.13486518058925867,
   "max_err": 1.4106721746287576e-07,
   "implementation": "curobo"
  },
@@ -43,7 +43,7 @@
   "method": "curobo",
   "robot": "baxter",
   "batch": 128,
-  "ms": 0.14832152053713799,
+  "ms": 0.1369112590327859,
   "max_err": 3.094043634632726e-07,
   "implementation": "curobo"
  },
@@ -51,7 +51,7 @@
   "method": "curobo",
   "robot": "baxter",
   "batch": 1024,
-  "ms": 0.15213633887469769,
+  "ms": 0.13670006301254034,
   "max_err": 3.094043634632726e-07,
   "implementation": "curobo"
  },
@@ -59,7 +59,7 @@
   "method": "curobo",
   "robot": "baxter",
   "batch": 16384,
-  "ms": 0.49911621958017344,
+  "ms": 0.4934415221214295,
   "max_err": 3.094043634632726e-07,
   "implementation": "curobo"
  },
@@ -67,7 +67,7 @@
   "method": "curobo",
   "robot": "g1",
   "batch": 1,
-  "ms": 0.1514163799583912,
+  "ms": 0.1336224190890789,
   "max_err": 7.495265819112973e-08,
   "implementation": "curobo"
  },
@@ -75,7 +75,7 @@
   "method": "curobo",
   "robot": "g1",
   "batch": 128,
-  "ms": 0.14027805998921394,
+  "ms": 0.13582822401076555,
   "max_err": 1.3310444668679366e-07,
   "implementation": "curobo"
  },
@@ -83,7 +83,7 @@
   "method": "curobo",
   "robot": "g1",
   "batch": 1024,
-  "ms": 0.1451374590396881,
+  "ms": 0.13589533977210522,
   "max_err": 1.589457722106502e-07,
   "implementation": "curobo"
  },
@@ -91,7 +91,7 @@
   "method": "curobo",
   "robot": "g1",
   "batch": 16384,
-  "ms": 0.7728403387591243,
+  "ms": 0.7710724789649248,
   "max_err": 1.589457722106502e-07,
   "implementation": "curobo"
  }

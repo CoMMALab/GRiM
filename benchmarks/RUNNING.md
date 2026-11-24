@@ -134,7 +134,7 @@ ONLY=trajopt bash benchmarks/run_all.sh   # only some blocks: kinematics, dynami
 |---|---|
 | `run_kinematics.sh` | FK and global IK, every method, panda / baxter / g1 |
 | `run_dynamics.sh` | dynamics on GRiD's release protocol (GPU methods, then Pinocchio and RBDL on the CPU) |
-| `run_trajopt.sh` | MBM trajopt, trace mode: each method once to 250 iterations, a checkpoint every 10 (needs `external_patches/apply.sh`); `python tables.py trace` for its table and figures. `SERIAL=1` runs the CPU chain after the GPU one instead of alongside it |
+| `run_trajopt.sh` | MBM trajopt, trace mode: each method once to 250 iterations, a checkpoint every 10 (needs `external_patches/apply.sh`), every method with its tuned parameters (`--tuned`; defaults where tuning kept them); `python tables.py trace` for its table and figures. `SERIAL=1` runs the CPU chain after the GPU one instead of alongside it |
 
 On another machine (e.g. a Jetson AGX Thor), keep its results apart and pin the clocks first:
 

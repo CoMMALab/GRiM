@@ -3,7 +3,7 @@
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 1,
-  "ms": 0.00923792,
+  "ms": 0.00920184,
   "max_err": 4.382864754459703e-08,
   "implementation": "fused-spheres-v1"
  },
@@ -11,7 +11,7 @@
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 128,
-  "ms": 0.11390784,
+  "ms": 0.026922619999999998,
   "max_err": 2.2274537347932721e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -19,7 +19,7 @@
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 1024,
-  "ms": 0.11390542,
+  "ms": 0.02693164,
   "max_err": 2.2274537347932721e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -27,7 +27,7 @@
   "method": "mantis_cuda",
   "robot": "panda",
   "batch": 16384,
-  "ms": 0.4665719,
+  "ms": 0.056185479999999996,
   "max_err": 2.2274537347932721e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -35,7 +35,7 @@
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 1,
-  "ms": 0.01324112,
+  "ms": 0.01368674,
   "max_err": 1.5648437234894175e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -43,7 +43,7 @@
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 128,
-  "ms": 0.14644394,
+  "ms": 0.03584412,
   "max_err": 2.6379219031369416e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -51,7 +51,7 @@
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 1024,
-  "ms": 0.14641928,
+  "ms": 0.03579844,
   "max_err": 2.6379219031369416e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -59,7 +59,7 @@
   "method": "mantis_cuda",
   "robot": "baxter",
   "batch": 16384,
-  "ms": 0.60208772,
+  "ms": 0.10783878,
   "max_err": 2.666271083917593e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -67,7 +67,7 @@
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 1,
-  "ms": 0.05957118,
+  "ms": 0.06230728,
   "max_err": 7.4309265796213e-08,
   "implementation": "fused-spheres-v1"
  },
@@ -75,7 +75,7 @@
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 128,
-  "ms": 0.18476462000000002,
+  "ms": 0.09717256,
   "max_err": 1.8564127546305542e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -83,7 +83,7 @@
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 1024,
-  "ms": 0.18112892,
+  "ms": 0.09162304,
   "max_err": 1.8564127546305542e-07,
   "implementation": "fused-spheres-v1"
  },
@@ -91,7 +91,7 @@
   "method": "mantis_cuda",
   "robot": "g1",
   "batch": 16384,
-  "ms": 0.59211962,
+  "ms": 0.30092788,
   "max_err": 1.8564127546305542e-07,
   "implementation": "fused-spheres-v1"
  }

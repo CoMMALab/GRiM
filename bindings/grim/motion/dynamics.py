@@ -17,6 +17,10 @@ minv     inverse mass matrix                      q -> M^-1
 fd_du    forward-dynamics derivatives             q, qd, tau -> [dqdd/dq | dqdd/dqd]
 ======== ======================================= =================================
 
+``id_du`` is mantis's analytical RNEA derivative by default; ``MantisDynamics(id_du="forward" |
+"reverse")`` builds it instead from mantis's ahead-of-time forward- or reverse-mode AD of the RNEA
+trace (``mantis.ad.derivative``), its outputs permuted to the same layout (no ``fd_du`` then).
+
 Arguments and results are float32 in the robot's actuated joint order. mantis splits
 functions over its statement budget into ``__noinline__`` stages, the guard against ptxas
 miscompiling very large straight-line traces; every build is still validated by the test
@@ -58,12 +62,18 @@ class MantisDynamics:
     """
 
     def __init__(self, robot: MotionRobot, backend: str = "mantis-f32",
-                 ops: tuple[str, ...] | None = None, block_threads: int = 64):
+                 ops: tuple[str, ...] | None = None, block_threads: int = 64, id_du: str = "analytic"):
         import mantis
         if backend not in CK_BACKENDS:
             raise ValueError(f"unknown backend {backend!r}: one of {sorted(CK_BACKENDS)}")
+        if id_du not in ("analytic", "forward", "reverse"):
+            raise ValueError(f"id_du={id_du!r}: 'analytic', 'forward' or 'reverse'")
         has_mimic = bool((robot.mimic_act_idx != -1).any())
-        ops = ops or (CK_MIMIC_OPS if has_mimic else CK_OPS)
+        ops = ops or tuple(o for o in (CK_MIMIC_OPS if has_mimic else CK_OPS) if id_du == "analytic" or o != "fd_du")
+        if id_du != "analytic" and "fd_du" in ops:
+            raise ValueError("fd_du needs the analytical RNEA derivatives (id_du='analytic')")
+        # op -> the mantis programs it calls: id_du from AD is one program, rnea_d1
+        op_algs = {op: (("rnea_d1",) if op == "id_du" and id_du != "analytic" else a) for op, (_, a) in _CK_OPS.items()}
         if has_mimic and set(ops) - set(CK_MIMIC_OPS):
             raise ValueError(f"ops {sorted(set(ops) - set(CK_MIMIC_OPS))} are not supported for "
                              "robots with mimic joints")
@@ -81,10 +91,11 @@ class MantisDynamics:
         if block_threads not in (32, 64, 128, 256):
             raise ValueError(f"block_threads={block_threads}: 32, 64, 128 or 256 (mantis's block "
                              "tier runs block_threads / 32 warps, one of 1, 2, 4, 8)")
-        algs = sorted({a for op in ops for a in _CK_OPS[op][1]})
-        src = mantis.generate(model, {a: {} for a in algs}, name="robot", variants=[
-            mantis.Variant("thread"), mantis.Variant("warp", units=32),
-            mantis.Variant("block", units=block_threads, placement="task")])
+        algs = sorted({a for op in ops for a in op_algs[op]})
+        variants = [mantis.Variant("thread"), mantis.Variant("warp", units=32),
+                    mantis.Variant("block", units=block_threads, placement="task")]
+        src = mantis.cuda.header(model, [mantis.cuda.emit(self._program(mantis, model, a, id_du), variants)
+                                         for a in algs], "robot")
         smem = " ".join(f"R::{a}_warp_smem, R::{a}_block_smem," for a in algs)
         # mantis's lookup tables, once per block ahead of the configurations' slots, laid out
         # per operation (a launch runs one): a region for each of its algorithms, since warps of
@@ -96,11 +107,11 @@ class MantisDynamics:
         for tier in ("warp", "block"):
             for a in algs:
                 cases = "".join(
-                    f"case {op_index[op]}: return {' + '.join(pad.format(b=b, tier=tier) for b in _CK_OPS[op][1][:_CK_OPS[op][1].index(a)]) or '0'}; "
-                    for op in ops if a in _CK_OPS[op][1])
+                    f"case {op_index[op]}: return {' + '.join(pad.format(b=b, tier=tier) for b in op_algs[op][:op_algs[op].index(a)]) or '0'}; "
+                    for op in ops if a in op_algs[op])
                 tabs += (f"template <class T> __host__ __device__ constexpr int tab_{tier}_{a}(int op) "
                          f"{{ switch (op) {{ {cases}default: return 0; }} }}\n")
-            cases = "".join(f"case {op_index[op]}: return {' + '.join(pad.format(b=b, tier=tier) for b in _CK_OPS[op][1])}; "
+            cases = "".join(f"case {op_index[op]}: return {' + '.join(pad.format(b=b, tier=tier) for b in op_algs[op])}; "
                             for op in ops)
             tabs += (f"template <class T> __host__ __device__ constexpr int tab_{tier}_total(int op) "
                      f"{{ switch (op) {{ {cases}default: return 0; }} }}\n")
@@ -116,6 +127,18 @@ class MantisDynamics:
                                    (f"-DGRIM_CK_REAL={CK_BACKENDS[backend]}",))
         self.ops = ops
         self._targets = dict(zip(ops, _build.register(so, tuple(f"CkDyn_{op}" for op in ops))))
+
+    @staticmethod
+    def _program(mantis, model, alg: str, id_du: str):
+        """mantis program ``alg``; rnea_d1 is d tau / d(q, qd) by mantis's AD of the RNEA trace in
+        mode ``id_du``, its outputs permuted to rnea_derivatives': [dtau/dq | dtau/dqd], each
+        column-major (no primal output)."""
+        if alg != "rnea_d1":
+            return mantis.trace(model, alg)
+        p = mantis.trace(model, "rnea", order=1, wrt=("q", "qd"), ad_mode=id_du)
+        n = model.n_q
+        d = dict(p.outputs)["d1_tau"].reshape(n, 2, n)   # [tau_i][q | qd][x_j]
+        return mantis.Program("rnea_d1", p.robot, p.g, p.inputs, [("d1_tau", d.transpose(1, 2, 0).ravel())])
 
     def __call__(self, op: str, *args, tier: str = "thread"):
         n = self.n_q

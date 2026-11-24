@@ -74,3 +74,20 @@ def test_mantis_dynamics_match_pinocchio(name, backend):
             # fd_du = -M^-1 dtau: float32 conditioning of M amplifies the input rounding.
             rtol = RTOL[backend] * (10 if op == "fd_du" else 1)
             assert_close_scaled(got, want, rtol, f"{name} {backend} {tier} {op}")
+
+
+@pytest.mark.parametrize("mode", ["forward", "reverse"])
+@pytest.mark.parametrize("name", ["iiwa14", "gen3"])   # mimic robots have no id_du
+def test_mantis_id_du_by_ad_matches_pinocchio(name, mode):
+    """id_du from mantis's AD of the RNEA trace (``MantisDynamics(id_du=mode)``), every tier."""
+    from grim.motion.dynamics import MantisDynamics
+    robot = load_robot(name)
+    model, data, iq, iv = _pin(robot)
+    q, qd, x = _states(robot)
+    q32, qd32, x32 = (a.astype(np.float32).astype(float) for a in (q, qd, x))
+    dyn = MantisDynamics(robot, id_du=mode)
+    assert "fd_du" not in dyn.ops
+    want = np.array([_ref(model, data, iq, iv, "id_du", q32[b], qd32[b], x32[b]) for b in range(len(q))])
+    for tier in ("thread", "warp", "block"):
+        assert_close_scaled(np.asarray(dyn("id_du", q, qd, x, tier=tier)), want, RTOL["mantis-f32"],
+                            f"{name} AD {mode} {tier} id_du")

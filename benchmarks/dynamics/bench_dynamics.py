@@ -13,6 +13,9 @@ outside the strict entrywise gate but within relative L2 1e-3 is kept as ``accur
 * ``mantis``    mantis-traced kernels (GRiM's ``MantisDynamics``) through JAX, fastest tier per batch
 * ``mantis_cuda`` the same kernel through a C bridge (``mantis_bridge.cu``) timed like GRiD's
                  kernel bridge: no Python or JAX in the timed path
+* ``mantis_cuda_fwd_ad`` / ``mantis_cuda_rev_ad``  id_du only: the C bridge with id_du from mantis's
+                 ahead-of-time forward- / reverse-mode AD of the RNEA trace (``MantisDynamics(id_du=...)``)
+                 in place of its analytical RNEA derivatives
 * ``frax``       frax (external/frax) under ``jax.jit(jax.vmap(...))``; id_du is ``jax.jacfwd``
 * ``pinocchio``  Pinocchio (external/pinocchio, built with CppADCodeGen) through GRiD's codegen
                  bridge; CPU, persistent thread pool, best thread count per batch
@@ -21,7 +24,7 @@ outside the strict entrywise gate but within relative L2 1e-3 is kept as ``accur
 Times per call: ``resident`` (inputs and outputs on the device; GPU methods) and
 ``host`` (host arrays in and out). GRiD's batches plus 1 and 16384.
 
-    python dynamics/bench_dynamics.py <prepare|grid_cuda|grid_jax|mantis|mantis_cuda|frax|pinocchio|rbdl> [robot ...]
+    python dynamics/bench_dynamics.py <prepare|grid_cuda|grid_jax|mantis|mantis_cuda[_fwd_ad|_rev_ad]|frax|pinocchio|rbdl> [robot ...]
 
 Run in the ``grid-bench`` env (see RUNNING.md for the environment variables).
 """
@@ -46,7 +49,9 @@ GRID_BATCHES = (16, 32, 64, 128, 256, 1024)  # GRiD's release batches
 EXTRA_BATCHES = (1, 16384)
 BATCHES = tuple(sorted(GRID_BATCHES + EXTRA_BATCHES))
 OPS = {"id": "inverse_dynamics", "crba": "crba", "fd": "forward_dynamics", "id_du": "inverse_dynamics_gradient"}
-METHODS = ("grid_cuda", "grid_jax", "mantis", "mantis_cuda", "frax", "pinocchio", "rbdl")
+METHODS = ("grid_cuda", "grid_jax", "mantis", "mantis_cuda", "mantis_cuda_fwd_ad", "mantis_cuda_rev_ad", "frax",
+           "pinocchio", "rbdl")
+ID_DU_ONLY = ("mantis_cuda_fwd_ad", "mantis_cuda_rev_ad")   # differ from mantis_cuda only in id_du
 UNAVAILABLE = {("rbdl", "id_du"): "RBDL has no inverse dynamics derivatives"}
 REPEATS, ITERATIONS, WARMUPS = 3, 30, 5  # GRiD collect.py's defaults
 if os.environ.get("BENCH_FAST"):   # run_all.sh --fast: one process per cell, four batches
@@ -130,7 +135,7 @@ def main():
         raise SystemExit(f"unknown method {method!r}: one of {METHODS}")
     rows = []
     for robot in robots:
-        for op in OPS:
+        for op in (("id_du",) if method in ID_DU_ONLY else OPS):
             for row in run(method, robot, op):
                 rows.append({"method": method, "robot": robot, **row})
                 t = (f"{row['ms']:10.4f} ms ({row['variant']}, host {row['host_ms']:.4f})  rel_l2 {row['err']:.1e}"

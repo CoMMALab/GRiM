@@ -2,7 +2,7 @@
 // warp or block: mantis's thread / warp / block variant of each traced algorithm, and the
 // dense solves of the composite ops in the same scalar type. Compiled per robot by
 // grim.motion.dynamics.MantisDynamics against "ck_dynamics_gen.cuh", which holds mantis's
-// rnea / crba / aba / rnea_derivatives and, in grim::dyn, N (joints), SMEM (the largest
+// rnea / crba / aba / rnea_derivatives (or rnea_d1, its AD counterpart) and, in grim::dyn, N (joints), SMEM (the largest
 // cooperative scratch, reals) and BLOCK_THREADS.
 //
 // Ops (inputs -> outputs, matrices column-major, joint order mantis's):
@@ -124,6 +124,8 @@ __device__ __forceinline__ void run_op(const Grp<TIER>& g, const real* x, real* 
 #endif
 #ifdef GRIM_CK_HAS_rnea_derivatives
     else if constexpr (OP == ID_DU) CK_CALL(rnea_derivatives, x, x + N, x + 2 * N, y, y + N * N);
+#elif defined(GRIM_CK_HAS_rnea_d1)   // MantisDynamics(id_du="forward" | "reverse"): mantis AD, same layout
+    else if constexpr (OP == ID_DU) CK_CALL(rnea_d1, x, x + N, x + 2 * N, y);
 #endif
     else if constexpr (OP == FD_CRBA) {
         real* M = y + N;

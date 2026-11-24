@@ -135,9 +135,11 @@ class MantisAdapter:
 
 CK_OP_INDEX = {"id": 0, "crba": 1, "fd": 2, "id_du": 4}  # ck_dynamics.cu's Op enum
 CK_TIERS = ("thread", "warp", "block")
+# Backend -> MantisDynamics' id_du: the analytical RNEA derivatives, or mantis's AD of the RNEA trace.
+ID_DU_MODES = {"mantis_cuda": "analytic", "mantis_cuda_fwd_ad": "forward", "mantis_cuda_rev_ad": "reverse"}
 
 
-def _mantis_bridge(robot):
+def _mantis_bridge(robot, id_du="analytic"):
     """GRiM's ``MantisDynamics`` for ``robot`` plus ``mantis_bridge.cu`` built against the same
     generated header and nvcc flags (captured from GRiM's ``compile_kernel``)."""
     import ctypes
@@ -153,7 +155,7 @@ def _mantis_bridge(robot):
         return compile_kernel(kernel, generated, flags)
     _build.compile_kernel = spy
     try:
-        dyn = MantisDynamics(robot)
+        dyn = MantisDynamics(robot, id_du=id_du)
     finally:
         _build.compile_kernel = compile_kernel
     import jaxlib
@@ -189,12 +191,12 @@ class MantisCudaAdapter:
         from grim.motion import MotionRobot
         self.op, self.f, self.ck = operation, fixture, MANTIS_OPS[operation]
         robot = MotionRobot.from_urdf(str(fixture.urdf))
-        self.dyn, self.lib, lib = _mantis_bridge(robot)
+        self.dyn, self.lib, lib = _mantis_bridge(robot, ID_DU_MODES[backend])
         names = list(fixture.project.joint_names)
         self.perm = np.array([names.index(self.dyn.actuated[i]) for i in self.dyn._to_gen])  # kernel order
         self.inv = np.argsort(self.perm)
         self.tune, self.ctx = (warmups, iterations), None
-        self.metadata = {"backend": "mantis_cuda", "dtype": "float32", "method": f"mantis trace ({self.ck}), C bridge",
+        self.metadata = {"backend": backend, "dtype": "float32", "method": f"mantis trace ({self.ck}, id_du {ID_DU_MODES[backend]}), C bridge",
                          "source_urdf_sha256": protocol.digest(fixture.urdf), "library_sha256": protocol.digest(lib),
                          "timing": "host clock around launch + cudaDeviceSynchronize in C (GRiD kernel_bridge's loop)",
                          "tier_policy": "best resident mean over thread / warp / block; every variant recorded"}
@@ -372,7 +374,7 @@ def _route_mantis():
     def make_adapter(backend, operation, fixture, directory, cpu_threads=1):
         if backend == "mantis":
             return MantisAdapter(backend, operation, fixture, directory)
-        if backend == "mantis_cuda":
+        if backend in ID_DU_MODES:
             return MantisCudaAdapter(backend, operation, fixture, directory)
         if backend == "rbdl":
             return RbdlAdapter(backend, operation, fixture, directory, cpu_threads=cpu_threads)

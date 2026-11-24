@@ -133,48 +133,48 @@ Spheres per robot: panda 59, baxter 75, g1 68. Time per call in ms (lower is bet
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.076 | 0.094 | 0.155 |
-| cuRobo | 0.140 | 0.150 | 0.151 |
-| pyroki | 0.275 | 0.825 | 0.983 |
-| GRiD/GRiM (baked tables) | 0.035 | 0.068 | 0.158 |
-| mantis (traced) | 0.062 | 0.038 | 0.063 |
-| GRiD/GRiM (baked tables), C bridge | 0.026 | 0.064 | 0.154 |
-| mantis (traced), C bridge | 0.009 | 0.013 | 0.060 |
+| cuRobo | 0.136 | 0.135 | 0.134 |
+| pyroki | 0.271 | 0.824 | 0.979 |
+| GRiD/GRiM (baked tables) | 0.035 | 0.068 | 0.159 |
+| mantis (traced) | 0.037 | 0.037 | 0.066 |
+| GRiD/GRiM (baked tables), C bridge | 0.026 | 0.064 | 0.155 |
+| mantis (traced), C bridge | 0.009 | 0.014 | 0.062 |
 
 **B = 128**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.075 | 0.093 | 0.152 |
-| cuRobo | 0.137 | 0.148 | 0.140 |
-| pyroki | 0.353 | 1.115 | 1.332 |
-| GRiD/GRiM (baked tables) | 0.131 | 0.193 | 0.273 |
-| mantis (traced) | 0.119 | 0.152 | 0.189 |
-| GRiD/GRiM (baked tables), C bridge | 0.126 | 0.185 | 0.268 |
-| mantis (traced), C bridge | 0.114 | 0.146 | 0.185 |
+| cuRobo | 0.137 | 0.137 | 0.136 |
+| pyroki | 0.352 | 1.114 | 1.332 |
+| GRiD/GRiM (baked tables) | 0.049 | 0.092 | 0.197 |
+| mantis (traced) | 0.033 | 0.040 | 0.102 |
+| GRiD/GRiM (baked tables), C bridge | 0.044 | 0.088 | 0.193 |
+| mantis (traced), C bridge | 0.027 | 0.036 | 0.097 |
 
 **B = 1024**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.075 | 0.093 | 0.153 |
-| cuRobo | 0.137 | 0.152 | 0.145 |
-| pyroki | 0.346 | 1.060 | 1.272 |
-| GRiD/GRiM (baked tables) | 0.130 | 0.188 | 0.263 |
-| mantis (traced) | 0.119 | 0.151 | 0.186 |
-| GRiD/GRiM (baked tables), C bridge | 0.126 | 0.183 | 0.258 |
-| mantis (traced), C bridge | 0.114 | 0.146 | 0.181 |
+| cuRobo | 0.139 | 0.137 | 0.136 |
+| pyroki | 0.343 | 1.058 | 1.271 |
+| GRiD/GRiM (baked tables) | 0.052 | 0.089 | 0.175 |
+| mantis (traced) | 0.036 | 0.040 | 0.096 |
+| GRiD/GRiM (baked tables), C bridge | 0.043 | 0.084 | 0.171 |
+| mantis (traced), C bridge | 0.027 | 0.036 | 0.092 |
 
 **B = 16384**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
 | pRRTC `fk<Robot>` | 0.346 | 0.501 | 0.653 |
-| cuRobo | 0.148 | 0.499 | 0.773 |
-| pyroki | 1.571 | 5.011 | 6.091 |
-| GRiD/GRiM (baked tables) | 0.486 | 0.644 | 0.706 |
-| mantis (traced) | 0.472 | 0.609 | 0.598 |
-| GRiD/GRiM (baked tables), C bridge | 0.480 | 0.639 | 0.702 |
-| mantis (traced), C bridge | 0.467 | 0.602 | 0.592 |
+| cuRobo | 0.148 | 0.493 | 0.771 |
+| pyroki | 1.528 | 4.883 | 5.915 |
+| GRiD/GRiM (baked tables) | 0.089 | 0.234 | 0.630 |
+| mantis (traced) | 0.059 | 0.112 | 0.305 |
+| GRiD/GRiM (baked tables), C bridge | 0.084 | 0.228 | 0.623 |
+| mantis (traced), C bridge | 0.056 | 0.108 | 0.301 |
 
 **Max sphere-centre error vs Pinocchio float64 (m), over all batches**
 
@@ -818,40 +818,35 @@ Time per call in ms, median over 3 processes of 30 samples each (GRiD's `collect
 | ∂ID/∂(q, q̇) · Pinocchio codegen (CPU) | 4.319 | 11.192 | 44.760 |
 | ∂ID/∂(q, q̇) · RBDL (CPU, float64) | n/a | n/a | n/a |
 
-### Kinematic trajectory optimization: MotionBenchMaker (Panda)
+### Kinematic trajectory optimization: MotionBenchMaker (Panda), 250 iterations
 
-> **Placeholder, written by hand (2026-11-23); results pending.** The trajopt procedure changed and
-> the full run has not been made yet. `python tables.py` replaces this section with the generated
-> one once `results/trajopt_*_trace250_s0.json` exist for every method. The earlier
-> 25 / 50 / 100 / 200-iteration results (`results/trajopt_*_i<N>_s0.json`, the CDF figure
-> `trajopt_success_cdf.png`) are **superseded**: they predate the current start selection (lowest
-> cost among the starts that pass each method's own GPU collision check) and the trace procedure.
-> Don't quote them.
-
-**Procedure** (`bash run_trajopt.sh`, `bench_trajopt.py --trace`): 800 MBM problems, seed 0, one
-problem per call, 32 waypoints. GRiM (CHOMP, STOMP, SCO), pyroki and cuRobo start from the same 64
-starts per problem (the straight line and 63 sine-bump perturbations of it, solved as one batch;
-pyroki runs 6 iterations on all 64, then the rest on its best 4, its paper's IK beam). TrajOpt and
-Drake (CPU) start from the straight line. Every method runs **once to 250 of its own iterations**
-and reports, every 10 iterations, the answer it would return if stopped there: its own pick over
-its starts, checked with its own collision code. Each answer is graded in float64 on the shared
-sphere model (collision-free including dense interpolation, endpoints within 1e-3 rad,
-`trajopt/mbm.py`) and stamped with the wall time reached:
+800 MBM problems, seed 0, one problem per call, 32 waypoints (`bash run_trajopt.sh`, `bench_trajopt.py --trace`). GRiM (CHOMP, STOMP, SCO), pyroki and cuRobo start from the same 64 starts per problem (the straight line and 63 sine-bump perturbations of it, one batch; pyroki runs 6 iterations on all 64, then the rest on its best 4, its paper's IK beam); TrajOpt and Drake (CPU) from the straight line. Every method runs once to 250 of its own iterations and reports, every 10, the answer it would return if stopped there (its own pick over its starts, checked with its own collision code), graded in float64 on the shared sphere model (collision-free including dense interpolation, endpoints within 1e-3 rad, trajopt/mbm.py) and stamped with the wall time reached. Every method runs its tuned parameters, frozen on the MπNets tuning set (RUNNING.md, "Trajopt tuning"): GRiM STOMP, TrajOpt and Drake (marked tuned); the others kept their defaults.
 
 | method | 250 iterations | clock |
 |---|---|---|
 | GRiM CHOMP / STOMP / SCO | kernel iterations (SCO: 25 inner x 10 outer L-BFGS steps) | kernel snapshots (`snap_every`); time split evenly by iteration within the one launch, plus that checkpoint's own check |
-| pyroki | jaxls LM steps (6 + 244) | jaxls snapshots (`external_patches/jaxls_snapshots.py`); each beam phase timed, split evenly by iteration |
-| cuRobo v2 | L-BFGS steps (225 trajopt + 25 time-optimal finetune), one attempt, no RRT | its debug recorder with a timestamp per iteration (CUDA graphs off) |
+| pyroki | jaxls LM steps (6 + 244) | jaxls snapshots (external_patches/jaxls_snapshots.py); each beam phase timed, split evenly by iteration |
+| cuRobo v2 ‡ | L-BFGS steps (225 trajopt + 25 time-optimal finetune), one attempt, no RRT | its debug recorder, a timestamp per iteration (CUDA graphs off) |
 | TrajOpt (Tesseract) | SQP iterations | the harness's per-iteration iterates and times |
 | Drake (SNOPT) | major iterations, per solve | every 10th function evaluation (its bundled SNOPT reports no major iterations) |
 
-**Outputs** (`python tables.py trace`):
-- a table at 250 iterations: success %, median path length and smoothness over the solved problems, median time;
-- `results/trajopt_trace_over_time.png`: solved-by-time-t and median path length against time, as step curves;
-- `results/trajopt_trace_pareto.png`: time vs success and time vs path length, with the frontier.
+‡ cuRobo uses its own benchmark's 2.5 mm collision activation distance; every other method the shared 1 cm margin.
 
-Tuned rows (`--tuned`, parameters frozen on the MπNets tuning set; RUNNING.md, "Trajopt tuning")
-are GRiM STOMP, TrajOpt and Drake.
+Table: each method's result at 250 iterations. Path length and smoothness: medians over the problems that method solved; time: median per problem.
 
+![success over time](results/trajopt_trace_success.png)
+
+![path quality over time](results/trajopt_trace_quality.png)
+
+![Pareto](results/trajopt_trace_pareto.png)
+
+| method | success % | path length (rad) | smoothness | median time (ms) |
+|---|---|---|---|---|
+| GRiM CHOMP (64 starts) | 94.1 | 4.037 | 0.0016 | 940.0 |
+| GRiM STOMP (64 starts) (tuned) | 91.5 | 4.582 | 0.0027 | 5591.7 |
+| GRiM SCO (64 starts) | 82.6 | 4.845 | 0.2654 | 116.4 |
+| pyroki (jaxls, augmented Lagrangian, 64 starts) | 84.2 | 3.634 | 0.0289 | 14658.9 |
+| cuRobo v2 MotionPlanner (64 starts, no RRT) ‡ | 67.4 | 3.903 | 0.0025 | 956.8 |
+| TrajOpt (Tesseract, CPU) (tuned) | 60.9 | 3.638 | 0.0025 | 2188.5 |
+| Drake KinematicTrajectoryOptimization (SNOPT, CPU) (tuned) | 57.4 | 3.711 | 0.0003 | 1833.1 |
 <!-- /tables -->

@@ -26,7 +26,8 @@ IK_STEP = {"mantis": "mantis `ik_lm_step` (6x6 LM)",
            "mantis_ls_f64": "mantis `ik_ls_step`, double",
            "mantis_sqp_f32": "mantis SQP step, float", "mantis_sqp_mixed": "mantis SQP step, float FK / double QP",
            "mantis_sqp_f64": "mantis SQP step, double"}
-DYN = {"mantis_cuda": "mantis (C bridge)", "mantis": "mantis (JAX)", "grid_cuda": "GRiD (C++ bridge)", "grid_jax": "GRiD (JAX FFI)", "frax": "frax",
+DYN = {"mantis_cuda": "mantis (C bridge)", "mantis_cuda_fwd_ad": "mantis forward AD (C bridge)",
+       "mantis_cuda_rev_ad": "mantis reverse AD (C bridge)", "mantis": "mantis (JAX)", "grid_cuda": "GRiD (C++ bridge)", "grid_jax": "GRiD (JAX FFI)", "frax": "frax",
        "pinocchio": "Pinocchio codegen (CPU)", "rbdl": "RBDL (CPU, float64)"}
 OPS = {"id": "ID (RNEA)", "crba": "M (CRBA)", "fd": "FD", "id_du": "∂ID/∂(q, q̇)"}
 
@@ -295,6 +296,8 @@ def trace_section(suffix: str = "") -> str:
         return ""
     var = lambda r: (r["method"], bool(r.get("params")))
     variants = [(m, t) for m in TRAJ for t in (False, True) if any(var(r) == (m, t) for r in rows)]
+    variants = [v for v in variants if v[1] or (v[0], True) not in variants]   # tuned methods: the tuned run only
+    rows = [r for r in rows if var(r) in variants]
     label = lambda m, t: TRAJ[m] + (" (tuned)" if t else "")
     color = {v: f"C{list(TRAJ).index(v[0])}" for v in variants}   # one color per method in every figure
     runs = {v: {} for v in variants}   # per problem: its checkpoints in time order
@@ -314,36 +317,102 @@ def trace_section(suffix: str = "") -> str:
         ms = np.array([r["ms"] for r in cps])
         return np.where(ms[None] <= grid_t[:, None], np.arange(len(ms)), -1).max(1)
 
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 4.5))
+    curves = {}   # per variant: (G,) problems solved by each time, and the median path length of those
     for v in variants:
         ok = np.zeros(len(grid_t))
         length = [[] for _ in grid_t]
         for cps in runs[v].values():
-            idx = at_time(cps)
-            for g, i in enumerate(idx):
+            for g, i in enumerate(at_time(cps)):
                 if i >= 0 and cps[i]["success"]:
                     ok[g] += 1
                     length[g].append(cps[i]["path_length"])
-        ls = "--" if v[1] else "-"
-        a1.step(grid_t, 100 * ok / len(runs[v]), where="post", ls=ls, color=color[v], label=label(*v))
-        a2.step(grid_t, [np.median(x) if x else np.nan for x in length], where="post", ls=ls, color=color[v], label=label(*v))
-    for a, y in ((a1, "solved by time t (%)"), (a2, "median path length of the solved (rad)")):
-        a.set_xscale("log")
-        a.set_xlabel("time per problem (ms, log)")
-        a.set_ylabel(y)
-        a.grid(alpha=0.3)
-    a1.set_title("Success over time (a checkpoint every 10 iterations)", fontsize=10)
-    a2.set_title("Path quality over time", fontsize=10)
-    a2.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5))
+        curves[v] = ok, [np.median(x) if x else np.nan for x in length]
+
+    # Success over time, in the AORRTC paper's style: serif, seconds on a log axis, a 95% Wilson band
+    # (over problems) around each curve, legend below.
+    short = {"grim_chomp": "CHOMP (GRiM)", "grim_stomp": "STOMP (GRiM)", "grim_sco": "SCO (GRiM)", "pyroki": "PyRoki",
+             "curobo": "cuRobo", "trajopt": "TrajOpt", "drake": "Drake"}
+    # One color per method (only the tuned run of a tuned method is drawn): CHOMP black as the reference's
+    # headline; the rest checked with the dataviz validator (normal-vision separation >= 15 on every pair).
+    # No 7-hue set also clears colorblind separation on every crossing pair, so line style is the second
+    # cue: GRiM solid, baselines dashed.
+    paper = {"grim_chomp": "#000000", "grim_stomp": "#009E73", "grim_sco": "#3A9AD9", "pyroki": "#C2559A",
+             "curobo": "#6A3D9A", "trajopt": "#D55E00", "drake": "#B8A000"}
+    with plt.rc_context({"font.family": "serif", "font.serif": ["TeX Gyre Termes", "Nimbus Roman", "Times New Roman", "DejaVu Serif"],
+                         "mathtext.fontset": "stix", "font.size": 11}):
+        fig, ax = plt.subplots(figsize=(8.5, 2.7))
+        t = grid_t / 1e3
+        z = 1.96
+        for v in variants:
+            if not v[1] and (v[0], True) in variants:   # a tuned method is shown tuned only, under its plain name
+                continue
+            n, k = len(runs[v]), curves[v][0]
+            ph = k / n
+            mid, half = (ph + z * z / (2 * n)) / (1 + z * z / n), z * np.sqrt(ph * (1 - ph) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+            c = paper.get(v[0], color[v])
+            ax.fill_between(t, 100 * (mid - half), 100 * (mid + half), step="post", color=c, alpha=0.2, lw=0)
+            ax.step(t, 100 * ph, where="post", color=c, lw=1.6, ls="-" if v[0].startswith("grim") else (0, (4, 1.5)),
+                    label=short.get(v[0], TRAJ[v[0]]))
+        ax.set_xscale("log")
+        ax.set_xlim(t[0], t[-1])
+        ax.set_ylim(0, 100)
+        ax.set_yticks([0, 25, 50, 75, 100])
+        ax.set_xlabel("Computation time [s]")
+        ax.set_ylabel("Success [%]")
+        ax.grid(which="both", ls=":", lw=0.6, color="0.7")
+        ax.tick_params(which="both", direction="in", top=True, right=True)
+        from matplotlib.lines import Line2D
+        h, l = ax.get_legend_handles_labels()
+        h = [Line2D([], [], color=x.get_color(), lw=1.6, ls=x.get_linestyle(), marker="s", ms=4) for x in h]   # line + square
+        fig.legend(h, l, loc="lower center", ncol=len(h), frameon=True, fancybox=False, edgecolor="0.6", fontsize=8.5,
+                   handlelength=2.4, handletextpad=0.5, columnspacing=1.1, bbox_to_anchor=(0.5, -0.01))   # one even row
+        fig.text(0.5, 0.17, "MotionBenchMaker (Panda)",
+                 ha="center", fontsize=12)
+        fig.tight_layout(rect=(0, 0.2, 1, 1))
+        for ext in ("png", "pdf"):
+            fig.savefig(common.RESULTS / f"trajopt_trace_success{suffix}.{ext}", dpi=200, bbox_inches="tight")
+        plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))   # path quality over time, its own figure
+    for v in variants:
+        ax.step(grid_t, curves[v][1], where="post", ls="--" if v[1] else "-", color=color[v], label=label(*v))
+    ax.set_xscale("log")
+    ax.set_xlabel("time per problem (ms, log)")
+    ax.set_ylabel("median path length of the solved (rad)")
+    ax.set_title("Path quality over time (a checkpoint every 10 iterations)", fontsize=10)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5))
     fig.tight_layout()
-    fig.savefig(common.RESULTS / f"trajopt_trace_over_time{suffix}.png", dpi=150)
+    fig.savefig(common.RESULTS / f"trajopt_trace_quality{suffix}.png", dpi=150)
 
     final = {v: [cps[-1] for cps in runs[v].values()] for v in variants}
     stat = {}
-    out = ["### Trajectory optimization at 250 iterations (trace run)\n",
-           f"{n_prob} MBM problems; each method's result after 250 of its own iterations. Path length and "
-           "smoothness: medians over the problems that method solved; time: median per problem.\n",
-           f"![over time](results/trajopt_trace_over_time{suffix}.png)\n",
+    out = ["### Kinematic trajectory optimization: MotionBenchMaker (Panda), 250 iterations\n",
+           f"{n_prob} MBM problems, seed 0, one problem per call, 32 waypoints (`bash run_trajopt.sh`, "
+           "`bench_trajopt.py --trace`). GRiM (CHOMP, STOMP, SCO), pyroki and cuRobo start from the same 64 starts "
+           "per problem (the straight line and 63 sine-bump perturbations of it, one batch; pyroki runs 6 iterations "
+           "on all 64, then the rest on its best 4, its paper's IK beam); TrajOpt and Drake (CPU) from the straight "
+           "line. Every method runs once to 250 of its own iterations and reports, every 10, the answer it would "
+           "return if stopped there (its own pick over its starts, checked with its own collision code), graded "
+           "in float64 on the shared sphere model (collision-free including dense interpolation, endpoints within "
+           "1e-3 rad, trajopt/mbm.py) and stamped with the wall time reached. Every method runs its tuned parameters, "
+           "frozen on the MπNets tuning set (RUNNING.md, \"Trajopt tuning\"): GRiM STOMP, TrajOpt and Drake (marked tuned); "
+           "the others kept their defaults.\n",
+           "| method | 250 iterations | clock |", "|---|---|---|",
+           "| GRiM CHOMP / STOMP / SCO | kernel iterations (SCO: 25 inner x 10 outer L-BFGS steps) | kernel "
+           "snapshots (`snap_every`); time split evenly by iteration within the one launch, plus that checkpoint's own check |",
+           "| pyroki | jaxls LM steps (6 + 244) | jaxls snapshots (external_patches/jaxls_snapshots.py); each beam "
+           "phase timed, split evenly by iteration |",
+           "| cuRobo v2 ‡ | L-BFGS steps (225 trajopt + 25 time-optimal finetune), one attempt, no RRT | its debug "
+           "recorder, a timestamp per iteration (CUDA graphs off) |",
+           "| TrajOpt (Tesseract) | SQP iterations | the harness's per-iteration iterates and times |",
+           "| Drake (SNOPT) | major iterations, per solve | every 10th function evaluation (its bundled SNOPT "
+           "reports no major iterations) |\n",
+           "‡ cuRobo uses its own benchmark's 2.5 mm collision activation distance; every other method the shared 1 cm margin.\n",
+           "Table: each method's result at 250 iterations. Path length and smoothness: medians over the problems "
+           "that method solved; time: median per problem.\n",
+           f"![success over time](results/trajopt_trace_success{suffix}.png)\n",
+           f"![path quality over time](results/trajopt_trace_quality{suffix}.png)\n",
            f"![Pareto](results/trajopt_trace_pareto{suffix}.png)\n",
            "| method | success % | path length (rad) | smoothness | median time (ms) |", "|---|---|---|---|---|"]
     for v in variants:
@@ -386,8 +455,9 @@ def main():
         print(traj_section(sys.argv[2] if len(sys.argv) > 2 else ""))
         return
     fast = bool(os.environ.get("BENCH_FAST"))   # run_all.sh --fast: print only, README untouched
-    body = "\n\n".join(x for x in [fk_section(), ik_section(), dyn_section(), traj_section("_n1" if fast else ""),
-                                       trace_section("_n1" if fast else "")] if x)
+    sfx = "_n1" if fast else ""
+    traj = trace_section(sfx) or traj_section(sfx)   # the trace run supersedes the budget-ladder runs
+    body = "\n\n".join(x for x in [fk_section(), ik_section(), dyn_section(), traj] if x)
     if fast:
         print(body)
         return

@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/bench_env.sh" "$@"
 GRIDPY="${CONDA}/grid-bench/bin/python"; DYN="${CONDA}/dyn-bench"
 JAX_PLATFORMS=cpu "${GRIDPY}" dynamics/bench_dynamics.py prepare
 DYN_METHODS=""
-gpu && DYN_METHODS="grid_cuda grid_jax mantis mantis_cuda frax"
+gpu && DYN_METHODS="grid_cuda grid_jax mantis mantis_cuda mantis_cuda_fwd_ad mantis_cuda_rev_ad frax"
 cpu && DYN_METHODS+=" pinocchio rbdl"
 for m in ${DYN_METHODS}; do
   PYTHONPATH="${GRIM}/bindings:${GRIM}/external/mantis/python" PKG_CONFIG_PATH="${DYN}/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
